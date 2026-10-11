@@ -17,7 +17,7 @@
 </section>
 {% if paused %}<p class="bad">로그인이 필요해 멈춘 플랫폼: {{ paused|join(', ') }}</p>{% endif %}
 <h2>지금 실행</h2>
-<p>{% for j in ['collect','generate','publish','reply','metrics','health'] %}
+<p>{% for j in ['collect','generate','publish','reply','metrics','health','weekly_report'] %}
 <form class="inline" method="post" action="/jobs/{{ j }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ j }}</button></form>
 {% endfor %}</p>
 <h2>최근 실행</h2>

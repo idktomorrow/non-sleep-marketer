@@ -44,6 +44,7 @@ class AppState:
     submit: Callable[[Callable[[], Any]], Future]
     adapters: dict[Platform, PlatformAdapter]
     media_dir: Path
+    reports_dir: Path | None = None
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     run_job_now: Callable[[str], Future] | None = None
     job_names: frozenset[str] = frozenset()
@@ -304,6 +305,11 @@ def create_app(state: AppState) -> FastAPI:
     @app.get("/logs", response_class=HTMLResponse)
     def logs(request: Request) -> HTMLResponse:
         return page(request, "logs.html", runs=state.repo.recent_runs(200))
+
+    if state.reports_dir is not None:
+        from nsm.app.reports import make_router
+
+        app.include_router(make_router(state.reports_dir, page))
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
