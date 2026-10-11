@@ -496,6 +496,16 @@ class Repository:
         self.transition_content(content_id, "published")
         return True
 
+    def requeue_abandoned(self, content_id: str) -> int:
+        """사람이 콘텐츠를 다시 승인하면 포기했던 게시를 처음부터 다시 시도한다."""
+        return self._count(
+            self.db.execute(
+                "UPDATE publications SET status = 'queued', attempts = 0, next_attempt_at = NULL "
+                "WHERE content_id = ? AND status = 'abandoned'",
+                [content_id],
+            )
+        )
+
     def publications_in_status(self, status: PublicationStatus) -> list[Publication]:
         rows = self.db.execute(
             f"SELECT {self._PUB_COLS} FROM publications WHERE status = ?", [status]

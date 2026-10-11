@@ -63,7 +63,8 @@ def make_platform_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
         from nsm.adapters.platforms.dryrun import DryRunAdapter
 
         return {
-            p: DryRunAdapter(p, paths.preview_dir(), clock) for p in cfg.settings.enabled_platforms
+            p: DryRunAdapter(p, paths.preview_dir(), clock, tz=cfg.settings.timezone)
+            for p in cfg.settings.enabled_platforms
         }
     log.warning(
         "실계정 어댑터는 배치 G에서 구현됩니다. 지금은 config.yaml에서 dry_run: true로 쓰세요."

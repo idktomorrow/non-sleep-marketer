@@ -8,12 +8,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import timedelta
 from pathlib import Path
 
 from nsm.domain.models import Content, Platform, Publication, RenderedPost
-from nsm.domain.policy import apply_labels, labeled_blog_title, local_day_bounds, should_act
+from nsm.domain.policy import (
+    apply_labels,
+    fit_to_limit,
+    labeled_blog_title,
+    local_day_bounds,
+    should_act,
+)
 from nsm.engine.context import JobContext, JobResult
 from nsm.store.repo import InvalidTransitionError
 
@@ -31,35 +38,41 @@ def labeled_deck(content: Content):
 def render_images(ctx: JobContext, content: Content) -> list[Path]:
     """콘텐츠당 한 번만 렌더하고 플랫폼끼리 같은 PNG를 쓴다."""
     out = ctx.media_dir / "cards" / content.id
+    deck = labeled_deck(content)
+    # 덱 내용(문구·표기 포함)의 지문이 같을 때만 재사용한다. 고친 뒤 옛 이미지가 나가면 안 된다.
+    fingerprint = hashlib.sha256(deck.model_dump_json().encode("utf-8")).hexdigest()
+    stamp = out / "deck.sha256"
     existing = sorted(out.glob("slide-*.png")) if out.exists() else []
-    if len(existing) == len(content.generated.deck.slides):
+    if (
+        stamp.exists()
+        and stamp.read_text(encoding="utf-8") == fingerprint
+        and len(existing) == len(deck.slides)
+    ):
         return existing
     if ctx.renderer is None:
         raise RuntimeError("렌더러가 설정되지 않았습니다")
-    return ctx.renderer.render(labeled_deck(content), out)
+    for old in existing:
+        old.unlink()
+    paths = ctx.renderer.render(deck, out)
+    stamp.write_text(fingerprint, encoding="utf-8")
+    return paths
+
+
+_TEXT_FIELD = {
+    "instagram": "instagram_caption",
+    "threads": "threads_text",
+    "naver_blog": "blog_markdown",
+}
 
 
 def build_post(content: Content, platform: Platform, images: list[Path]) -> RenderedPost:
     g = content.generated
-    if platform == "instagram":
-        return RenderedPost(
-            content_id=content.id,
-            platform=platform,
-            text=apply_labels(g.instagram_caption, content.is_ad),
-            images=images,
-        )
-    if platform == "threads":
-        return RenderedPost(
-            content_id=content.id,
-            platform=platform,
-            text=apply_labels(g.threads_text, content.is_ad),
-            images=images,
-        )
+    body = getattr(g, _TEXT_FIELD[platform])
     return RenderedPost(
         content_id=content.id,
         platform=platform,
-        title=labeled_blog_title(g.blog_title),
-        text=apply_labels(g.blog_markdown, content.is_ad),
+        title=labeled_blog_title(g.blog_title) if platform == "naver_blog" else None,
+        text=fit_to_limit(apply_labels(body, content.is_ad), platform),
         images=images,
     )
 
@@ -91,6 +104,21 @@ def _back_to_review(ctx: JobContext, content_id: str, reason: str) -> None:
         ctx.repo.transition_content(content_id, "pending_review", reason=reason)
 
 
+def _record_failure(
+    ctx: JobContext, pub: Publication, content: Content, attempts: int, msg: str
+) -> None:
+    delays = ctx.config.settings.retry_delays_minutes
+    if attempts > len(delays):
+        ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
+        _back_to_review(ctx, content.id, f"{pub.platform} 게시 {attempts}회 실패: {msg}")
+        ctx.notifier.notify(
+            "게시 포기", f"{pub.platform} 게시가 {attempts}회 실패했습니다: {msg}", "error"
+        )
+    else:
+        retry_at = ctx.clock.now() + timedelta(minutes=delays[attempts - 1])
+        ctx.repo.transition_publication(pub.id, "failed", error=msg, next_attempt_at=retry_at)
+
+
 def run_publish(ctx: JobContext) -> JobResult:
     result = JobResult("publish")
     now = ctx.clock.now()
@@ -99,6 +127,12 @@ def run_publish(ctx: JobContext) -> JobResult:
         result.skipped = why
         return result
     s = ctx.config.settings
+    if not ctx.adapters:
+        result.errors.append(
+            "연결된 플랫폼 어댑터가 없습니다(dry_run: false인데 실계정 어댑터 미구현, 배치 G)"
+        )
+        result.ok = False
+        return result
     start, end = local_day_bounds(now, ctx.tz)
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     published = failed = 0
@@ -118,12 +152,11 @@ def run_publish(ctx: JobContext) -> JobResult:
         published += outcome == "published"
         failed += outcome == "failed"
     result.counts.update(published=published, failed=failed)
-    result.ok = not result.errors or published > 0
+    result.ok = not result.errors
     return result
 
 
 def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) -> str:
-    s = ctx.config.settings
     content = ctx.repo.get_content(pub.content_id)
     if content is None:
         return "skipped"
@@ -138,16 +171,11 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
-        delays = s.retry_delays_minutes
-        if attempts > len(delays):
-            ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
-            _back_to_review(ctx, content.id, f"{pub.platform} 게시 {attempts}회 실패: {msg}")
-            ctx.notifier.notify(
-                "게시 포기", f"{pub.platform} 게시가 {attempts}회 실패했습니다: {msg}", "error"
-            )
-        else:
-            retry_at = ctx.clock.now() + timedelta(minutes=delays[attempts - 1])
-            ctx.repo.transition_publication(pub.id, "failed", error=msg, next_attempt_at=retry_at)
+        try:
+            _record_failure(ctx, pub, content, attempts, msg)
+        except Exception as e2:  # noqa: BLE001  실패 기록 실패가 다른 플랫폼 게시를 막지 않게
+            log.exception("게시 실패 기록 중 오류")
+            result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
         return "failed"
     ctx.repo.transition_publication(pub.id, "published", external_id=res.external_id, url=res.url)
     ctx.repo.mark_content_published_if_complete(content.id)

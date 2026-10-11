@@ -60,3 +60,8 @@ def test_capability_fallbacks() -> None:
     action, reason = decide_comment("spam", 0, 3, no_hide)
     assert action == "escalate" and "스팸 추정" in reason
     assert decide_comment("praise_general", 0, 3, ALL - {"reply"})[0] == "escalate"
+
+
+def test_apply_labels_strips_variants() -> None:
+    messy = f"{AD_HASHTAG}\n{VIRTUAL_PERSON_TEXT}\n\n{AD_HASHTAG}\n본문"
+    assert apply_labels(messy, is_ad=True) == apply_labels("본문", is_ad=True)

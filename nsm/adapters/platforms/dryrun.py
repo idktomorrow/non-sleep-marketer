@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import shutil
 from datetime import datetime, timedelta
 from importlib import resources
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from nsm.domain.models import (
     AccountMetrics,
@@ -29,6 +31,7 @@ from nsm.ports import CAPABILITIES, Clock
 COMMENT_INTERVAL = timedelta(minutes=20)
 
 
+@functools.cache
 def _load_samples() -> list[dict]:
     text = resources.files("nsm.adapters.platforms.data").joinpath("dryrun_comments.json")
     return json.loads(text.read_text(encoding="utf-8"))
@@ -45,28 +48,38 @@ class DryRunAdapter:
         preview_dir: Path,
         clock: Clock,
         samples: list[dict] | None = None,
+        tz: str = "Asia/Seoul",
     ) -> None:
         self.platform = platform
         self.preview_dir = preview_dir
         self.clock = clock
         self.samples = samples if samples is not None else _load_samples()
+        self.tz = ZoneInfo(tz)
         self._index_path = preview_dir / f".dryrun-{platform}.json"
+        self._index_cache: dict[str, dict] | None = None
 
     # ---------------------------------------------------------------- index
 
     def _index(self) -> dict[str, dict]:
-        if not self._index_path.exists():
-            return {}
-        return json.loads(self._index_path.read_text(encoding="utf-8"))
+        if self._index_cache is None:
+            self._index_cache = (
+                json.loads(self._index_path.read_text(encoding="utf-8"))
+                if self._index_path.exists()
+                else {}
+            )
+        return self._index_cache
 
     def _save_index(self, idx: dict[str, dict]) -> None:
+        self._index_cache = idx
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
         self._index_path.write_text(json.dumps(idx, ensure_ascii=False, indent=1), encoding="utf-8")
 
     def _log(self, line: str) -> None:
         self.preview_dir.mkdir(parents=True, exist_ok=True)
         with (self.preview_dir / "actions.log").open("a", encoding="utf-8") as f:
-            f.write(f"{self.clock.now().isoformat()} [{self.platform}] {line}\n")
+            f.write(
+                f"{self.clock.now().astimezone(self.tz).isoformat()} [{self.platform}] {line}\n"
+            )
 
     # ---------------------------------------------------------------- port
 
@@ -78,7 +91,8 @@ class DryRunAdapter:
 
     def publish(self, post: RenderedPost) -> PublishResult:
         now = self.clock.now()
-        out = self.preview_dir / now.strftime("%Y-%m-%d") / post.content_id / self.platform
+        day = now.astimezone(self.tz).strftime("%Y-%m-%d")  # 사용자가 보는 현지 날짜 폴더
+        out = self.preview_dir / day / post.content_id / self.platform
         out.mkdir(parents=True, exist_ok=True)
         body = f"# {post.title}\n\n{post.text}" if post.title else post.text
         (out / ("post.md" if self.platform == "naver_blog" else "post.txt")).write_text(

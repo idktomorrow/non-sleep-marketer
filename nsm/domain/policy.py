@@ -134,12 +134,28 @@ def under_cost_cap(spent_today: float, cap: float) -> bool:
 
 def apply_labels(text: str, is_ad: bool) -> str:
     """게시물 첫 줄에 가상인물 문구, 협찬이면 그 앞에 #광고. 이미 붙어 있으면 다시 붙이지 않는다."""
-    body = text
-    for prefix in (f"{L.AD_HASHTAG} ", L.VIRTUAL_PERSON_TEXT):
-        if body.startswith(prefix):
-            body = body[len(prefix) :].lstrip()
+    body = text.lstrip()
+    while True:  # 이미 붙은 표기(공백·줄바꿈 변형 포함)를 모두 걷어낸다
+        if body.startswith(L.AD_HASHTAG):
+            body = body[len(L.AD_HASHTAG) :].lstrip()
+        elif body.startswith(L.VIRTUAL_PERSON_TEXT):
+            body = body[len(L.VIRTUAL_PERSON_TEXT) :].lstrip()
+        else:
+            break
     head = f"{L.AD_HASHTAG} {L.VIRTUAL_PERSON_TEXT}" if is_ad else L.VIRTUAL_PERSON_TEXT
     return f"{head}\n\n{body}"
+
+
+# 플랫폼 본문 글자 수 상한(표기 포함). 네이버 블로그는 사실상 제한이 없어 넉넉히 둔다.
+TEXT_LIMITS: dict[str, int] = {"threads": 500, "instagram": 2200, "naver_blog": 50_000}
+
+
+def fit_to_limit(text: str, platform: str) -> str:
+    """상한을 넘으면 끝을 잘라 말줄임표. 앞쪽 표기 문구는 항상 남는다."""
+    limit = TEXT_LIMITS.get(platform)
+    if limit is None or len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 def labeled_blog_title(title: str) -> str:

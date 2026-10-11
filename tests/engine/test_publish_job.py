@@ -170,3 +170,52 @@ def test_restart_recovery_sends_interrupted_to_review(ctx: JobContext) -> None:
     assert not _published(ctx, "threads") or all(
         p.content_id != pub.content_id for p in _published(ctx, "threads")
     )
+
+
+def test_edited_deck_is_rerendered(ctx: JobContext, db) -> None:
+    from nsm.engine.publish import render_images
+
+    c = ctx.repo.list_contents()[-1]
+    first = render_images(ctx, c)
+    assert render_images(ctx, c) == first and len(ctx.renderer.rendered) == 1  # 캐시
+    db.execute("UPDATE contents SET is_ad = TRUE WHERE id = ?", [c.id])
+    render_images(ctx, ctx.repo.get_content(c.id))
+    assert len(ctx.renderer.rendered) == 2 and ctx.renderer.rendered[-1].labels.ad is True
+
+
+def test_reapproval_requeues_abandoned(ctx: JobContext) -> None:
+    pub = ctx.repo.due_publications("threads", ctx.clock.now())[0]
+    ctx.repo.transition_publication(pub.id, "publishing", increment_attempts=True)
+    recover_interrupted(ctx)
+    ctx.repo.transition_content(pub.content_id, "approved", approved_by="human")
+    assert ctx.repo.requeue_abandoned(pub.content_id) == 1
+    p = ctx.repo.get_publication(pub.id)
+    assert p.status == "queued" and p.attempts == 0
+    run_publish(ctx)
+    for _ in range(3):
+        ctx.clock.advance(hours=ctx.config.settings.min_hours_between_posts)
+        run_publish(ctx)
+    assert ctx.repo.get_content(pub.content_id).status == "published"
+
+
+def test_failure_marks_run_not_ok_but_others_publish(ctx: JobContext) -> None:
+    ctx.adapters["instagram"].fail_next_publish = 1
+    r = run_publish(ctx)
+    assert not r.ok and r.counts == {"published": 2, "failed": 1}
+
+
+def test_no_adapters_is_an_error(ctx: JobContext) -> None:
+    ctx.adapters = {}
+    r = run_publish(ctx)
+    assert not r.ok and "어댑터" in r.errors[0]
+
+
+def test_long_threads_text_fits_limit(ctx: JobContext, db) -> None:
+    from nsm.domain.policy import TEXT_LIMITS
+    from nsm.engine.publish import build_post
+
+    c = ctx.repo.list_contents()[-1]
+    g = c.generated.model_copy(update={"threads_text": "가" * 600})
+    post = build_post(c.model_copy(update={"generated": g}), "threads", [])
+    assert len(post.text) == TEXT_LIMITS["threads"]
+    assert post.text.startswith(VIRTUAL_PERSON_TEXT) and post.text.endswith("…")

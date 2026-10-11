@@ -80,3 +80,15 @@ def test_metrics_grow_and_follow_platform_matrix(tmp_path: Path, clock) -> None:
     clock.advance(days=1)
     assert a.read_post_metrics(ext).captured_at == clock.now()
     assert timedelta(0) == timedelta(0)
+
+
+def test_preview_folder_uses_local_date(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from tests.fakes import FixedClock
+
+    # 2026-10-11 23:30 UTC = 2026-10-12 08:30 KST
+    clock = FixedClock(datetime(2026, 10, 11, 23, 30, tzinfo=UTC))
+    a = DryRunAdapter("threads", tmp_path / "preview", clock, tz="Asia/Seoul")
+    a.publish(_post(tmp_path))
+    assert (tmp_path / "preview" / "2026-10-12" / "c1" / "threads" / "post.txt").exists()
