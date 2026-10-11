@@ -29,7 +29,7 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 | 배치 | 이슈 | 담당 | 일정 | 사람 개입 | 끝났을 때 보이는 것 |
 |---|---|---|---|---|---|
 | **A 골격·계약·테스트 기반** | M0 #1, M1 #2, S1 #17 | 메인(Claude) | 1일차 오전 | 시작 전 uv 설치 | `uv run nsm --help`, 빈 pytest 초록, CI 초록, 포트·모델·스키마·카드 덱 모델 동결, fakes 뼈대, `uv.lock` 커밋, Stop 훅(아래) |
-| **B 1일차 검증** | M2 #3 | 메인(사람 + wizard 스킬) | 1일차 오후 | 전부 | `docs/day1-verification.md`, `labels.py` 문구 확정, 드라이버 기본값 ADR |
+| **B 1일차 검증** | M2 #3 | 메인(사람 + `bash scripts/day1_wizard.sh`) | 1일차 오후 | 전부 | `docs/day1-verification.md`, `labels.py` 문구 확정, 드라이버 기본값 ADR |
 | **C 설정·저장소** | M3 #4, M4 #5 | 메인(Claude) | 2일차 | 없음 | `nsm init` 마법사, keyring 저장, 스키마·리포지토리·상태 전이 테스트, user-guide 2절 |
 | **D1 수집·분류** | M5 #6, M6 #7 | 메인(Claude) | 3일차 | 없음(키는 B에서 저장) | `nsm run --once --job collect`(드라이런)로 자료 수집·분류 저장 |
 | **D2 생성** | M7 #8 | 메인(Claude) | 4일차 | 없음 | `--job generate`로 세 템플릿 콘텐츠 생성, claims 전부 출처 연결 |
