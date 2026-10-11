@@ -8,12 +8,14 @@ from collections.abc import Callable
 from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import run_generate
+from nsm.engine.publish import run_publish
 
 log = logging.getLogger(__name__)
 
 JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "collect": run_collect,
     "generate": run_generate,
+    "publish": run_publish,
 }
 
 

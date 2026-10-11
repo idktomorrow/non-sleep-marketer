@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from nsm.domain.models import Persona, Platform, TemplateKind
+from nsm.domain import labels as L
+from nsm.domain.models import CommentAction, CommentCategory, Persona, Platform, TemplateKind
 
 
 def local(now: datetime, tz: str) -> datetime:
@@ -126,3 +127,65 @@ def choose_template(recent_newest_first: list[str]) -> TemplateKind:
 
 def under_cost_cap(spent_today: float, cap: float) -> bool:
     return spent_today < cap
+
+
+# ------------------------------------------------------------------ 표기 (ADR 0007)
+
+
+def apply_labels(text: str, is_ad: bool) -> str:
+    """게시물 첫 줄에 가상인물 문구, 협찬이면 그 앞에 #광고. 이미 붙어 있으면 다시 붙이지 않는다."""
+    body = text.lstrip()
+    while True:  # 이미 붙은 표기(공백·줄바꿈 변형 포함)를 모두 걷어낸다
+        if body.startswith(L.AD_HASHTAG):
+            body = body[len(L.AD_HASHTAG) :].lstrip()
+        elif body.startswith(L.VIRTUAL_PERSON_TEXT):
+            body = body[len(L.VIRTUAL_PERSON_TEXT) :].lstrip()
+        else:
+            break
+    head = f"{L.AD_HASHTAG} {L.VIRTUAL_PERSON_TEXT}" if is_ad else L.VIRTUAL_PERSON_TEXT
+    return f"{head}\n\n{body}"
+
+
+# 플랫폼 본문 글자 수 상한(표기 포함). 네이버 블로그는 사실상 제한이 없어 넉넉히 둔다.
+TEXT_LIMITS: dict[str, int] = {"threads": 500, "instagram": 2200, "naver_blog": 50_000}
+
+
+def fit_to_limit(text: str, platform: str) -> str:
+    """상한을 넘으면 끝을 잘라 말줄임표. 앞쪽 표기 문구는 항상 남는다."""
+    limit = TEXT_LIMITS.get(platform)
+    if limit is None or len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def labeled_blog_title(title: str) -> str:
+    return title if title.endswith(L.BLOG_TITLE_SUFFIX) else f"{title}{L.BLOG_TITLE_SUFFIX}"
+
+
+# ------------------------------------------------------------------ 댓글 처리 (contracts 4절)
+
+ESCALATE: frozenset[str] = frozenset({"complaint", "price_refund", "legal"})
+
+
+def decide_comment(
+    category: CommentCategory,
+    author_replies_today: int,
+    daily_limit: int,
+    capabilities: set[str],
+) -> tuple[CommentAction, str]:
+    """댓글 유형 → 처리 방법과 사유."""
+    if category in ESCALATE:
+        return "escalate", {
+            "complaint": "불만",
+            "price_refund": "가격·환불 문의",
+            "legal": "법적 문제",
+        }[category]
+    if category == "spam":
+        if "hide_comment" in capabilities:
+            return "hide", "스팸"
+        return "escalate", "스팸 추정(이 플랫폼은 자동 숨김을 지원하지 않음)"
+    if author_replies_today >= daily_limit:
+        return "ignore", f"같은 사람에게 오늘 이미 {daily_limit}번 답함"
+    if "reply" not in capabilities:
+        return "escalate", "이 플랫폼은 자동 답글을 지원하지 않음"
+    return "auto_reply", ""

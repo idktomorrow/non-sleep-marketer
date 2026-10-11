@@ -496,6 +496,16 @@ class Repository:
         self.transition_content(content_id, "published")
         return True
 
+    def requeue_abandoned(self, content_id: str) -> int:
+        """사람이 콘텐츠를 다시 승인하면 포기했던 게시를 처음부터 다시 시도한다."""
+        return self._count(
+            self.db.execute(
+                "UPDATE publications SET status = 'queued', attempts = 0, next_attempt_at = NULL "
+                "WHERE content_id = ? AND status = 'abandoned'",
+                [content_id],
+            )
+        )
+
     def publications_in_status(self, status: PublicationStatus) -> list[Publication]:
         rows = self.db.execute(
             f"SELECT {self._PUB_COLS} FROM publications WHERE status = ?", [status]
@@ -510,6 +520,13 @@ class Repository:
                 [platform, to_db(start), to_db(end)],
             )[0][0]
         )
+
+    def last_published_at(self, platform: Platform) -> datetime | None:
+        row = self.db.execute(
+            "SELECT max(published_at) FROM publications WHERE platform = ? AND status = 'published'",
+            [platform],
+        )
+        return from_db(row[0][0]) if row and row[0][0] else None
 
     def published_posts_since(self, platform: Platform, since: datetime) -> list[Publication]:
         rows = self.db.execute(
@@ -708,7 +725,7 @@ class Repository:
 
     def recent_runs(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.db.execute(
-            "SELECT job, started_at, finished_at, ok, message FROM run_logs ORDER BY started_at DESC LIMIT ?",
+            "SELECT job, started_at, finished_at, ok, message FROM run_logs ORDER BY started_at DESC, rowid DESC LIMIT ?",
             [limit],
         )
         return [

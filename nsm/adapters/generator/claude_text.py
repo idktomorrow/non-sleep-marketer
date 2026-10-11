@@ -121,7 +121,7 @@ def _system(persona: Persona, brand: Brand) -> str:
 - 금칙어를 쓰지 않습니다: {", ".join(persona.banned_words) or "-"}.
 - "AI 가상인물", "광고" 같은 표기 문구는 시스템이 자동으로 붙이므로 직접 쓰지 않습니다.
 - instagram_caption: 300~800자, 줄바꿈으로 읽기 쉽게, 해시태그 3~5개를 끝에.
-- threads_text: 500자 이내의 짧은 글.
+- threads_text: 440자 이내의 짧은 글(표기 문구가 앞에 붙어 500자 상한을 넘지 않게).
 - blog_title: 40자 이내. blog_markdown: 1500~2500자 마크다운, ## 소제목 3개 이상, 끝에 '참고 자료' 목록.
 - cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내."""
 
