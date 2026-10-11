@@ -88,7 +88,7 @@ erDiagram
 
 | 모듈 | 상태 | 테스트 | 배치 | 비고 |
 |---|---|---|---|---|
-| `nsm/cli.py` | 완료 | CLI 테스트 + 수동 | A·C·F | doctor, init, run, run --once, render-preview, install-autostart |
+| `nsm/cli.py` | 완료 | CLI 테스트 + 수동 | A·C·F·B | doctor(`--live` 실제 API 확인), init, run, run --once, render-preview, install-autostart |
 | `nsm/domain/models.py` | 완료 | 단위 | A | 동결. ADR 0009 반영 |
 | `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
 | `nsm/store/` (스키마·리포지토리) | 완료 | 단위 | A(스키마), C | `Repository`: 중복 제거, 상태 전이 검사, 게시 재시도 조회, 답글 횟수, 비용 합계, 실행 로그 |

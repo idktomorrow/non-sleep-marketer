@@ -15,13 +15,17 @@ def doctor(
         False, "--live", help="실제 API를 한 번씩 호출해 키를 확인(비용 아주 조금)"
     ),
     with_image: bool = typer.Option(
-        False, "--with-image", help="--live와 함께: 이미지 1장 생성(약 $0.05)"
+        False, "--with-image", help="실제 API 확인 + 이미지 1장 생성(약 $0.05). --live를 포함"
+    ),
+    live_only: bool = typer.Option(
+        False, "--live-only", help="오프라인 점검은 건너뛰고 실제 API 확인만"
     ),
 ) -> None:
     """환경을 진단합니다 (Python, DB, 설정, API 키, 브라우저, 폰트)."""
     from nsm.doctor import run_checks
 
-    checks = run_checks()
+    live = live or with_image or live_only
+    checks = [] if live_only else run_checks()
     if live:
         from nsm.doctor_live import run_live_checks
 

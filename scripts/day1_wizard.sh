@@ -192,6 +192,9 @@ finish() {
 
 TOTAL_STAGES=8
 REPORT="docs/day1-verification.md"
+# 비밀이 아닌 답은 여기에 저장해, 중간에 멈췄다 다시 실행해도 기존 답이 기본값으로 나온다(.gitignore 대상)
+ENV_FILE=".day1-wizard.env"
+export PYTHONUTF8=1  # Windows에서 파이썬 출력이 cp949로 나와 한글 grep이 실패하는 것을 막는다
 
 # store_key NAME VALUE: keyring에 저장(값은 stdin으로만 넘겨 명령줄·로그에 남지 않게)
 store_key() {
@@ -204,6 +207,22 @@ store_key() {
     warn "$name 저장 실패"
   fi
 }
+
+# yn KEY "질문": 예/아니오를 묻고 저장(재실행 시 이전 답이 기본값)
+yn() {
+  local key="$1" q="$2" v
+  ask "$key" "$q (예/아니오):"
+  v="${!key}"
+  case "$v" in [Yy]*|예*) v="예" ;; *) v="아니오" ;; esac
+  printf -v "$key" '%s' "$v"
+  write_env "$key" "$v"
+}
+
+# asks KEY "질문": 비밀이 아닌 자유 입력을 묻고 저장
+asks() { ask "$1" "$2"; write_env "$1" "${!1}"; }
+
+# cell 값: 마크다운 표 칸에 넣을 수 있게 줄바꿈·| 를 정리
+cell() { local v="${1:--}"; v="${v//$'\n'/ }"; printf '%s' "${v//|/\\|}"; }
 
 banner "논슬립 마케터 · 1일차 기술 검증 (배치 B)"
 
@@ -238,9 +257,10 @@ fi
 # ── 3. 실제 API 호출 확인 ─────────────────────────────────────────────────
 stage "실제 API 연결 확인 (nsm doctor --live)"
 say "방금 넣은 키로 Claude·MotherDuck을 한 번씩 실제로 호출합니다(비용 1원 미만)."
-WITH_IMAGE=""
-confirm "OpenAI 이미지 1장도 만들어 볼까요? (약 70원)" && WITH_IMAGE="--with-image"
-LIVE_RESULT=$(uv run nsm doctor --live $WITH_IMAGE 2>&1 | grep -E "실호출" || true)
+LIVE_FLAG="--live-only"
+confirm "OpenAI 이미지 1장도 만들어 볼까요? (약 70원)" && LIVE_FLAG="--with-image"
+LIVE_RESULT=$(uv run nsm doctor $LIVE_FLAG 2>&1 | grep -E "실호출" || true)
+[[ -z "$LIVE_RESULT" ]] && LIVE_RESULT="(실호출 결과를 읽지 못함: uv run nsm doctor --live 를 직접 실행해 보세요)"
 printf '%s\n' "$LIVE_RESULT" | sed 's/^/  /'
 pause "결과를 확인했으면 Enter"
 
@@ -248,10 +268,10 @@ pause "결과를 확인했으면 Enter"
 stage "테스트 계정 정하기"
 say "실계정 어댑터(배치 G)는 여기 적은 테스트 계정에만 게시합니다(CLAUDE.md 가드레일)."
 warn "비밀번호는 적지 마세요. 핸들(아이디)만 기록합니다."
-ask TEST_THREADS "스레드 테스트 계정 핸들 (예: @luna.test):"
-ask TEST_INSTAGRAM "인스타그램 테스트 계정 핸들:"
-ask TEST_NAVER "네이버 블로그 테스트 계정 아이디:"
-ask TEST_COLLECT "수집 전용 계정(네이버, 없으면 빈칸):"
+asks TEST_THREADS "스레드 테스트 계정 핸들 (예: @luna.test):"
+asks TEST_INSTAGRAM "인스타그램 테스트 계정 핸들:"
+asks TEST_NAVER "네이버 블로그 테스트 계정 아이디:"
+asks TEST_COLLECT "수집 전용 계정(네이버, 없으면 빈칸):"
 
 # ── 5. Aside 무인 게시 ────────────────────────────────────────────────────
 stage "Aside가 사람 승인 없이 게시하는지 (가장 중요)"
@@ -262,25 +282,23 @@ step "PowerShell에서 문서의 Windows 설치 스크립트로 CLI 설치 → �
 step "Aside 앱 Settings > Agents 에서 게시 관련 권한을 Allow로 둘 수 있는지 확인"
 step "새 터미널에서:  aside \"threads.net에서 '테스트 게시입니다' 라는 글을 올려줘\""
 note "에이전트가 '승인 요청'을 띄우고 멈추는지, 끝까지 올리는지 봅니다. 올라간 글은 바로 지우세요."
-ask ASIDE_VERSION "aside --version 결과 (모르면 빈칸):"
-ASIDE_UNATTENDED="아니오"
-confirm "승인 없이 끝까지 게시됐나요?" && ASIDE_UNATTENDED="예"
-ASIDE_ALLOW="아니오"
-confirm "Settings > Agents에서 게시를 Allow로 둘 수 있었나요?" && ASIDE_ALLOW="예"
-ask ASIDE_NOTES "관찰한 내용 한 줄 (승인 창 문구, 걸린 시간, 크레딧 소모 등):"
+asks ASIDE_VERSION "aside --version 결과 (모르면 빈칸):"
+yn ASIDE_UNATTENDED "승인 없이 끝까지 게시됐나요?"
+yn ASIDE_ALLOW "Settings > Agents에서 게시를 Allow로 둘 수 있었나요?"
+asks ASIDE_NOTES "관찰한 내용 한 줄 (승인 창 문구, 걸린 시간, 크레딧 소모 등):"
 
 # ── 6. 댓글 숨기기 메뉴·인스타 프로 계정 ──────────────────────────────────
 stage "웹에서 댓글 숨기기 메뉴, 인스타그램 프로 계정"
 say "어댑터가 '숨기기'를 지원한다고 선언할지 정합니다. 지원하지 않으면 스팸은 사람에게 넘깁니다."
 open_url "https://www.threads.net/"
 step "내 테스트 글에 다른 계정으로 댓글 하나 → 그 댓글의 ··· 메뉴에 '숨기기'가 있는지"
-HIDE_THREADS="아니오"; confirm "스레드 웹에 댓글 숨기기가 있나요?" && HIDE_THREADS="예"
+yn HIDE_THREADS "스레드 웹에 댓글 숨기기가 있나요?"
 open_url "https://www.instagram.com/"
 step "내 테스트 게시물 댓글의 ··· 메뉴에 '숨기기'가 있는지"
-HIDE_IG="아니오"; confirm "인스타그램 웹에 댓글 숨기기가 있나요?" && HIDE_IG="예"
+yn HIDE_IG "인스타그램 웹에 댓글 숨기기가 있나요?"
 step "인스타그램 앱 → 설정 → 계정 유형 및 도구 → 프로페셔널 계정으로 전환(크리에이터 권장)"
 note "프로 계정이어야 도달·노출 같은 인사이트를 읽을 수 있습니다."
-IG_PRO="아니오"; confirm "테스트 계정을 프로 계정으로 전환했나요?" && IG_PRO="예"
+yn IG_PRO "테스트 계정을 프로 계정으로 전환했나요?"
 
 # ── 7. 네이버 블로그 에디터 ───────────────────────────────────────────────
 stage "네이버 블로그 글쓰기 화면 15분 탐색"
@@ -288,7 +306,7 @@ say "세 플랫폼 중 자동화가 가장 어려운 곳입니다. 2주차 위�
 open_url "https://blog.naver.com/"
 step "테스트 계정 로그인 → 글쓰기 → 사진 1장 올리기, 본문 입력, 임시저장까지 해 보기"
 note "팝업(이전 글 이어쓰기, 도움말), 사진 업로드 방식, 발행 버튼 위치를 눈여겨보세요."
-ask NAVER_NOTES "관찰한 내용 한 줄 (막힌 곳, 팝업, 업로드 방식):"
+asks NAVER_NOTES "관찰한 내용 한 줄 (막힌 곳, 팝업, 업로드 방식):"
 
 # ── 8. 법규 원문 대조 ─────────────────────────────────────────────────────
 stage "표기 문구를 법규 원문과 대조"
@@ -298,10 +316,9 @@ note "  블로그 제목 꼬리표: [가상인물 포함] / 이미지 배지: �
 open_url "https://www.law.go.kr/"
 step "행정규칙 검색: '추천·보증 등에 관한 표시·광고 심사지침' → 가상인물 표시 부분"
 step "법령 검색: '인공지능 발전과 신뢰 기반 조성 등에 관한 기본법 시행령' → 생성물 표시(제31조 관련)"
-ask FTC_TEXT "심사지침의 가상인물 표시 예시 문구(원문 그대로, 위와 같으면 Enter):"
-[[ -z "$FTC_TEXT" ]] && FTC_TEXT="(코드 문구와 같음)"
-ask FTC_PLACE "표시 위치 규정 요약 (예: 문자 매체는 제목·첫 부분, 사진은 인물 인근):"
-ask AIACT_NOTES "AI 기본법 시행령에서 확인한 표시 방법 한 줄:"
+asks FTC_TEXT "심사지침의 가상인물 표시 예시 문구(원문 그대로, 코드와 같으면 '같음'):"
+asks FTC_PLACE "표시 위치 규정 요약 (예: 문자 매체는 제목·첫 부분, 사진은 인물 인근):"
+asks AIACT_NOTES "AI 기본법 시행령에서 확인한 표시 방법 한 줄:"
 
 # ── 결과 기록 ─────────────────────────────────────────────────────────────
 mkdir -p docs
@@ -312,19 +329,19 @@ mkdir -p docs
   printf '## 테스트 계정 (실계정 어댑터는 이 계정에만 게시)\n\n'
   printf '| 플랫폼 | 계정 |\n|---|---|\n'
   printf '| 스레드 | %s |\n| 인스타그램 | %s |\n| 네이버 블로그 | %s |\n| 수집 전용(네이버) | %s |\n\n' \
-    "${TEST_THREADS:--}" "${TEST_INSTAGRAM:--}" "${TEST_NAVER:--}" "${TEST_COLLECT:--}"
+    "$(cell "$TEST_THREADS")" "$(cell "$TEST_INSTAGRAM")" "$(cell "$TEST_NAVER")" "$(cell "$TEST_COLLECT")"
   printf '## Aside 무인 동작\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
   printf '| 버전 | %s |\n| 승인 없이 끝까지 게시 | %s |\n| 게시 권한 Allow 설정 가능 | %s |\n| 관찰 | %s |\n\n' \
-    "${ASIDE_VERSION:--}" "$ASIDE_UNATTENDED" "$ASIDE_ALLOW" "${ASIDE_NOTES:--}"
+    "$(cell "$ASIDE_VERSION")" "$ASIDE_UNATTENDED" "$ASIDE_ALLOW" "$(cell "$ASIDE_NOTES")"
   printf '## 플랫폼 기능\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
   printf '| 스레드 웹 댓글 숨기기 | %s |\n| 인스타그램 웹 댓글 숨기기 | %s |\n| 인스타그램 프로 계정 전환 | %s |\n| 네이버 에디터 관찰 | %s |\n\n' \
-    "$HIDE_THREADS" "$HIDE_IG" "$IG_PRO" "${NAVER_NOTES:--}"
+    "$HIDE_THREADS" "$HIDE_IG" "$IG_PRO" "$(cell "$NAVER_NOTES")"
   printf '## 표기 문구 원문 대조\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
   printf '| 심사지침 가상인물 표시 예시 | %s |\n| 표시 위치 | %s |\n| AI 기본법 시행령 | %s |\n\n' \
-    "$FTC_TEXT" "${FTC_PLACE:--}" "${AIACT_NOTES:--}"
+    "$(cell "$FTC_TEXT")" "$(cell "$FTC_PLACE")" "$(cell "$AIACT_NOTES")"
   printf '## 다음 할 일 (Claude가 이 파일을 읽고 처리)\n\n'
   printf -- '- Aside 무인 게시가 "예"면 ADR로 드라이버 기본값을 aside로 되돌리고 Aside 드라이버 구현(배치 G). "아니오"면 ADR 0010을 채택으로 확정하고 Playwright로 G 진행.\n'
   printf -- '- 댓글 숨기기 결과로 플랫폼 어댑터 capability 초기값 결정.\n'

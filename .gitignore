@@ -15,3 +15,4 @@ collect-profile/
 .nsm/
 .env
 .claude/settings.local.json
+.day1-wizard.env
