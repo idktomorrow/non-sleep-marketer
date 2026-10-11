@@ -1,0 +1,16 @@
+/* 동작 확인용 최소 스타일. 디자인은 배치 I(UI/UX 패스)에서 교체한다. */
+:root { --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --bg:#fff; --accent:#1e40af; --warn:#9a6700; --bad:#cf222e; --ok:#1a7f37; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --bg:#0d1117; --accent:#4493f8; } }
+* { box-sizing: border-box; }
+body { margin:0; font-family: "Pretendard", system-ui, sans-serif; color:var(--fg); background:var(--bg); line-height:1.5; }
+nav { display:flex; gap:16px; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--line); }
+nav a { color:var(--fg); text-decoration:none; } nav a.active { font-weight:700; color:var(--accent); }
+main { max-width:1100px; margin:0 auto; padding:16px; }
+table { border-collapse:collapse; width:100%; font-size:14px; } th, td { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; }
+.card { border:1px solid var(--line); border-radius:8px; padding:12px; } .card b { font-size:24px; display:block; }
+.muted { color:var(--muted); } .warn { color:var(--warn); } .bad { color:var(--bad); } .ok { color:var(--ok); }
+textarea, input[type=text] { width:100%; font:inherit; padding:6px; } textarea { min-height:120px; }
+button { font:inherit; padding:6px 12px; cursor:pointer; } form.inline { display:inline; }
+.slides { display:flex; gap:8px; overflow-x:auto; } .slides img { height:220px; border:1px solid var(--line); }
+pre { white-space:pre-wrap; background:rgba(127,127,127,.08); padding:8px; border-radius:6px; }

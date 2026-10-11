@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>개요</h1>
+<section class="cards">
+  <div class="card">페르소나<b class="{{ 'ok' if cfg.persona.enabled else 'muted' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</b>
+    <form class="inline" method="post" action="/persona/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ '끄기' if cfg.persona.enabled else '켜기' }}</button></form></div>
+  <div class="card">자동 게시<b class="{{ 'ok' if auto_publish else 'muted' }}">{{ '켜짐' if auto_publish else '꺼짐' }}</b>
+    <span class="muted">사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건{% if auto_publish and human_approved < cfg.settings.protect_count %} · 보호 모드{% endif %}</span>
+    <form class="inline" method="post" action="/auto-publish/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ '끄기' if auto_publish else '켜기' }}</button></form></div>
+  <div class="card">검토 대기<b class="{{ 'warn' if ov.pending_review else '' }}">{{ ov.pending_review }}</b><a href="/review">보기</a></div>
+  <div class="card">확인할 댓글<b class="{{ 'warn' if ov.escalated_comments else '' }}">{{ ov.escalated_comments }}</b><a href="/comments">보기</a></div>
+  <div class="card">게시 대기(승인됨)<b>{{ ov.approved_waiting }}</b></div>
+  <div class="card">오늘 게시<b>{{ ov.published_today.values()|sum }}</b>
+    <span class="muted">{% for p, n in ov.published_today.items() %}{{ p }} {{ n }} {% endfor %}</span></div>
+  <div class="card">오늘 비용<b>${{ '%.2f'|format(ov.cost_today) }}</b><span class="muted">상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></div>
+  <div class="card">쓸 수 있는 자료<b>{{ ov.sources_unused }}</b></div>
+</section>
+{% if paused %}<p class="bad">로그인이 필요해 멈춘 플랫폼: {{ paused|join(', ') }}</p>{% endif %}
+<h2>지금 실행</h2>
+<p>{% for j in ['collect','generate','publish','reply','metrics','health'] %}
+<form class="inline" method="post" action="/jobs/{{ j }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ j }}</button></form>
+{% endfor %}</p>
+<h2>최근 실행</h2>
+<table><tr><th>잡</th><th>시작</th><th>결과</th><th>요약</th></tr>
+{% for r in runs %}<tr><td>{{ r.job }}</td><td>{{ r.started_at|kst }}</td><td class="{{ 'ok' if r.ok else 'bad' }}">{{ '성공' if r.ok else ('실행 중' if r.ok is none else '실패') }}</td><td>{{ r.message or '' }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

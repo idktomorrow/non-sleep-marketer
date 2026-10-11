@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+{% set g = c.generated %}
+<p><a href="/review">← 검토 대기열</a></p>
+<h1>{{ g.topic }}</h1>
+<p>상태: <b>{{ c.status }}</b> · 템플릿: {{ g.template }} · 관련성 {{ '%.2f'|format(c.relevance_confidence) }}{% if c.is_ad %} · <span class="warn">광고</span>{% endif %}</p>
+{% if c.review_reason %}<p class="warn">검토 사유: {{ c.review_reason }}</p>{% endif %}
+{% if banned %}<p class="bad">금칙어·금칙 패턴: {{ banned|join(', ') }}</p>{% endif %}
+{% if cards %}<div class="slides">{% for n in cards %}<img src="/cards/{{ c.id }}/{{ n }}" alt="{{ n }}">{% endfor %}</div>{% endif %}
+<h2>카드 원고</h2>
+<ol>{% for s in g.deck.slides %}<li><b>{{ s.kind }}</b>
+{% if s.title %}{{ s.title }}{% endif %}{% if s.heading %}{{ s.heading }}{% endif %}
+{% if s.body %}<br>{{ s.body }}{% endif %}{% if s.bullets %}<ul>{% for b in s.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+{% if s.left %}<br>{{ s.left.title }}: {{ s.left.points|join(' / ') }} · {{ s.right.title }}: {{ s.right.points|join(' / ') }}{% endif %}
+{% if s.cta %}<br>{{ s.cta }}{% endif %}{% if s.sources %}<br><span class="muted">출처: {{ s.sources|join(', ') }}</span>{% endif %}
+</li>{% endfor %}</ol>
+<h2>사실 주장과 출처</h2>
+<ul>{% for cl in g.claims %}<li>{{ cl.text }} <span class="muted">← {{ cl.source_item_id }}</span></li>{% endfor %}</ul>
+<ul>{% for s in sources if s %}<li><b>{{ s.title }}</b> <a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a></li>{% endfor %}</ul>
+<h2>게시 상태</h2>
+<table><tr><th>플랫폼</th><th>상태</th><th>시도</th><th>오류</th><th>주소</th></tr>
+{% for p in pubs %}<tr><td>{{ p.platform }}</td><td>{{ p.status }}</td><td>{{ p.attempts }}</td><td class="bad">{{ p.last_error or '' }}</td><td>{% if p.url %}<a href="{{ p.url }}">{{ p.url }}</a>{% endif %}</td></tr>{% endfor %}
+</table>
+{% if c.status == 'pending_review' %}
+<h2>고치기</h2>
+<form method="post" action="/review/{{ c.id }}/edit"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>표지 제목<input type="text" name="cover_title" value="{{ g.deck.slides[0].title }}"></label>
+<label>인스타그램 캡션<textarea name="instagram_caption">{{ g.instagram_caption }}</textarea></label>
+<label>스레드 글<textarea name="threads_text">{{ g.threads_text }}</textarea></label>
+<label>블로그 제목<input type="text" name="blog_title" value="{{ g.blog_title }}"></label>
+<label>블로그 본문<textarea name="blog_markdown" style="min-height:300px">{{ g.blog_markdown }}</textarea></label>
+<button>저장</button></form>
+<p><form class="inline" method="post" action="/review/{{ c.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>승인</button></form>
+<form class="inline" method="post" action="/review/{{ c.id }}/discard"><input type="hidden" name="csrf" value="{{ csrf }}"><button>폐기</button></form></p>
+{% endif %}
+{% endblock %}

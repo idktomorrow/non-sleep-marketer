@@ -69,5 +69,7 @@ class PlaywrightDriver:
             try:
                 if self._pw is not None:
                     self._pw.stop()
+            except Exception:  # noqa: BLE001  종료 시점(다른 스레드일 수 있음)에는 최선만 다한다
+                pass
             finally:
                 self._ctx = self._pw = self._page = None

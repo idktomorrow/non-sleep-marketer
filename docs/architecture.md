@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (배치 E 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 F 완료, 드라이런 MVP) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -88,7 +88,7 @@ erDiagram
 
 | 모듈 | 상태 | 테스트 | 배치 | 비고 |
 |---|---|---|---|---|
-| `nsm/cli.py` | 구현 중 | 경계 밖(CLI 테스트) | A | doctor·help 동작, 나머지 명령은 해당 배치 안내 후 종료 |
+| `nsm/cli.py` | 완료 | CLI 테스트 + 수동 | A·C·F | doctor, init, run, run --once, render-preview, install-autostart |
 | `nsm/domain/models.py` | 완료 | 단위 | A | 동결. ADR 0009 반영 |
 | `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
 | `nsm/store/` (스키마·리포지토리) | 완료 | 단위 | A(스키마), C | `Repository`: 중복 제거, 상태 전이 검사, 게시 재시도 조회, 답글 횟수, 비용 합계, 실행 로그 |
@@ -97,19 +97,19 @@ erDiagram
 | `nsm/adapters/classifier/` jev·claude | 완료 | 단위(가짜 클라이언트) | D1 | + 키워드 대체(ADR 0011). jev·Claude 실호출은 키 확보 후 확인 필요 |
 | `nsm/adapters/generator/` 텍스트·이미지 | 완료 | 단위(가짜 클라이언트) | D2 | Claude(구조화 출력 + fallback), OpenAI 배경. 실호출은 키 확보 후 확인 필요 |
 | `nsm/domain/policy.py` | 완료 | 단위 | D1·D2·E | 활동 시간·게시 판정·금칙어·배정·템플릿 순환·비용 상한·표기 삽입·댓글 판정 |
-| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect·generate·publish 완료, `runner`가 실행 로그·실패 알림, 재시작 복구 |
+| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect·generate·publish·reply·health·metrics 완료(weekly_report는 H), `runner`가 실행 로그·실패 알림, 재시작 복구 |
 | `nsm/adapters/platforms/dryrun.py` | 완료 | 경계 2(드라이런) + E2E | E | 미리보기 저장, 게시 시각 기준 가짜 댓글·지표, 답글·숨김 로그 |
-| `nsm/app/` 대시보드 | 계획 | - | F(백엔드), I(디자인) | |
-| `nsm/scheduler/` + autostart | 계획 | - | F | |
-| `nsm/adapters/notify/` | 계획 | - | F | |
+| `nsm/app/` 대시보드 | 구현 중 | 라우트 테스트 + 실서버 스모크 | F(백엔드), I(디자인) | 6개 화면·CSRF·직접 답글. 화면은 최소 HTML(디자인은 I) |
+| `nsm/scheduler/` + autostart | 완료 | 단위 + 실서버 스모크 | F | 작업 스레드 1개, 활동 시간 기준 트리거, 시작프로그램 폴더(ADR 0013) |
+| `nsm/adapters/notify/` | 완료 | 수동 | F | winotify 데스크톱 알림 + 로그, 같은 제목 60초 내 중복 억제 |
 | `nsm/render/` + `nsm/templates/` | 구현 중 | 단위 | S-α | 서브. 지금은 `PlaceholderRenderer`(단색 PNG)가 대신함 |
 | `nsm/adapters/drivers/` aside·playwright | 구현 중 | 스모크 | D1(수집용 Playwright), G | Playwright 수집 동작 확인. Aside는 배치 B 후(ADR 0010) |
 | `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
-| `tests/engine/` 시나리오 | 구현 중 | 경계 1 | D1·D2·E, F | 수집·생성·게시·드라이런 E2E 완료. 댓글 시나리오는 F |
+| `tests/engine/` 시나리오 | 완료 | 경계 1 | D1·D2·E·F | 수집·생성·게시·대댓글·상태 점검·지표·드라이런 E2E |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |
 | `tests/render/` | 계획 | - | S-α | 서브 |
-| `tests/app/` | 계획 | - | F | |
+| `tests/app/` | 완료 | 라우트 | F | 승인·폐기·수정·토글·댓글 답글/완료·CSRF·경로 조작 차단 |
 
 ## 7. 설계와 구현의 차이
 
@@ -126,3 +126,7 @@ erDiagram
 - DB 스키마 v2: `contents.persona_topic`.
 - 같은 플랫폼 게시 사이 최소 간격(`min_hours_between_posts`, 기본 3시간)을 추가했다. 계약 초안의 "활동 시간 내 무작위 시각"은 F의 스케줄러 지터 + 이 간격으로 구현한다.
 - 재시작 복구(`recover_interrupted`)는 프로세스가 DB를 열 때마다 실행한다. DuckDB 잠금 때문에 다른 프로세스가 동시에 게시 중일 수 없어서 안전하다.
+- 스케줄러는 작업 스레드 1개로 모든 잡을 차례로 돌린다(Playwright 동기 API 스레드 제약). 대시보드의 플랫폼 동작도 `submit()`으로 같은 스레드에서 실행한다.
+- 자동 실행은 작업 스케줄러 대신 시작프로그램 폴더(ADR 0013).
+- 대시보드 POST는 CSRF 토큰을 검사한다(127.0.0.1 전용이어도 다른 웹사이트가 브라우저를 통해 요청을 보낼 수 있음).
+- 댓글 분류 신뢰도 0.6 미만이면 사람에게 넘긴다(계약에 없던 안전장치).

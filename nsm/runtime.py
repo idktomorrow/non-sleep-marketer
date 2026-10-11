@@ -77,6 +77,7 @@ def build_context(
     db: Database,
     stack: ExitStack,
     secrets: SecretStore | None = None,
+    notifier=None,
 ) -> JobContext:
     from nsm.adapters.classifier import make_classifiers
     from nsm.adapters.sources.google_trends import GoogleTrendsSource
@@ -104,7 +105,7 @@ def build_context(
         config=cfg,
         repo=repo,
         clock=clock,
-        notifier=LogNotifier(),
+        notifier=notifier or LogNotifier(),
         sources=sources,
         relevance_classifier=classifiers.relevance,
         topic_classifier=classifiers.topic,
@@ -143,7 +144,62 @@ def run_job_once(job: str) -> None:
         db.close()
 
 
-def run_forever() -> None:
-    raise SystemExit(
-        "`nsm run`(스케줄러 + 대시보드)은 배치 F에서 구현됩니다. 지금은 `nsm run --once --job collect`"
+def _setup_logging() -> None:
+    paths.logs_dir().mkdir(parents=True, exist_ok=True)
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    from logging.handlers import RotatingFileHandler
+
+    handlers.append(
+        RotatingFileHandler(
+            paths.logs_dir() / "nsm.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+        )
     )
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers, force=True)
+
+
+def run_forever() -> None:
+    """한 프로세스에서 스케줄러(작업 스레드 1개)와 대시보드(uvicorn)를 함께 띄운다 (ADR 0006)."""
+    import uvicorn
+
+    from nsm.adapters.notify.windows import DesktopNotifier
+    from nsm.app.server import AppState, create_app
+    from nsm.config.store import save_config
+    from nsm.engine.publish import recover_interrupted
+    from nsm.engine.runner import JOBS
+    from nsm.scheduler.app import JobScheduler
+
+    _setup_logging()
+    cfg = load_config()
+    port = cfg.settings.dashboard_port
+    url = f"http://127.0.0.1:{port}"
+    db = Database(paths.db_path())
+    stack = ExitStack()
+    try:
+        ctx = build_context(cfg, db, stack, notifier=DesktopNotifier(url))
+        recover_interrupted(ctx)
+        scheduler = JobScheduler(lambda: ctx, set(JOBS))
+        installed = scheduler.install(cfg)
+        scheduler.start()
+        stack.callback(scheduler.shutdown)
+        log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
+
+        def set_config(new: AppConfig) -> None:
+            save_config(new)
+            ctx.config = new
+
+        state = AppState(
+            repo=ctx.repo,
+            clock=ctx.clock,
+            get_config=lambda: ctx.config,
+            set_config=set_config,
+            submit=scheduler.submit,
+            adapters=ctx.adapters,
+            media_dir=ctx.media_dir,
+            run_job_now=scheduler.run_now,
+        )
+        print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
+        uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")
+    finally:
+        stack.close()  # 스케줄러를 먼저 멈추고(잡 종료 대기) 드라이버를 닫는다
+        db.close()
