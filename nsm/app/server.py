@@ -11,6 +11,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Callable
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
@@ -44,10 +46,15 @@ class AppState:
     media_dir: Path
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     run_job_now: Callable[[str], Future] | None = None
+    job_names: frozenset[str] = frozenset()
 
 
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
+    # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
+    app.add_middleware(
+        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
+    )
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
@@ -58,6 +65,14 @@ def create_app(state: AppState) -> FastAPI:
         return local(dt, tz()).strftime("%m-%d %H:%M") if dt else "-"
 
     templates.env.filters["kst"] = fmt
+
+    def safe_url(u: str | None) -> str:
+        """수집한 링크는 신뢰할 수 없다: http(s)·file만 링크로 쓴다(javascript: 차단)."""
+        if u and u.split(":", 1)[0].lower() in ("http", "https", "file"):
+            return u
+        return "#"
+
+    templates.env.filters["safe_url"] = safe_url
 
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
         cfg = state.get_config()
@@ -112,6 +127,8 @@ def create_app(state: AppState) -> FastAPI:
     def run_now(name: str) -> RedirectResponse:
         if state.run_job_now is None:
             raise HTTPException(503, "스케줄러가 없습니다")
+        if name not in state.job_names:
+            raise HTTPException(404, f"알 수 없는 잡: {name}")
         state.run_job_now(name)
         return back("/logs")
 
@@ -160,7 +177,13 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.post("/review/{cid}/approve", dependencies=[Depends(check_csrf)])
     def approve(cid: str) -> RedirectResponse:
-        _content_or_404(cid)
+        c = _content_or_404(cid)
+        banned = find_banned(all_texts(c.generated), state.get_config().persona)
+        if banned:
+            # 금칙어가 든 콘텐츠는 사람도 그대로 승인할 수 없다: 고친 뒤 승인
+            raise HTTPException(
+                409, f"금칙어·금칙 패턴이 있어 승인할 수 없습니다: {', '.join(banned)}"
+            )
         try:
             state.repo.transition_content(cid, "approved", approved_by="human")
         except InvalidTransitionError as e:
@@ -191,7 +214,8 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(409, "검토 대기 중인 콘텐츠만 고칠 수 있습니다")
         g = c.generated
         slides = list(g.deck.slides)
-        slides[0] = slides[0].model_copy(update={"title": cover_title})
+        if slides and slides[0].kind == "cover":
+            slides[0] = slides[0].model_copy(update={"title": cover_title})
         new = g.model_copy(
             update={
                 "instagram_caption": instagram_caption,
@@ -215,6 +239,7 @@ def create_app(state: AppState) -> FastAPI:
             request,
             "comments.html",
             escalated=state.repo.list_comments("escalated"),
+            replying=state.repo.list_comments("replying"),
             recent=state.repo.list_comments(limit=50),
         )
 
@@ -233,13 +258,32 @@ def create_app(state: AppState) -> FastAPI:
         adapter = state.adapters.get(stored.comment.platform)
         if adapter is None:
             raise HTTPException(503, "이 플랫폼 어댑터가 연결돼 있지 않습니다")
+        if stored.status != "escalated":
+            raise HTTPException(409, "이미 처리 중이거나 처리된 댓글입니다")
+        # 먼저 '보내는 중'으로 바꿔 두 번 눌러도 중복 답글이 나가지 않게 한다
+        state.repo.update_comment(key, status="replying", reply_text=text)
+
+        def send() -> str:
+            try:
+                reply_id = adapter.reply(stored.comment, text)
+            except Exception as e:  # noqa: BLE001
+                state.repo.update_comment(
+                    key, status="escalated", reason=f"직접 답글 실패: {e}"[:300]
+                )
+                raise
+            state.repo.update_comment(
+                key, status="resolved", reply_external_id=reply_id, handled_by="human"
+            )
+            return reply_id
+
+        fut = state.submit(send)
         try:
-            reply_id = state.submit(lambda: adapter.reply(stored.comment, text)).result(timeout=120)
+            fut.result(timeout=120)
+        except FutureTimeout:
+            # 작업 스레드가 다른 잡을 처리 중: 요청은 대기열에 있고 곧 보내진다
+            return back("/comments")
         except Exception as e:  # noqa: BLE001
             raise HTTPException(502, f"답글 전송 실패: {e}") from e
-        state.repo.update_comment(
-            key, status="resolved", reply_text=text, reply_external_id=reply_id, handled_by="human"
-        )
         return back("/comments")
 
     # ------------------------------------------------------------------ 성과·로그
@@ -252,9 +296,9 @@ def create_app(state: AppState) -> FastAPI:
             request,
             "performance.html",
             posts=queries.post_performance(state.repo.db),
-            followers=queries.follower_series(state.repo.db, since),
+            followers=queries.follower_series(state.repo.db, since, tz()),
             comment_stats=queries.comment_stats(state.repo.db, since),
-            costs=queries.costs_by_day(state.repo.db, now - timedelta(days=14)),
+            costs=queries.costs_by_day(state.repo.db, now - timedelta(days=14), tz()),
         )
 
     @app.get("/logs", response_class=HTMLResponse)

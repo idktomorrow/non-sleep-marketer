@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from nsm.store.db import Database, from_db, to_db
 
@@ -43,12 +44,18 @@ def overview(db: Database, day_start: datetime, day_end: datetime) -> dict[str, 
     }
 
 
-def costs_by_day(db: Database, since: datetime) -> list[dict[str, Any]]:
+def _offset_seconds(tz: str, at: datetime) -> int:
+    """UTC로 저장된 시각을 현지 날짜로 묶기 위한 오프셋(초)."""
+    off = at.astimezone(ZoneInfo(tz)).utcoffset()
+    return int(off.total_seconds()) if off else 0
+
+
+def costs_by_day(db: Database, since: datetime, tz: str = "Asia/Seoul") -> list[dict[str, Any]]:
     return _rows(
         db,
-        "SELECT CAST(occurred_at AS DATE) AS day, kind, round(sum(usd), 4) AS usd FROM costs "
-        "WHERE occurred_at >= ? GROUP BY 1, 2 ORDER BY 1 DESC, 2",
-        [to_db(since)],
+        "SELECT CAST(occurred_at + to_seconds(?) AS DATE) AS day, kind, round(sum(usd), 4) AS usd "
+        "FROM costs WHERE occurred_at >= ? GROUP BY 1, 2 ORDER BY 1 DESC, 2",
+        [_offset_seconds(tz, since), to_db(since)],
     )
 
 
@@ -71,12 +78,12 @@ def post_performance(db: Database, limit: int = 50) -> list[dict[str, Any]]:
     return rows
 
 
-def follower_series(db: Database, since: datetime) -> list[dict[str, Any]]:
+def follower_series(db: Database, since: datetime, tz: str = "Asia/Seoul") -> list[dict[str, Any]]:
     return _rows(
         db,
-        "SELECT platform, CAST(captured_at AS DATE) AS day, max(followers) AS followers "
+        "SELECT platform, CAST(captured_at + to_seconds(?) AS DATE) AS day, max(followers) AS followers "
         "FROM metrics_account WHERE captured_at >= ? GROUP BY 1, 2 ORDER BY 2, 1",
-        [to_db(since)],
+        [_offset_seconds(tz, since), to_db(since)],
     )
 
 

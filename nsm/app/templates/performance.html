@@ -3,7 +3,7 @@
 <h1>성과</h1>
 <h2>게시물별 (최신 지표)</h2>
 <table><tr><th>게시</th><th>플랫폼</th><th>주제</th><th>조회</th><th>도달</th><th>노출</th><th>좋아요</th><th>댓글</th><th>저장</th><th>공유</th></tr>
-{% for p in posts %}<tr><td>{{ p.published_at|kst }}</td><td>{{ p.platform }}{% if p.is_ad %} <span class="warn">광고</span>{% endif %}</td><td>{% if p.url %}<a href="{{ p.url }}">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
+{% for p in posts %}<tr><td>{{ p.published_at|kst }}</td><td>{{ p.platform }}{% if p.is_ad %} <span class="warn">광고</span>{% endif %}</td><td>{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
 {% for k in ['views','reach','impressions','likes','comments','saves','shares'] %}<td>{{ p[k] if p[k] is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}
 </table>
 <h2>팔로워</h2>

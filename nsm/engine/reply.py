@@ -62,10 +62,14 @@ def run_reply(ctx: JobContext) -> JobResult:
         except Exception as e:  # noqa: BLE001
             result.errors.append(f"{platform} 댓글 조회 실패: {e}")
             continue
-        for c in sorted(comments, key=lambda x: x.created_at):
-            if not ctx.repo.insert_comment(c):
-                continue
-            counts["new"] += 1
+        for c in comments:
+            if ctx.repo.insert_comment(c):
+                counts["new"] += 1
+        # 이번에 들어온 것 + 지난번 처리 도중 중단돼 'new'로 남은 것
+        pending = [
+            s.comment for s in ctx.repo.list_comments("new") if s.comment.platform == platform
+        ]
+        for c in sorted(pending, key=lambda x: x.created_at):
             try:
                 outcome = _handle(ctx, adapter, c)
             except Exception as e:  # noqa: BLE001  한 댓글 실패가 나머지를 막지 않게
@@ -81,7 +85,7 @@ def run_reply(ctx: JobContext) -> JobResult:
         ctx.notifier.notify(
             "댓글 확인 필요", f"사람이 확인해야 할 댓글이 {counts['escalated']}건 있습니다", "warn"
         )
-    result.ok = not result.errors or counts["new"] > 0
+    result.ok = not result.errors
     return result
 
 

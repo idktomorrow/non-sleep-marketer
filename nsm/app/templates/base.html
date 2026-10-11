@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/htmx.min.js" defer></script>
 </head>
-<body hx-boost="true">
+<body>
 <nav>
   <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>개요</a>
   <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토 대기열</a>

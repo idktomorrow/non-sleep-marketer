@@ -52,11 +52,12 @@ def env(db, clock, app_config, tmp_path: Path):
         adapters=adapters,
         media_dir=tmp_path / "media",
         run_job_now=lambda name: _run_now(lambda: name),
+        job_names=frozenset({"collect", "publish"}),
     )
     client = TestClient(create_app(state))
     for item in load_source_items():
         repo.insert_source_item(item)
-    gen = FakeTextGenerator(inject_text="무조건").generate_content(
+    gen = FakeTextGenerator(inject_text="무조건 좋아요").generate_content(
         ContentBrief(topic="핸드드립", template="info", sources=load_source_items()[:2]),
         app_config.persona,
         app_config.brand,
@@ -80,6 +81,19 @@ def env(db, clock, app_config, tmp_path: Path):
         "saved": saved,
         "adapters": adapters,
     }
+
+
+def _clean(env) -> None:
+    """픽스처 원고의 금칙어를 고친다(금칙어가 있으면 승인할 수 없으므로)."""
+    _post(
+        env,
+        "/review/c1/edit",
+        instagram_caption="캡션",
+        threads_text="스레드",
+        blog_title="제목",
+        blog_markdown="본문",
+        cover_title="표지",
+    )
 
 
 def _post(env, url: str, **data):
@@ -111,6 +125,7 @@ def test_approve_by_human_and_requeue(env) -> None:
     repo = env["repo"]
     pubs = repo.publications_for_content("c1")
     repo.db.execute("UPDATE publications SET status = 'abandoned' WHERE id = ?", [pubs[0].id])
+    _clean(env)
     r = _post(env, "/review/c1/approve")
     assert r.status_code == 303
     assert repo.get_content("c1").status == "approved"
@@ -181,10 +196,58 @@ def test_reply_failure_reports_502(env) -> None:
     repo = env["repo"]
     comment, _ = load_comment_cases()[1]
     repo.insert_comment(comment)
+    key = repo.comment_key(comment)
+    repo.update_comment(key, status="escalated", reason="x")
     env["adapters"]["threads"] = FakePlatformAdapter("threads", capabilities=set())
-    r = _post(env, f"/comments/{repo.comment_key(comment)}/reply", text="x")
+    r = _post(env, f"/comments/{key}/reply", text="x")
     assert r.status_code == 502
+    assert repo.get_comment(key).status == "escalated"  # 실패하면 다시 사람 확인 목록으로
 
 
 def test_run_job_now(env) -> None:
     assert _post(env, "/jobs/collect/run").status_code == 303
+
+
+def test_approve_blocked_when_banned_words(env) -> None:
+    r = _post(env, "/review/c1/approve")
+    assert r.status_code == 409 and "금칙어" in r.text
+
+
+def test_approve_after_fixing_banned_words(env) -> None:
+    _post(
+        env,
+        "/review/c1/edit",
+        instagram_caption="캡션",
+        threads_text="스레드",
+        blog_title="제목",
+        blog_markdown="본문",
+        cover_title="표지",
+    )
+    assert _post(env, "/review/c1/approve").status_code == 303
+
+
+def test_unknown_host_rejected(env) -> None:
+    r = env["client"].get("/", headers={"host": "evil.example.com"})
+    assert r.status_code == 400
+
+
+def test_javascript_urls_not_linked(env) -> None:
+    repo = env["repo"]
+    repo.db.execute("UPDATE source_items SET url = 'javascript:alert(1)'")
+    html = env["client"].get("/review/c1").text
+    assert 'href="javascript:' not in html
+
+
+def test_unknown_job_404(env) -> None:
+    assert _post(env, "/jobs/nope/run").status_code == 404
+
+
+def test_reply_not_sent_twice(env) -> None:
+    repo = env["repo"]
+    comment, _ = load_comment_cases()[1]
+    repo.insert_comment(comment)
+    key = repo.comment_key(comment)
+    repo.update_comment(key, status="escalated", reason="x")
+    assert _post(env, f"/comments/{key}/reply", text="답").status_code == 303
+    assert _post(env, f"/comments/{key}/reply", text="답").status_code == 409
+    assert len(env["adapters"]["threads"].replied) == 1

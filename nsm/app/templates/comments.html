@@ -9,6 +9,7 @@
 <td><form method="post" action="/comments/{{ s.id }}/reply"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="text" name="text" placeholder="직접 답글" value="{{ s.reply_text or '' }}"><button>답글 보내기</button></form>
 <form method="post" action="/comments/{{ s.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>처리 완료</button></form></td>
 </tr>{% endfor %}</table>
+{% if replying %}<p class="muted">답글 보내는 중: {% for s in replying %}{{ s.comment.author_name }} {% endfor %}</p>{% endif %}
 <h2>최근 댓글</h2>
 <table><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>상태</th><th>답글</th></tr>
 {% for s in recent %}<tr><td>{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform }}</td><td>{{ s.comment.author_name }}</td><td>{{ s.comment.text }}</td><td>{{ s.status }}</td><td>{{ s.reply_text or '' }}</td></tr>{% endfor %}

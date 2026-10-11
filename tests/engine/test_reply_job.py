@@ -179,3 +179,21 @@ def test_one_bad_comment_does_not_block_others(ctx: JobContext) -> None:
     assert _status(ctx, "threads", "c1") == "escalated"
     assert _status(ctx, "threads", "c2") == "auto_replied"
     assert r.errors
+
+
+def test_leftover_new_comments_are_processed(ctx: JobContext) -> None:
+    # 지난 실행이 댓글을 저장만 하고 처리 전에 죽었다고 가정
+    comment, _ = load_comment_cases()[0]
+    ctx.repo.insert_comment(comment)
+    ctx.adapters["threads"].comments = {}
+    run_reply(ctx)
+    assert ctx.repo.get_comment("threads:c1").status == "auto_replied"
+
+
+def test_fetch_failure_marks_run_not_ok(ctx: JobContext) -> None:
+    def boom(ids, since):
+        raise RuntimeError("session expired")
+
+    ctx.adapters["instagram"].fetch_new_comments = boom
+    r = run_reply(ctx)
+    assert not r.ok and any("instagram" in e for e in r.errors)

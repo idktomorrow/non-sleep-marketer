@@ -175,13 +175,14 @@ def run_forever() -> None:
     url = f"http://127.0.0.1:{port}"
     db = Database(paths.db_path())
     stack = ExitStack()
+    drivers = ExitStack()  # 브라우저는 작업 스레드에서 열리므로 닫기도 작업 스레드에서
+    scheduler = None
     try:
-        ctx = build_context(cfg, db, stack, notifier=DesktopNotifier(url))
+        ctx = build_context(cfg, db, drivers, notifier=DesktopNotifier(url))
         recover_interrupted(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
         scheduler.start()
-        stack.callback(scheduler.shutdown)
         log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
 
         def set_config(new: AppConfig) -> None:
@@ -197,9 +198,18 @@ def run_forever() -> None:
             adapters=ctx.adapters,
             media_dir=ctx.media_dir,
             run_job_now=scheduler.run_now,
+            job_names=frozenset(JOBS),
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")
     finally:
-        stack.close()  # 스케줄러를 먼저 멈추고(잡 종료 대기) 드라이버를 닫는다
+        if scheduler is not None:
+            try:
+                scheduler.submit(drivers.close).result(timeout=60)
+            except Exception:  # noqa: BLE001
+                log.exception("브라우저 종료 실패")
+            scheduler.shutdown()
+        else:
+            drivers.close()
+        stack.close()
         db.close()
