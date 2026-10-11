@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}논슬립 마케터{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<nav>
+  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>개요</a>
+  <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토 대기열</a>
+  <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
+  <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
+  <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 로그</a>
+  <span class="muted">{{ cfg.persona.name }} {{ cfg.persona.handle }}{% if cfg.settings.dry_run %} · 드라이런{% endif %}</span>
+</nav>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>

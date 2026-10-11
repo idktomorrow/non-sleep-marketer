@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>검토 대기열</h1>
+{% if not items %}<p class="muted">검토할 콘텐츠가 없습니다.</p>{% endif %}
+<table><tr><th>만든 시각</th><th>주제</th><th>템플릿</th><th>사유</th><th></th></tr>
+{% for c in items %}<tr>
+<td>{{ c.created_at|kst }}</td><td><a href="/review/{{ c.id }}">{{ c.generated.topic }}</a>{% if c.is_ad %} <span class="warn">[광고]</span>{% endif %}</td>
+<td>{{ c.generated.template }}</td><td class="warn">{{ c.review_reason or '' }}</td>
+<td><form class="inline" method="post" action="/review/{{ c.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>승인</button></form>
+<form class="inline" method="post" action="/review/{{ c.id }}/discard"><input type="hidden" name="csrf" value="{{ csrf }}"><button>폐기</button></form></td>
+</tr>{% endfor %}</table>
+{% endblock %}

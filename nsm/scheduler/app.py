@@ -1,0 +1,99 @@
+"""잡 스케줄 (contracts 4절).
+
+모든 잡은 **작업 스레드 하나**에서 차례로 돈다. Playwright 동기 API는 만든 스레드에서만 써야 하고,
+잡끼리 같은 브라우저·DB 행을 동시에 건드리지 않게 하려는 것이다. 대시보드가 플랫폼 동작(직접 답글)을
+요청할 때도 `submit()`으로 같은 스레드에 넣는다.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from concurrent.futures import Future
+from datetime import datetime, timedelta
+from typing import Any
+
+from apscheduler.executors.pool import ThreadPoolExecutor
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from nsm.config.schema import AppConfig
+from nsm.engine.context import JobContext
+from nsm.engine.runner import run_job
+
+log = logging.getLogger(__name__)
+
+
+def _at(start, minutes: int) -> tuple[int, int]:
+    t = datetime.combine(datetime(2000, 1, 1), start) + timedelta(minutes=minutes)
+    return t.hour, t.minute
+
+
+def job_triggers(cfg: AppConfig) -> dict[str, Any]:
+    """잡 이름 → 트리거. 활동 시간 창의 시작 시각을 기준으로 수집·생성 시각을 잡는다."""
+    tz = cfg.settings.timezone
+    windows = cfg.persona.active_hours
+    first, last = windows[0], windows[-1]
+    collect_times = {_at(first.start, 20), _at(last.start, 20)}
+    gen_h, gen_m = _at(first.start, 50)
+    triggers: dict[str, Any] = {
+        "health": IntervalTrigger(minutes=30, jitter=120, timezone=tz),
+        "generate": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
+        "publish": IntervalTrigger(minutes=30, jitter=600, timezone=tz),
+        "reply": IntervalTrigger(minutes=10, jitter=180, timezone=tz),
+        "metrics": CronTrigger(hour=3, minute=10, jitter=900, timezone=tz),
+        "weekly_report": CronTrigger(day_of_week="mon", hour=8, minute=0, jitter=600, timezone=tz),
+    }
+    for i, (h, m) in enumerate(sorted(collect_times)):
+        triggers[f"collect#{i}"] = CronTrigger(hour=h, minute=m, jitter=1800, timezone=tz)
+    return triggers
+
+
+class JobScheduler:
+    def __init__(self, ctx_provider: Callable[[], JobContext], available_jobs: set[str]) -> None:
+        self._ctx = ctx_provider
+        self.available = available_jobs
+        self.scheduler = BackgroundScheduler(
+            executors={"default": ThreadPoolExecutor(max_workers=1)},
+            job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 900},
+        )
+
+    def _run(self, name: str) -> None:
+        result = run_job(name, self._ctx())
+        log.info(result.summary())
+
+    def install(self, cfg: AppConfig) -> list[str]:
+        installed = []
+        for job_id, trigger in job_triggers(cfg).items():
+            name = job_id.split("#")[0]
+            if name not in self.available:
+                continue
+            self.scheduler.add_job(
+                self._run, trigger, args=[name], id=job_id, replace_existing=True
+            )
+            installed.append(job_id)
+        return installed
+
+    def start(self) -> None:
+        self.scheduler.start()
+
+    def shutdown(self) -> None:
+        self.scheduler.shutdown(wait=True)
+
+    def submit(self, fn: Callable[[], Any]) -> Future:
+        """작업 스레드에서 fn을 한 번 실행하고 결과를 Future로 돌려준다."""
+        fut: Future = Future()
+
+        def wrapper() -> None:
+            try:
+                fut.set_result(fn())
+            except Exception as e:  # noqa: BLE001
+                fut.set_exception(e)
+
+        self.scheduler.add_job(wrapper, DateTrigger(run_date=datetime.now().astimezone()))
+        return fut
+
+    def run_now(self, name: str) -> Future:
+        return self.submit(lambda: self._run(name))
