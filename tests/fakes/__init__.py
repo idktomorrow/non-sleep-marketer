@@ -56,8 +56,14 @@ class FixedClock:
 
 
 class FakePlatformAdapter:
-    def __init__(self, platform: Platform, capabilities: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        platform: Platform,
+        capabilities: set[str] | None = None,
+        clock: FixedClock | None = None,
+    ) -> None:
         self.platform = platform
+        self.clock = clock
         self._caps = set(CAPABILITIES if capabilities is None else capabilities)
         self.published: list[RenderedPost] = []
         self.replied: list[tuple[Comment, str]] = []
@@ -75,7 +81,12 @@ class FakePlatformAdapter:
     def health(self) -> HealthStatus:
         return HealthStatus(logged_in=self.logged_in, detail="fake")
 
+    def _now(self) -> datetime:
+        return self.clock.now() if self.clock else datetime.now().astimezone()
+
     def publish(self, post: RenderedPost) -> PublishResult:
+        if "publish" not in self._caps:
+            raise NotSupportedError("publish")
         if self.fail_next_publish > 0:
             self.fail_next_publish -= 1
             raise AdapterError("fake publish failure")
@@ -87,6 +98,8 @@ class FakePlatformAdapter:
     def fetch_new_comments(
         self, post_external_ids: list[str], since: datetime | None
     ) -> list[Comment]:
+        if "fetch_comments" not in self._caps:
+            raise NotSupportedError("fetch_comments")
         out: list[Comment] = []
         for pid in post_external_ids:
             for c in self.comments.get(pid, []):
@@ -111,7 +124,7 @@ class FakePlatformAdapter:
             PostMetrics(
                 platform=self.platform,
                 post_external_id=post_external_id,
-                captured_at=datetime.now().astimezone(),
+                captured_at=self._now(),
                 likes=1,
             ),
         )
@@ -119,7 +132,7 @@ class FakePlatformAdapter:
     def read_account_metrics(self) -> AccountMetrics:
         return AccountMetrics(
             platform=self.platform,
-            captured_at=datetime.now().astimezone(),
+            captured_at=self._now(),
             followers=self.followers,
         )
 

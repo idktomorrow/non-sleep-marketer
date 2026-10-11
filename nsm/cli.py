@@ -52,14 +52,15 @@ def run(
 @app.command("render-preview")
 def render_preview(
     deck: Path = typer.Argument(..., exists=True, help="카드 덱 JSON"),
-    out: Path = typer.Option(Path("preview"), "--out"),
+    out: Path | None = typer.Option(None, "--out", help="기본: <NSM_HOME>/preview/render"),
 ) -> None:
     """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α)."""
+    from nsm.config.paths import preview_dir
     from nsm.domain.models import CardDeck
     from nsm.render import get_renderer
 
     d = CardDeck.model_validate_json(deck.read_text(encoding="utf-8"))
-    paths = get_renderer().render(d, out)
+    paths = get_renderer().render(d, out or preview_dir() / "render")
     for p in paths:
         typer.echo(str(p))
 

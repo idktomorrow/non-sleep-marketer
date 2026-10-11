@@ -127,3 +127,42 @@ def test_placeholder_renderer_writes_one_png_per_slide(fixtures_dir: Path, tmp_p
     paths = PlaceholderRenderer().render(deck, tmp_path)
     assert len(paths) == len(deck.slides)
     assert all(p.read_bytes().startswith(b"\x89PNG") for p in paths)
+
+
+@pytest.mark.parametrize("bad", ["#GGGGGG", "navy", "#12345"])
+def test_deck_rejects_invalid_colors(fixtures_dir: Path, bad: str) -> None:
+    raw = json.loads((fixtures_dir / "decks" / "info.json").read_text("utf-8"))
+    raw["brand"]["primary_color"] = bad
+    with pytest.raises(ValidationError):
+        CardDeck.model_validate(raw)
+
+
+def test_migrations_bring_old_db_up_to_date(tmp_path: Path, monkeypatch) -> None:
+    import nsm.store.db as dbmod
+
+    p = tmp_path / "old.duckdb"
+    Database(p).close()
+    monkeypatch.setattr(dbmod, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(dbmod, "MIGRATIONS", {2: ["ALTER TABLE contents ADD COLUMN extra VARCHAR"]})
+    d = Database(p)
+    assert d.schema_version == 2
+    cols = {
+        r[0]
+        for r in d.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name='contents'"
+        )
+    }
+    assert "extra" in cols
+    d.close()
+
+
+def test_fake_adapter_respects_capabilities() -> None:
+    from nsm.ports import NotSupportedError
+
+    a = FakePlatformAdapter("naver_blog", capabilities={"reply"})
+    with pytest.raises(NotSupportedError):
+        a.publish(
+            RenderedPost(content_id="c", platform="naver_blog", text="t", images=[], title="x")
+        )
+    with pytest.raises(NotSupportedError):
+        a.fetch_new_comments(["p"], None)

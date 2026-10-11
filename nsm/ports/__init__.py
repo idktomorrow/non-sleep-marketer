@@ -16,6 +16,7 @@ from nsm.domain.models import (
     Classification,
     Comment,
     ContentBrief,
+    CostKind,
     GeneratedContent,
     HealthStatus,
     Persona,
@@ -32,7 +33,6 @@ CAPABILITIES = frozenset(
         "fetch_comments",
         "reply",
         "hide_comment",
-        "delete_comment",
         "post_metrics",
         "account_metrics",
     }
@@ -110,4 +110,4 @@ class Clock(Protocol):
 class CostSink(Protocol):
     """어댑터가 API 비용을 보고하는 곳. 저장소가 구현한다."""
 
-    def record_cost(self, kind: str, provider: str, usd: float, ref: str = "") -> None: ...
+    def record_cost(self, kind: CostKind, provider: str, usd: float, ref: str = "") -> None: ...

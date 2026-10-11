@@ -42,6 +42,8 @@ def _config() -> Check:
 
         load_config(p)
         return Check("설정 파일", "OK", str(p))
+    except ModuleNotFoundError:
+        return Check("설정 파일", "WARN", "설정 로더는 배치 C에서 추가됩니다")
     except Exception as e:  # noqa: BLE001
         return Check("설정 파일", "FAIL", f"{p}: {e}")
 
@@ -55,6 +57,8 @@ def _secrets() -> Check:
         missing = [k for k in KEYS if k not in have]
         status: Status = "OK" if "anthropic_api_key" in have else "WARN"
         return Check("API 키", status, f"있음: {have or '-'} / 없음: {missing or '-'}")
+    except ModuleNotFoundError:
+        return Check("API 키", "WARN", "키 저장소는 배치 C에서 추가됩니다")
     except Exception as e:  # noqa: BLE001
         return Check("API 키", "WARN", f"keyring 확인 실패: {e}")
 

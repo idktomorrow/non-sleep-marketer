@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project python .claude/hooks/stop_pytest.py",
+            "command": "uv run --no-project python \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_pytest.py\"",
             "timeout": 300
           }
         ]

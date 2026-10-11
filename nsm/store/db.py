@@ -17,6 +17,11 @@ import duckdb
 
 SCHEMA_VERSION = 1
 
+# 버전 n-1 -> n 으로 올리는 SQL. schema.sql은 항상 최신 형태(새 설치용)이고,
+# 기존 사용자 DB는 여기 단계를 차례로 적용해 따라잡는다.
+# 예: MIGRATIONS = {2: ["ALTER TABLE contents ADD COLUMN foo VARCHAR"]}
+MIGRATIONS: dict[int, list[str]] = {}
+
 
 def to_db(dt: datetime | None) -> datetime | None:
     """aware datetime → UTC naive (DB 저장용)."""
@@ -46,15 +51,32 @@ class Database:
     def _apply_schema(self) -> None:
         sql = resources.files("nsm.store").joinpath("schema.sql").read_text(encoding="utf-8")
         with self._lock:
+            row = self._conn.execute(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name = 'schema_version'"
+            ).fetchone()
+            fresh = not row or row[0] == 0
             self._conn.execute(sql)
-            row = self._conn.execute("SELECT max(version) FROM schema_version").fetchone()
-            if row is None or row[0] is None:
+            if fresh:
                 self._conn.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
+                return
+            current = self._read_version(self._conn)
+            for v in range(current + 1, SCHEMA_VERSION + 1):
+                for stmt in MIGRATIONS.get(v, []):
+                    self._conn.execute(stmt)
+                self._conn.execute("INSERT INTO schema_version VALUES (?)", [v])
+
+    @staticmethod
+    def _read_version(conn: duckdb.DuckDBPyConnection) -> int:
+        row = conn.execute("SELECT max(version) FROM schema_version").fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
 
     @property
     def schema_version(self) -> int:
-        row = self._conn.execute("SELECT max(version) FROM schema_version").fetchone()
-        return int(row[0]) if row and row[0] is not None else 0
+        cur = self._conn.cursor()
+        try:
+            return self._read_version(cur)
+        finally:
+            cur.close()
 
     def cursor(self) -> duckdb.DuckDBPyConnection:
         """스레드마다 별도 커서를 쓴다."""
@@ -77,9 +99,11 @@ class Database:
                 cur.close()
 
     def execute(self, sql: str, params: list | tuple | None = None) -> list[tuple]:
+        """단일 문장 실행. lock으로 직렬화해 스레드 간 트랜잭션 충돌을 피한다."""
         cur = self._conn.cursor()
         try:
-            cur.execute(sql, params or [])
+            with self._lock:
+                cur.execute(sql, params or [])
             try:
                 return cur.fetchall()
             except duckdb.InvalidInputException:

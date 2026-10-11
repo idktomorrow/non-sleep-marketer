@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, time
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 Platform = Literal["instagram", "threads", "naver_blog"]
 PLATFORMS: tuple[Platform, ...] = ("instagram", "threads", "naver_blog")
@@ -37,6 +38,18 @@ CostKind = Literal["llm", "image", "classifier"]
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+_HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+
+def _check_hex(v: str) -> str:
+    if not _HEX.match(v):
+        raise ValueError(f"색은 #RGB 또는 #RRGGBB 형식이어야 합니다: {v!r}")
+    return v
+
+
+HexColor = Annotated[str, AfterValidator(_check_hex)]
 
 
 # ---------------------------------------------------------------- 설정 계열
@@ -67,16 +80,9 @@ class Brand(_Model):
     industry: str
     products: list[str] = Field(default_factory=list)
     key_messages: list[str] = Field(default_factory=list)
-    primary_color: str = "#1E40AF"
-    accent_color: str = "#F59E0B"
+    primary_color: HexColor = "#1E40AF"
+    accent_color: HexColor = "#F59E0B"
     logo_path: Path | None = None
-
-    @field_validator("primary_color", "accent_color")
-    @classmethod
-    def _hex(cls, v: str) -> str:
-        if not (v.startswith("#") and len(v) in (4, 7)):
-            raise ValueError("색은 #RRGGBB 형식")
-        return v
 
 
 # ---------------------------------------------------------------- 수집·분류
@@ -103,8 +109,8 @@ class Classification(_Model):
 
 class DeckBrand(_Model):
     name: str
-    primary_color: str
-    accent_color: str
+    primary_color: HexColor
+    accent_color: HexColor
     logo_path: str | None = None
 
 

@@ -1,5 +1,6 @@
 -- DuckDB 스키마. 시각은 모두 UTC naive TIMESTAMP로 저장한다 (변환은 nsm/store/db.py).
--- 변경 시 SCHEMA_VERSION을 올리고 nsm/store/db.py의 MIGRATIONS에 단계를 추가한다.
+-- 변경 시 이 파일(새 설치용 최신 형태)을 고치고, nsm/store/db.py의 SCHEMA_VERSION을 올리고
+-- MIGRATIONS[새 버전]에 기존 DB를 따라잡게 하는 ALTER 문을 추가한다.
 
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
 
