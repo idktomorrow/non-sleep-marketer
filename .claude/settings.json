@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project python .claude/hooks/stop_pytest.py",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

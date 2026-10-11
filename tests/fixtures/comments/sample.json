@@ -1,0 +1,8 @@
+[
+  {"comment": {"platform": "threads", "external_id": "c1", "post_external_id": "p1", "author_id": "u1", "author_name": "민수", "text": "정리 너무 좋아요! 저장했어요", "created_at": "2026-10-11T10:00:00+09:00"}, "expected_category": "praise_general"},
+  {"comment": {"platform": "threads", "external_id": "c2", "post_external_id": "p1", "author_id": "u2", "author_name": "지연", "text": "다크 로스팅도 92도로 내리면 되나요?", "created_at": "2026-10-11T10:05:00+09:00"}, "expected_category": "question"},
+  {"comment": {"platform": "instagram", "external_id": "c3", "post_external_id": "p2", "author_id": "u3", "author_name": "현우", "text": "지난번에 산 원두 배송이 일주일째 안 와요. 너무하네요", "created_at": "2026-10-11T10:10:00+09:00"}, "expected_category": "complaint"},
+  {"comment": {"platform": "instagram", "external_id": "c4", "post_external_id": "p2", "author_id": "u4", "author_name": "소라", "text": "환불 되나요? 가격도 너무 비싸요", "created_at": "2026-10-11T10:15:00+09:00"}, "expected_category": "price_refund"},
+  {"comment": {"platform": "naver_blog", "external_id": "c5", "post_external_id": "p3", "author_id": "u5", "author_name": "법무팀", "text": "이 글은 저희 상표권을 침해하고 있습니다. 법적 조치하겠습니다", "created_at": "2026-10-11T10:20:00+09:00"}, "expected_category": "legal"},
+  {"comment": {"platform": "threads", "external_id": "c6", "post_external_id": "p1", "author_id": "u6", "author_name": "부업왕", "text": "하루 30분 투자로 월 500 버는 법 DM 주세요 http://spam.example", "created_at": "2026-10-11T10:25:00+09:00"}, "expected_category": "spam"}
+]

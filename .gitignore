@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+# 사용자 데이터 (NSM_HOME을 저장소 안으로 지정했을 때 대비)
+preview/
+*.duckdb
+*.duckdb.wal
+browser-profile/
+collect-profile/
+.nsm/
+.env
+.claude/settings.local.json

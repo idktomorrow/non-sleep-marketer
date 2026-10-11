@@ -1,0 +1,12 @@
+{
+  "template": "info",
+  "brand": {"name": "달빛로스터리", "primary_color": "#1E3A5F", "accent_color": "#F2A541", "logo_path": null},
+  "persona": {"name": "루나", "handle": "@luna.coffee.ai"},
+  "labels": {"virtual_person": true, "ad": false, "ai_generated_image": false},
+  "slides": [
+    {"kind": "cover", "title": "핸드드립 물 온도,\n왜 92도일까?", "subtitle": "추출이 달라지는 3가지 이유", "background": null},
+    {"kind": "body", "heading": "온도가 높으면", "body": "쓴맛 성분이 빠르게 녹아 나와 균형이 무너지기 쉽습니다.", "bullets": [], "background": null},
+    {"kind": "body", "heading": "온도가 낮으면", "body": "산미는 살지만 단맛과 바디감이 덜 추출됩니다.", "bullets": ["라이트 로스팅은 93~96도", "다크 로스팅은 85~90도"], "background": null},
+    {"kind": "outro", "cta": "저장해 두고 다음 드립 때 확인하세요", "sources": ["https://example.com/brew-temp", "https://example.com/sca-guide"], "background": null}
+  ]
+}
