@@ -22,3 +22,4 @@
 | [0008](0008-autopublish-guardrails.md) | 자동 게시 안전장치(보호 모드·쿼터·비용 상한·claim 출처) | 채택 |
 | [0009](0009-per-platform-publication-state.md) | 게시 상태를 플랫폼별 게시 레코드에 둔다 | 제안 |
 | [0010](0010-collect-driver-default-playwright.md) | 배치 B 전까지 드라이버 기본값 Playwright | 제안 |
+| [0011](0011-keyword-classifier-fallback.md) | 키가 없으면 키워드 분류기로 대체 | 제안 |

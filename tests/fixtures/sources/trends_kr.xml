@@ -1,0 +1,99 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:ht="https://trends.google.com/trending/rss" version="2.0">
+	<channel>
+		<title>Daily Search Trends</title>
+		<description>Recent searches</description>
+		<link>https://trends.google.com/trending/rss?geo=KR</link>
+		<atom:link href="https://trends.google.com/trending/rss?geo=KR" rel="self" type="application/rss+xml" />
+		<item>
+			<title>윤택</title>
+			<ht:approx_traffic>200+</ht:approx_traffic>
+			<description />
+			<link>https://trends.google.com/trending/rss?geo=KR</link>
+			<pubDate>Sat, 10 Oct 2026 23:20:00 -0700</pubDate>
+			<ht:picture>https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRxjofplwXNL_CaVuxOezIaEsIUYygEtLdpdyZKQZEAo5v7UKkkXmlv7Er70DU</ht:picture>
+			<ht:picture_source>뉴스1</ht:picture_source>
+			<ht:news_item>
+				<ht:news_item_title>윤택 "개그맨 데뷔 전 사업으로 하루 매출 3000만원…실패해 부모님 집도 경매"</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.news1.kr/entertain/broadcast-tv/6315825</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRxjofplwXNL_CaVuxOezIaEsIUYygEtLdpdyZKQZEAo5v7UKkkXmlv7Er70DU</ht:news_item_picture>
+				<ht:news_item_source>뉴스1</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>윤택, 벤처 사업 망해 빚더미…"부모님 집까지 경매로 날아가"</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.newsis.com/view/NISX20261011_0003820951</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTwAj0CMVyokQcTI-WZa9JjL-vHb2RVti1lZzi7tY7PtQSF11LiWhOUdoDYeZo</ht:news_item_picture>
+				<ht:news_item_source>뉴시스</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>‘자연인’ 일주일 재방만 400회… 이승윤 “난 집 사고 윤택은 땅 샀다” (‘데이앤나잇’)</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.mk.co.kr/news/broadcasting-service/12172801</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSOLlvXfofk52MWTZ-e0b3rbIuq9crqrZRTQnoeI98SgHK6ZLVdRHqQGBS1yPs</ht:news_item_picture>
+				<ht:news_item_source>매일경제</ht:news_item_source>
+			</ht:news_item>
+		</item>
+		<item>
+			<title>수수료</title>
+			<ht:approx_traffic>200+</ht:approx_traffic>
+			<description />
+			<link>https://trends.google.com/trending/rss?geo=KR</link>
+			<pubDate>Sat, 10 Oct 2026 23:10:00 -0700</pubDate>
+			<ht:picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTIXYYGNUCkaxLU329-Mg0RyP7yN5x7NSeWPHODNGSxOjKRp50dcasXJ-0A-MU</ht:picture>
+			<ht:picture_source>매일경제</ht:picture_source>
+			<ht:news_item>
+				<ht:news_item_title>“배달앱 수수료 상한제 생기나”…입법 본격화 속도</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.mk.co.kr/news/business/12172881</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTIXYYGNUCkaxLU329-Mg0RyP7yN5x7NSeWPHODNGSxOjKRp50dcasXJ-0A-MU</ht:news_item_picture>
+				<ht:news_item_source>매일경제</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>국민의힘 "음식 플랫폼법, 소상공인 부담 키울 우려…졸속 추진 안 돼"</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://zdnet.co.kr/view/?no=20261010112649</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcSflzy_d8Yl1R3jkBXSBffSj8hNylqpW7r9WaLUy0oyU26rpTKLMjvxZFjqSFw</ht:news_item_picture>
+				<ht:news_item_source>지디넷코리아</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>국민의힘 “배달 수수료 규제, 소상공인에 부담 전가 우려…졸속 입법 반대”</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.ddaily.co.kr/page/view/2026101011381571626</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn2.gstatic.com/images?q=tbn:ANd9GcTXKbXQ0olVDj2AMCONT0SWdHab3uFrW-6gwjUkSNmuiTsUr0fdhDT9Yed61qE</ht:news_item_picture>
+				<ht:news_item_source>디지털데일리</ht:news_item_source>
+			</ht:news_item>
+		</item>
+		<item>
+			<title>힐리어드</title>
+			<ht:approx_traffic>200+</ht:approx_traffic>
+			<description />
+			<link>https://trends.google.com/trending/rss?geo=KR</link>
+			<pubDate>Sat, 10 Oct 2026 23:10:00 -0700</pubDate>
+			<ht:picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnVQVkM7OCAie3zP-x_vMT4YlzYfSndzp5cuSIv-h1FP4Vz7kLBAM4ARBbe6M</ht:picture>
+			<ht:picture_source>연합뉴스</ht:picture_source>
+			<ht:news_item>
+				<ht:news_item_title>kt 힐리어드 3연타석 홈런 괴력…44개로 김도영과 홈런 공동 1위</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.yna.co.kr/view/AKR20261011030500007</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSnVQVkM7OCAie3zP-x_vMT4YlzYfSndzp5cuSIv-h1FP4Vz7kLBAM4ARBbe6M</ht:news_item_picture>
+				<ht:news_item_source>연합뉴스</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>[사진] 후라도, 힐리어드에 동점 솔로포 허용 - 조선비즈</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://biz.chosun.com/sports/sports_photo/2026/10/11/MZSTEOBQMM3GKMZYHBQTONRSGM/</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTWvWjeVT9NDTxdDILEJwHD4QkCHK7lo_-_lyG_5bG0y1HOjI0U0T6pyFb82N8</ht:news_item_picture>
+				<ht:news_item_source>Chosunbiz</ht:news_item_source>
+			</ht:news_item>
+			<ht:news_item>
+				<ht:news_item_title>KIA 김도영, 시즌 44호 홈런 '쾅'…홈런왕 굳히기</ht:news_item_title>
+				<ht:news_item_snippet />
+				<ht:news_item_url>https://www.newsis.com/view/NISX20261010_0003820649</ht:news_item_url>
+				<ht:news_item_picture>https://encrypted-tbn3.gstatic.com/images?q=tbn:ANd9GcSbFNhQyQ-_0SIcC8U6GrJMCf6ZZjhfwx61Xjipi9or0P73PL8Uvug0dGeLSVE</ht:news_item_picture>
+				<ht:news_item_source>뉴시스</ht:news_item_source>
+			</ht:news_item>
+		</item>
+		</channel>
+</rss>

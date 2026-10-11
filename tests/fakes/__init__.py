@@ -278,3 +278,32 @@ def load_comment_cases() -> list[tuple[Comment, str]]:
 def load_source_items() -> list[SourceItem]:
     raw = json.loads((FIXTURES / "sources" / "sample.json").read_text("utf-8"))
     return [SourceItem.model_validate(r) for r in raw]
+
+
+class FakeDriver:
+    """URL 접두어 → 링크 목록. 방문 기록을 남긴다."""
+
+    def __init__(self, pages: dict[str, list] | None = None, fail_on: str | None = None) -> None:
+        self.pages = pages or {}
+        self.fail_on = fail_on
+        self.visited: list[str] = []
+        self._current = ""
+        self.closed = False
+
+    def goto(self, url: str) -> None:
+        if self.fail_on and self.fail_on in url:
+            raise AdapterError(f"fake navigation failure: {url}")
+        self.visited.append(url)
+        self._current = url
+
+    def links(self) -> list:
+        for prefix, links in self.pages.items():
+            if self._current.startswith(prefix):
+                return list(links)
+        return []
+
+    def page_text(self) -> str:
+        return ""
+
+    def close(self) -> None:
+        self.closed = True

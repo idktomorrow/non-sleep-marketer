@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (배치 C 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 D1 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -93,17 +93,17 @@ erDiagram
 | `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
 | `nsm/store/` (스키마·리포지토리) | 완료 | 단위 | A(스키마), C | `Repository`: 중복 제거, 상태 전이 검사, 게시 재시도 조회, 답글 횟수, 비용 합계, 실행 로그 |
 | `nsm/config/` (YAML·keyring·마법사) | 완료 | 단위 | C | 마법사는 `WizardIO`로 입출력 분리, 키는 환경 변수 → keyring 순 |
-| `nsm/adapters/sources/` 4종 | 계획 | - | D1 | |
-| `nsm/adapters/classifier/` jev·claude | 계획 | - | D1 | |
+| `nsm/adapters/sources/` 4종 | 완료 | 단위 + 실사이트 스모크 | D1 | 업로드·네이버(블로그·뉴스)·구글 트렌드 RSS·커뮤니티 |
+| `nsm/adapters/classifier/` jev·claude | 완료 | 단위(가짜 클라이언트) | D1 | + 키워드 대체(ADR 0011). jev·Claude 실호출은 키 확보 후 확인 필요 |
 | `nsm/adapters/generator/` 텍스트·이미지 | 계획 | - | D2 | |
 | `nsm/domain/policy.py` | 계획 | - | E | |
-| `nsm/engine/` 잡 7개 | 계획 | - | E(collect·generate·publish·reply), F(health·metrics), H(weekly_report) | |
+| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect 완료, `runner`가 실행 로그·실패 알림 |
 | `nsm/adapters/platforms/dryrun.py` | 계획 | - | E | |
 | `nsm/app/` 대시보드 | 계획 | - | F(백엔드), I(디자인) | |
 | `nsm/scheduler/` + autostart | 계획 | - | F | |
 | `nsm/adapters/notify/` | 계획 | - | F | |
 | `nsm/render/` + `nsm/templates/` | 구현 중 | 단위 | S-α | 서브. 지금은 `PlaceholderRenderer`(단색 PNG)가 대신함 |
-| `nsm/adapters/drivers/` aside·playwright | 계획 | - | G | 기본값은 배치 B 결과 |
+| `nsm/adapters/drivers/` aside·playwright | 구현 중 | 스모크 | D1(수집용 Playwright), G | Playwright 수집 동작 확인. Aside는 배치 B 후(ADR 0010) |
 | `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
 | `tests/engine/` 시나리오 | 계획 | - | E | |
@@ -118,3 +118,6 @@ erDiagram
 - 콘텐츠 상태와 플랫폼별 게시 상태를 분리했다(ADR 0009). 계약 초안의 `publishing/failed/abandoned`는 `publications.status`로 옮김.
 - 브라우저 드라이버 기본값을 Playwright로 둠(ADR 0010).
 - 렌더러가 들어오기 전까지 `nsm/render/placeholder.py`가 슬라이드마다 단색 PNG를 만든다.
+- 분류기는 용도별 묶음(`ClassifierSet`: 관련성·주제·댓글)으로 조립한다. 키워드 대체 구현 때문(ADR 0011).
+- 자료의 관련성은 "relevant일 확률"로 통일해 `source_items.relevance`에 저장한다.
+- collect 잡은 배치 E가 아니라 D1에서 먼저 만들었다(수집 결과를 실제로 확인하기 위해).
