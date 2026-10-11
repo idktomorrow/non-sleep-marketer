@@ -74,6 +74,16 @@ class Persona(_Model):
     enabled: bool = False
     ad_label: bool = False  # 협찬 게시물 "광고" 표기
 
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> Persona:
+        # 깨진 정규식이 조용히 무시되면 안전장치가 꺼진 셈이라, 설정을 읽을 때 바로 막는다
+        for p in self.banned_patterns:
+            try:
+                re.compile(p)
+            except re.error as e:
+                raise ValueError(f"금칙 패턴 정규식 오류 '{p}': {e}") from e
+        return self
+
 
 class Brand(_Model):
     name: str
