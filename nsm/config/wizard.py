@@ -22,7 +22,7 @@ from nsm.config.store import (
     split_list,
 )
 from nsm.domain.labels import DEFAULT_BANNED_PATTERNS
-from nsm.domain.models import Brand, Persona
+from nsm.domain.models import Brand, Persona, _check_hex
 
 RISK_NOTICE = """\
 [위험 고지]
@@ -75,6 +75,23 @@ class TyperIO:
         return bool(typer.confirm(text, default=default))
 
 
+def _ask_color(io: WizardIO, text: str, default: str) -> str:
+    while True:
+        v = _ask(io, text, default)
+        try:
+            return _check_hex(v)
+        except ValueError as e:
+            io.echo(f"  {e}")
+
+
+def _ask_list(io: WizardIO, text: str, default: str) -> list[str]:
+    while True:
+        items = split_list(_ask(io, text, default))
+        if items:
+            return items
+        io.echo("  하나 이상 입력해 주세요 (쉼표로 구분).")
+
+
 def _ask(io: WizardIO, text: str, default: str = "", required: bool = True) -> str:
     while True:
         v = io.prompt(text, default=default).strip()
@@ -94,6 +111,11 @@ def wizard(
         existing: AppConfig | None = load_config(path)
         io.echo(f"기존 설정을 불러왔습니다: {path}\n엔터를 누르면 기존 값을 유지합니다.\n")
     except ConfigNotFoundError:
+        existing = None
+    except Exception as e:  # noqa: BLE001  깨진 설정도 마법사로 고칠 수 있어야 한다
+        backup = path.with_suffix(".yaml.broken")
+        path.replace(backup)
+        io.echo(f"기존 설정을 읽지 못해 {backup.name}로 옮기고 새로 만듭니다: {e}\n")
         existing = None
 
     # 1. 위험 고지
@@ -119,8 +141,9 @@ def wizard(
                 required=False,
             )
         ),
-        primary_color=_ask(io, "브랜드 주 색 (#RRGGBB)", b.primary_color if b else "#1E40AF"),
-        accent_color=_ask(io, "강조 색 (#RRGGBB)", b.accent_color if b else "#F59E0B"),
+        primary_color=_ask_color(io, "브랜드 주 색 (#RRGGBB)", b.primary_color if b else "#1E40AF"),
+        accent_color=_ask_color(io, "강조 색 (#RRGGBB)", b.accent_color if b else "#F59E0B"),
+        logo_path=b.logo_path if b else None,
     )
 
     # 3. 페르소나
@@ -145,7 +168,7 @@ def wizard(
         handle=_ask(io, "계정 핸들 (예: @luna.ai)", p.handle if p else ""),
         character=_ask(io, "인물상 (나이·직업·성격을 한 문장으로)", p.character if p else ""),
         tone=_ask(io, "말투", p.tone if p else "다정한 존댓말, 짧은 문장"),
-        topics=split_list(_ask(io, "관심 주제 (쉼표로 구분)", ", ".join(p.topics) if p else "")),
+        topics=_ask_list(io, "관심 주제 (쉼표로 구분)", ", ".join(p.topics) if p else ""),
         banned_words=split_list(
             _ask(io, "금칙어 (쉼표로 구분)", ", ".join(p.banned_words) if p else "", required=False)
         ),
@@ -156,8 +179,6 @@ def wizard(
             "설정이 끝나면 페르소나를 바로 켤까요?", default=p.enabled if p else True
         ),
     )
-    if not persona.topics:
-        raise WizardAbortedError("관심 주제가 하나 이상 필요합니다.")
 
     # 4. API 키
     io.echo("\n[3/4] API 키 (Windows 자격 증명 관리자에 저장, 엔터를 누르면 건너뜀)")
@@ -167,7 +188,13 @@ def wizard(
             f"{KEY_LABELS[key]} [현재: {mask(current)}]", default="", hide_input=True
         ).strip()
         if v:
-            secrets.set(key, v)
+            try:
+                secrets.set(key, v)
+            except Exception as e:  # noqa: BLE001  키 저장 실패가 나머지 설정을 날리면 안 된다
+                io.echo(
+                    f"  키를 저장하지 못했습니다({e}). 환경 변수로 넣을 수 있습니다: "
+                    "사용설명서 2절 참고."
+                )
 
     # 5. 플랫폼
     io.echo("\n[4/4] 플랫폼 계정")

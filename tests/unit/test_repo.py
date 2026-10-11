@@ -154,3 +154,34 @@ def test_recent_topics(repo: Repository, app_config, clock) -> None:
     _content(repo, app_config)
     assert repo.recent_topics(clock.now() - timedelta(days=14)) == {"핸드드립"}
     assert repo.recent_topics(clock.now() + timedelta(days=1)) == set()
+
+
+def test_failed_requires_retry_time_and_partial_publish_keeps_content_approved(
+    repo: Repository, app_config, clock
+) -> None:
+    c = _content(repo, app_config, status="approved")
+    repo.create_publications(c.id, ["threads", "instagram"])
+    t, i = sorted(repo.publications_for_content(c.id), key=lambda p: p.platform != "threads")
+    repo.transition_publication(t.id, "publishing")
+    with pytest.raises(ValueError):
+        repo.transition_publication(t.id, "failed", error="x")
+    repo.transition_publication(t.id, "published", external_id="t", url="u")
+    assert repo.mark_content_published_if_complete(c.id) is False
+    assert repo.get_content(c.id).status == "approved"
+    # 남은 플랫폼은 여전히 게시 대상
+    assert [p.id for p in repo.due_publications("instagram", clock.now())] == [i.id]
+    repo.transition_publication(i.id, "publishing")
+    repo.transition_publication(i.id, "published", external_id="i", url="u2")
+    assert repo.mark_content_published_if_complete(c.id) is True
+    assert repo.get_content(c.id).status == "published"
+
+
+def test_guarded_transition_rejects_stale_state(repo: Repository, app_config) -> None:
+    c = _content(repo, app_config, status="approved")
+    pid = repo.create_publications(c.id, ["threads"])[0]
+    repo.transition_publication(pid, "publishing")
+    # 두 번째 호출자는 이미 publishing인 것을 보고 실패해야 한다(이중 게시 방지)
+    with pytest.raises(InvalidTransitionError):
+        repo.transition_publication(pid, "publishing")
+    with pytest.raises(KeyError):
+        repo.transition_publication("ghost", "publishing")

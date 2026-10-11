@@ -134,3 +134,40 @@ def test_parse_windows() -> None:
 def test_env_var_overrides_keyring(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NSM_ANTHROPIC_API_KEY", "from-env")
     assert KeyringSecretStore(service="nsm-test-unused").get("anthropic_api_key") == "from-env"
+
+
+def test_wizard_reasks_bad_color_and_empty_topics(nsm_home: Path) -> None:
+    answers = list(NEW_ANSWERS)
+    answers[4:5] = ["blue", "#123456"]  # 주색: 잘못된 값 → 다시 묻기
+    i = answers.index("핸드드립, 원두")
+    answers[i : i + 1] = [" , ", "핸드드립"]  # 주제: 빈 목록 → 다시 묻기
+    cfg = wizard(ScriptedIO(answers, NEW_CONFIRMS), MemorySecretStore())
+    assert cfg.brand.primary_color == "#123456"
+    assert cfg.persona.topics == ["핸드드립"]
+
+
+def test_wizard_keeps_logo_and_survives_keyring_failure(nsm_home: Path) -> None:
+    wizard(ScriptedIO(NEW_ANSWERS, NEW_CONFIRMS), MemorySecretStore())
+    cfg = load_config()
+    save_config(
+        cfg.model_copy(
+            update={"brand": cfg.brand.model_copy(update={"logo_path": Path("C:/logo.png")})}
+        )
+    )
+
+    class BrokenStore(MemorySecretStore):
+        def set(self, key: str, value: str) -> None:
+            raise RuntimeError("no keyring backend")
+
+    answers = ["<default>"] * 13 + ["sk-x", "", ""]
+    cfg2 = wizard(ScriptedIO(answers, [True, False, True, True]), BrokenStore())
+    assert cfg2.brand.logo_path == Path("C:/logo.png")
+    assert load_config().brand.logo_path == Path("C:/logo.png")
+
+
+def test_wizard_recovers_from_broken_config(nsm_home: Path) -> None:
+    nsm_home.mkdir(parents=True, exist_ok=True)
+    (nsm_home / "config.yaml").write_text("brand: [broken", encoding="utf-8")
+    cfg = wizard(ScriptedIO(NEW_ANSWERS, NEW_CONFIRMS), MemorySecretStore())
+    assert cfg.brand.name == "달빛로스터리"
+    assert (nsm_home / "config.yaml.broken").exists()

@@ -52,6 +52,11 @@ PUBLICATION_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+def _sources_for(table: dict[str, set[str]], target: str) -> list[str]:
+    """target으로 갈 수 있는 이전 상태 목록."""
+    return sorted(s for s, nexts in table.items() if target in nexts)
+
+
 @dataclass
 class StoredComment:
     id: str
@@ -73,6 +78,11 @@ class Repository:
 
     def _now(self) -> datetime:
         return to_db(self.clock.now())  # type: ignore[return-value]
+
+    @staticmethod
+    def _count(rows: list[tuple]) -> int:
+        """DuckDB는 UPDATE 결과로 바뀐 행 수 한 줄을 돌려준다."""
+        return int(rows[0][0]) if rows and rows[0] and rows[0][0] is not None else 0
 
     # ------------------------------------------------------------ settings_kv
 
@@ -183,10 +193,13 @@ class Repository:
         }
 
     def mark_items_used(self, ids: list[str], content_id: str) -> None:
-        for i in ids:
-            self.db.execute(
-                "UPDATE source_items SET used_in_content_id = ? WHERE id = ?", [content_id, i]
-            )
+        if not ids:
+            return
+        marks = ",".join("?" * len(ids))
+        self.db.execute(
+            f"UPDATE source_items SET used_in_content_id = ? WHERE id IN ({marks})",
+            [content_id, *ids],
+        )
 
     # ------------------------------------------------------------ contents
 
@@ -256,17 +269,22 @@ class Repository:
         reason: str | None = None,
         approved_by: str | None = None,
     ) -> None:
-        rows = self.db.execute("SELECT status FROM contents WHERE id = ?", [content_id])
-        if not rows:
-            raise KeyError(content_id)
-        current = rows[0][0]
-        if new_status not in CONTENT_TRANSITIONS[current]:
-            raise InvalidTransitionError(f"콘텐츠 {content_id}: {current} → {new_status} 불가")
-        self.db.execute(
-            "UPDATE contents SET status = ?, review_reason = coalesce(?, review_reason), "
-            "approved_by = coalesce(?, approved_by), updated_at = ? WHERE id = ?",
-            [new_status, reason, approved_by, self._now(), content_id],
+        sources = _sources_for(CONTENT_TRANSITIONS, new_status)
+        marks = ",".join("?" * len(sources)) or "NULL"
+        # 읽고-쓰기를 한 문장으로: 허용된 이전 상태일 때만 바뀐다(동시 변경 경쟁 방지)
+        changed = self._count(
+            self.db.execute(
+                "UPDATE contents SET status = ?, review_reason = coalesce(?, review_reason), "
+                "approved_by = coalesce(?, approved_by), updated_at = ? "
+                f"WHERE id = ? AND status IN ({marks})",
+                [new_status, reason, approved_by, self._now(), content_id, *sources],
+            )
         )
+        if changed == 0:
+            rows = self.db.execute("SELECT status FROM contents WHERE id = ?", [content_id])
+            if not rows:
+                raise KeyError(content_id)
+            raise InvalidTransitionError(f"콘텐츠 {content_id}: {rows[0][0]} → {new_status} 불가")
 
     def update_generated(self, content_id: str, generated: GeneratedContent) -> None:
         """검토 대기열에서 사람이 고친 원고 저장."""
@@ -286,18 +304,22 @@ class Repository:
 
     def create_publications(self, content_id: str, platforms: list[Platform]) -> list[str]:
         ids = []
-        for p in platforms:
-            if self.db.execute(
-                "SELECT 1 FROM publications WHERE content_id = ? AND platform = ?", [content_id, p]
-            ):
-                continue
-            pid = new_id()
-            self.db.execute(
-                "INSERT INTO publications (id, content_id, platform, status, attempts, created_at) "
-                "VALUES (?, ?, ?, 'queued', 0, ?)",
-                [pid, content_id, p, self._now()],
-            )
-            ids.append(pid)
+        now = self._now()
+        with self.db.transaction() as cur:
+            for p in platforms:
+                cur.execute(
+                    "SELECT 1 FROM publications WHERE content_id = ? AND platform = ?",
+                    [content_id, p],
+                )
+                if cur.fetchall():
+                    continue
+                pid = new_id()
+                cur.execute(
+                    "INSERT INTO publications (id, content_id, platform, status, attempts, created_at) "
+                    "VALUES (?, ?, ?, 'queued', 0, ?)",
+                    [pid, content_id, p, now],
+                )
+                ids.append(pid)
         return ids
 
     _PUB_COLS = "id, content_id, platform, status, attempts, next_attempt_at, external_id, url, last_error, published_at"
@@ -350,31 +372,49 @@ class Repository:
         next_attempt_at: datetime | None = None,
         increment_attempts: bool = False,
     ) -> None:
-        rows = self.db.execute("SELECT status FROM publications WHERE id = ?", [pub_id])
-        if not rows:
-            raise KeyError(pub_id)
-        current = rows[0][0]
-        if new_status not in PUBLICATION_TRANSITIONS[current]:
-            raise InvalidTransitionError(f"게시 {pub_id}: {current} → {new_status} 불가")
+        if new_status == "failed" and next_attempt_at is None:
+            raise ValueError("failed로 바꿀 때는 next_attempt_at(재시도 시각)이 필요합니다")
+        sources = _sources_for(PUBLICATION_TRANSITIONS, new_status)
+        marks = ",".join("?" * len(sources)) or "NULL"
         published_at = self._now() if new_status == "published" else None
-        self.db.execute(
-            "UPDATE publications SET status = ?, "
-            "external_id = coalesce(?, external_id), url = coalesce(?, url), "
-            "last_error = CASE WHEN ? = 'published' THEN NULL ELSE coalesce(?, last_error) END, "
-            "next_attempt_at = ?, attempts = attempts + ?, "
-            "published_at = coalesce(?, published_at) WHERE id = ?",
-            [
-                new_status,
-                external_id,
-                url,
-                new_status,
-                error,
-                to_db(next_attempt_at),
-                1 if increment_attempts else 0,
-                published_at,
-                pub_id,
-            ],
+        changed = self._count(
+            self.db.execute(
+                "UPDATE publications SET status = ?, "
+                "external_id = coalesce(?, external_id), url = coalesce(?, url), "
+                "last_error = CASE WHEN ? = 'published' THEN NULL ELSE coalesce(?, last_error) END, "
+                "next_attempt_at = ?, attempts = attempts + ?, "
+                f"published_at = coalesce(?, published_at) WHERE id = ? AND status IN ({marks})",
+                [
+                    new_status,
+                    external_id,
+                    url,
+                    new_status,
+                    error,
+                    to_db(next_attempt_at),
+                    1 if increment_attempts else 0,
+                    published_at,
+                    pub_id,
+                    *sources,
+                ],
+            )
         )
+        if changed == 0:
+            rows = self.db.execute("SELECT status FROM publications WHERE id = ?", [pub_id])
+            if not rows:
+                raise KeyError(pub_id)
+            raise InvalidTransitionError(f"게시 {pub_id}: {rows[0][0]} → {new_status} 불가")
+
+    def mark_content_published_if_complete(self, content_id: str) -> bool:
+        """모든 플랫폼 게시가 끝났을 때만 콘텐츠를 published로 바꾼다.
+
+        일부 플랫폼만 게시된 상태에서 콘텐츠를 published로 바꾸면 남은 게시가
+        due_publications에서 빠져 영영 올라가지 않는다(ADR 0009).
+        """
+        pubs = self.publications_for_content(content_id)
+        if not pubs or any(p.status != "published" for p in pubs):
+            return False
+        self.transition_content(content_id, "published")
+        return True
 
     def publications_in_status(self, status: PublicationStatus) -> list[Publication]:
         rows = self.db.execute(
