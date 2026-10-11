@@ -511,6 +511,13 @@ class Repository:
             )[0][0]
         )
 
+    def last_published_at(self, platform: Platform) -> datetime | None:
+        row = self.db.execute(
+            "SELECT max(published_at) FROM publications WHERE platform = ? AND status = 'published'",
+            [platform],
+        )
+        return from_db(row[0][0]) if row and row[0][0] else None
+
     def published_posts_since(self, platform: Platform, since: datetime) -> list[Publication]:
         rows = self.db.execute(
             f"SELECT {self._PUB_COLS} FROM publications WHERE platform = ? AND status = 'published' "
@@ -708,7 +715,7 @@ class Repository:
 
     def recent_runs(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.db.execute(
-            "SELECT job, started_at, finished_at, ok, message FROM run_logs ORDER BY started_at DESC LIMIT ?",
+            "SELECT job, started_at, finished_at, ok, message FROM run_logs ORDER BY started_at DESC, rowid DESC LIMIT ?",
             [limit],
         )
         return [

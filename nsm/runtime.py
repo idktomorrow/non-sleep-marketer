@@ -57,6 +57,20 @@ def _web_sources(cfg: AppConfig, clock: SystemClock, stack: ExitStack) -> list:
     return out
 
 
+def make_platform_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
+    """드라이런이면 미리보기 어댑터, 아니면 실계정 어댑터(배치 G)."""
+    if cfg.settings.dry_run:
+        from nsm.adapters.platforms.dryrun import DryRunAdapter
+
+        return {
+            p: DryRunAdapter(p, paths.preview_dir(), clock) for p in cfg.settings.enabled_platforms
+        }
+    log.warning(
+        "실계정 어댑터는 배치 G에서 구현됩니다. 지금은 config.yaml에서 dry_run: true로 쓰세요."
+    )
+    return {}
+
+
 def build_context(
     cfg: AppConfig,
     db: Database,
@@ -98,6 +112,7 @@ def build_context(
         text_generator=make_text_generator(cfg, secrets, repo),
         image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
         renderer=get_renderer(),
+        adapters=make_platform_adapters(cfg, clock),
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
         reports_dir=paths.reports_dir(),
@@ -115,6 +130,10 @@ def run_job_once(job: str) -> None:
     try:
         with ExitStack() as stack:
             ctx = build_context(cfg, db, stack)
+            from nsm.engine.publish import recover_interrupted
+
+            # 이 프로세스가 DB를 연 유일한 프로세스이므로(DuckDB 잠금), 남은 publishing은 중단된 것이다
+            recover_interrupted(ctx)
             result = run_job(job, ctx)
             print(result.summary())
             if not result.ok:

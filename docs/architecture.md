@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (배치 D2 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 E 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -96,9 +96,9 @@ erDiagram
 | `nsm/adapters/sources/` 4종 | 완료 | 단위 + 실사이트 스모크 | D1 | 업로드·네이버(블로그·뉴스)·구글 트렌드 RSS·커뮤니티 |
 | `nsm/adapters/classifier/` jev·claude | 완료 | 단위(가짜 클라이언트) | D1 | + 키워드 대체(ADR 0011). jev·Claude 실호출은 키 확보 후 확인 필요 |
 | `nsm/adapters/generator/` 텍스트·이미지 | 완료 | 단위(가짜 클라이언트) | D2 | Claude(구조화 출력 + fallback), OpenAI 배경. 실호출은 키 확보 후 확인 필요 |
-| `nsm/domain/policy.py` | 구현 중 | 단위 | D1·D2, E | 활동 시간·게시 판정·금칙어·배정·템플릿 순환·비용 상한 완료. 댓글 판정·표기 삽입은 E |
-| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect·generate 완료, `runner`가 실행 로그·실패 알림 |
-| `nsm/adapters/platforms/dryrun.py` | 계획 | - | E | |
+| `nsm/domain/policy.py` | 완료 | 단위 | D1·D2·E | 활동 시간·게시 판정·금칙어·배정·템플릿 순환·비용 상한·표기 삽입·댓글 판정 |
+| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect·generate·publish 완료, `runner`가 실행 로그·실패 알림, 재시작 복구 |
+| `nsm/adapters/platforms/dryrun.py` | 완료 | 경계 2(드라이런) + E2E | E | 미리보기 저장, 게시 시각 기준 가짜 댓글·지표, 답글·숨김 로그 |
 | `nsm/app/` 대시보드 | 계획 | - | F(백엔드), I(디자인) | |
 | `nsm/scheduler/` + autostart | 계획 | - | F | |
 | `nsm/adapters/notify/` | 계획 | - | F | |
@@ -106,7 +106,7 @@ erDiagram
 | `nsm/adapters/drivers/` aside·playwright | 구현 중 | 스모크 | D1(수집용 Playwright), G | Playwright 수집 동작 확인. Aside는 배치 B 후(ADR 0010) |
 | `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
-| `tests/engine/` 시나리오 | 계획 | - | E | |
+| `tests/engine/` 시나리오 | 구현 중 | 경계 1 | D1·D2·E, F | 수집·생성·게시·드라이런 E2E 완료. 댓글 시나리오는 F |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |
 | `tests/render/` | 계획 | - | S-α | 서브 |
 | `tests/app/` | 계획 | - | F | |
@@ -124,3 +124,5 @@ erDiagram
 - generate 잡과 게시 판정 정책도 D2에서 먼저 만들었다.
 - "최근 14일 주제 제외" 대신 페르소나 주제 순환 + 자료 1회 사용으로 바꿨다(ADR 0012). `topic_cooldown_days`는 아직 안 쓴다.
 - DB 스키마 v2: `contents.persona_topic`.
+- 같은 플랫폼 게시 사이 최소 간격(`min_hours_between_posts`, 기본 3시간)을 추가했다. 계약 초안의 "활동 시간 내 무작위 시각"은 F의 스케줄러 지터 + 이 간격으로 구현한다.
+- 재시작 복구(`recover_interrupted`)는 프로세스가 DB를 열 때마다 실행한다. DuckDB 잠금 때문에 다른 프로세스가 동시에 게시 중일 수 없어서 안전하다.

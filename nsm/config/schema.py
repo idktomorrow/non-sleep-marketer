@@ -54,6 +54,7 @@ class Settings(_Model):
     daily_cost_cap_usd: float = 3.0
     protect_count: int = 20
     retry_delays_minutes: list[int] = Field(default_factory=lambda: [15, 60, 240])
+    min_hours_between_posts: float = 3.0  # 같은 플랫폼 게시 사이 최소 간격
     relevance_threshold: float = 0.8
     reply_daily_limit_per_author: int = 3
     topic_cooldown_days: int = 14
