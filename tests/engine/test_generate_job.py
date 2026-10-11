@@ -151,6 +151,73 @@ def test_topic_rotation_prefers_least_recent(ctx: JobContext) -> None:
     run_generate(ctx)
     topics = [
         r[0]
-        for r in ctx.repo.db.execute("SELECT persona_topic FROM contents ORDER BY created_at, rowid")
+        for r in ctx.repo.db.execute(
+            "SELECT persona_topic FROM contents ORDER BY created_at, rowid"
+        )
     ]
     assert set(topics) == {"핸드드립", "원두"}
+
+
+def test_claim_citing_source_outside_brief_goes_to_review(ctx: JobContext) -> None:
+    _enable_auto(ctx, approvals=0)
+    other = load_source_items()[3]  # 이번 브리프에 없을 수 있는 자료
+
+    class CitesOther(FakeTextGenerator):
+        def generate_content(self, brief, persona, brand):
+            g = super().generate_content(brief, persona, brand)
+            from nsm.domain.models import Claim
+
+            ghost = next(
+                i for i in load_source_items() if i.id not in {s.id for s in brief.sources}
+            )
+            return g.model_copy(update={"claims": [Claim(text="x", source_item_id=ghost.id)]})
+
+    ctx.text_generator = CitesOther()
+    run_generate(ctx)
+    c = ctx.repo.list_contents()[-1]
+    assert c.status == "pending_review" and "출처가 확인되지 않는" in c.review_reason
+    assert other  # 자료 존재 확인
+
+
+def test_refusal_skips_material_and_continues(ctx: JobContext) -> None:
+    from nsm.ports import AdapterError
+
+    class RefuseFirst(FakeTextGenerator):
+        def __init__(self):
+            super().__init__()
+            self.n = 0
+
+        def generate_content(self, brief, persona, brand):
+            self.n += 1
+            if self.n == 1:
+                raise AdapterError("refusal")
+            return super().generate_content(brief, persona, brand)
+
+    _enable_auto(ctx, approvals=0)
+    ctx.text_generator = RefuseFirst()
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1  # 첫 묶음은 버리고 남은 자료로 하나
+    assert ctx.repo.unused_relevant_items(0.8) == []
+
+
+def test_save_is_atomic(ctx: JobContext, monkeypatch) -> None:
+    _enable_auto(ctx, approvals=0)
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+
+    real = ctx.repo.db.transaction
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def failing():
+        with real() as cur:
+            yield cur
+            boom()
+
+    monkeypatch.setattr(ctx.repo.db, "transaction", failing)
+    with pytest.raises(RuntimeError):  # runner가 잡아 실행 로그·알림으로 남긴다
+        run_generate(ctx)
+    assert ctx.repo.count_contents() == 0
+    assert len(ctx.repo.unused_relevant_items(0.8)) == 4

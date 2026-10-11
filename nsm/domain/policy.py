@@ -56,11 +56,8 @@ def find_banned(texts: Iterable[str], persona: Persona) -> list[str]:
     for w in persona.banned_words:
         if w and w.lower() in low and w not in hits:
             hits.append(w)
-    for pat in persona.banned_patterns:
-        try:
-            m = re.search(pat, joined)
-        except re.error:
-            continue
+    for pat in persona.banned_patterns:  # Persona 검증에서 컴파일 가능함이 보장된다
+        m = re.search(pat, joined)
         if m and m.group(0) not in hits:
             hits.append(m.group(0))
     return hits

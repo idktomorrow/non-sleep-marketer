@@ -232,6 +232,54 @@ class Repository:
             ],
         )
 
+    def save_generated(
+        self,
+        content: Content,
+        *,
+        persona_topic: str | None,
+        approved_by_policy: bool,
+        item_ids: list[str],
+        platforms: list[Platform],
+    ) -> None:
+        """생성 결과 저장을 한 트랜잭션으로: 콘텐츠, 승인 기록, 자료 사용 표시, 게시 레코드.
+
+        중간에 실패하면 전부 취소돼 "게시 레코드 없는 승인 콘텐츠"나 "같은 자료 재사용"이 생기지 않는다.
+        """
+        now = self._now()
+        status = "approved" if approved_by_policy else content.status
+        with self.db.transaction() as cur:
+            cur.execute(
+                "INSERT INTO contents (id, status, topic, template, generated, relevance_confidence, "
+                "is_ad, review_reason, created_at, updated_at, persona_topic, approved_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    content.id,
+                    status,
+                    content.generated.topic,
+                    content.generated.template,
+                    content.generated.model_dump_json(),
+                    content.relevance_confidence,
+                    content.is_ad,
+                    content.review_reason,
+                    to_db(content.created_at),
+                    now,
+                    persona_topic,
+                    "policy" if approved_by_policy else None,
+                ],
+            )
+            if item_ids:
+                marks = ",".join("?" * len(item_ids))
+                cur.execute(
+                    f"UPDATE source_items SET used_in_content_id = ? WHERE id IN ({marks})",
+                    [content.id, *item_ids],
+                )
+            for p in platforms:
+                cur.execute(
+                    "INSERT INTO publications (id, content_id, platform, status, attempts, created_at) "
+                    "VALUES (?, ?, ?, 'queued', 0, ?)",
+                    [new_id(), content.id, p, now],
+                )
+
     _CONTENT_COLS = "id, status, generated, relevance_confidence, is_ad, created_at, review_reason"
 
     def _row_to_content(self, r: tuple) -> Content:

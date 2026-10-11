@@ -56,8 +56,6 @@ def test_find_banned_words_and_patterns(app_config) -> None:
     hits = find_banned(["제가 직접 써봤는데 좋아요"], persona)
     assert hits and "써봤" in hits[0]
     assert find_banned(["원두 고르는 법"], persona) == []
-    bad = persona.model_copy(update={"banned_patterns": ["(unclosed"]})
-    assert find_banned(["x"], bad) == []  # 잘못된 정규식은 무시
 
 
 def test_platform_assignment_follows_quotas() -> None:
@@ -82,3 +80,13 @@ def test_cost_cap_and_day_bounds() -> None:
     start, end = local_day_bounds(datetime(2026, 10, 10, 16, 0, tzinfo=UTC), "Asia/Seoul")
     assert start.isoformat().startswith("2026-10-11T00:00:00+09:00")
     assert (end - start).days == 1
+
+
+def test_invalid_banned_pattern_rejected_at_config(app_config) -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        app_config.persona.model_validate(
+            {**app_config.persona.model_dump(), "banned_patterns": ["(unclosed"]}
+        )

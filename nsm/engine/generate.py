@@ -13,6 +13,7 @@ from typing import Any
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content, ContentBrief, GeneratedContent, SourceItem
 from nsm.domain.policy import (
+    TEMPLATES,
     assign_platforms,
     choose_template,
     daily_content_target,
@@ -23,11 +24,15 @@ from nsm.domain.policy import (
     under_cost_cap,
 )
 from nsm.engine.context import JobContext, JobResult
+from nsm.ports import AdapterError
 
 log = logging.getLogger(__name__)
 
 SOURCES_PER_CONTENT = 3
 AUTO_PUBLISH_KEY = "auto_publish_enabled"
+GENERATION_FAILED = "generation_failed"  # source_items.used_in_content_id 표시값
+_RETRY_LATER = "__retry_later__"
+_SKIP_MATERIAL = "__skip_material__"
 
 
 def _strings(obj: Any) -> list[str]:
@@ -70,6 +75,13 @@ def _pick_material(
 
 def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -> GeneratedContent:
     if ctx.image_generator is None:
+        return gen
+    # 이미지도 돈이 든다: 텍스트 생성 후 상한을 넘었으면 배경 없이 간다
+    start, end = local_day_bounds(ctx.clock.now(), ctx.tz)
+    if not under_cost_cap(
+        ctx.repo.cost_between(start, end), ctx.config.settings.daily_cost_cap_usd
+    ):
+        result.errors.append("비용 상한에 도달해 배경 이미지를 건너뜀")
         return gen
     b = ctx.config.brand
     try:
@@ -126,8 +138,10 @@ def run_generate(ctx: JobContext) -> JobResult:
             result.skipped = "" if created else "쓸 자료 없음(관련 자료 수집 필요)"
             break
         cid = _make_one(ctx, material, made_today, now, result)
-        if cid is None:
-            break
+        if cid == _RETRY_LATER:
+            break  # 네트워크·API 장애: 자료는 그대로 두고 다음 실행에 다시
+        if cid == _SKIP_MATERIAL:
+            continue  # 이 자료 묶음은 버리고 다음 자료로
         created.append(cid)
 
     result.counts["created"] = len(created)
@@ -150,12 +164,12 @@ def _make_one(
     index_today: int,
     now: datetime,
     result: JobResult,
-) -> str | None:
+) -> str:
     s = ctx.config.settings
     persona, brand = ctx.config.persona, ctx.config.brand
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
-    template = choose_template(ctx.repo.recent_templates(len(("info", "list", "compare"))))
+    template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)))
     brief = ContentBrief(
         topic=f"{persona_topic}: {items[0].title}",
         template=template,
@@ -164,17 +178,29 @@ def _make_one(
     )
     try:
         gen = ctx.text_generator.generate_content(brief, persona, brand)  # type: ignore[union-attr]
-    except Exception as e:  # noqa: BLE001
-        log.warning("콘텐츠 생성 실패: %s", e)
+    except AdapterError as e:
+        # 거절·잘림·형식 오류: 이 자료 묶음이 문제일 가능성이 높다. 표시해 두고 다음 자료로.
+        log.warning("콘텐츠 생성 실패(자료 건너뜀): %s", e)
         result.errors.append(f"생성 실패: {e}")
-        return None
+        ctx.repo.mark_items_used([i.id for i in items], GENERATION_FAILED)
+        return _SKIP_MATERIAL
+    except Exception as e:  # noqa: BLE001  네트워크·API 장애
+        log.warning("콘텐츠 생성 실패(다음에 재시도): %s", e)
+        result.errors.append(f"생성 실패: {e}")
+        return _RETRY_LATER
     gen = _add_background(ctx, gen, result)
 
     claim_ids = [c.source_item_id for c in gen.claims]
+    brief_ids = {i.id for i in items}
+    # 출처는 "DB 어딘가에 있음"이 아니라 "이번에 준 자료 중 하나"여야 한다
+    verified = ctx.repo.existing_source_ids([i for i in claim_ids if i in brief_ids])
+    rel_by_id = {i.id: r for i, r in chosen}
+    cited_rel = [rel_by_id[i] for i in claim_ids if i in rel_by_id]
+    relevance = min(cited_rel) if cited_rel else 0.0
     decision = decide_publish(
         claim_source_ids=claim_ids,
-        existing_source_ids=ctx.repo.existing_source_ids(claim_ids),
-        relevance=min(r for _, r in chosen),
+        existing_source_ids=verified,
+        relevance=relevance,
         threshold=s.relevance_threshold,
         banned_hits=find_banned(all_texts(gen), persona),
         auto_publish_enabled=bool(ctx.repo.get_setting(AUTO_PUBLISH_KEY, False)),
@@ -183,19 +209,19 @@ def _make_one(
     )
     content = Content(
         id=new_id(),
-        # 승인 건은 draft로 넣고 바로 approved로 전이해 '정책이 승인함'을 기록한다
-        status="draft" if decision.status == "approved" else "pending_review",
+        status="pending_review" if decision.status != "approved" else "draft",
         generated=gen,
-        relevance_confidence=min(r for _, r in chosen),
+        relevance_confidence=relevance,
         is_ad=brief.is_ad,
         created_at=now,
         review_reason=decision.reason_text,
     )
-    ctx.repo.insert_content(content, persona_topic=persona_topic)
-    if decision.status == "approved":
-        ctx.repo.transition_content(content.id, "approved", approved_by="policy")
-    ctx.repo.mark_items_used([i.id for i in items], content.id)
-    platforms = assign_platforms(index_today, s.enabled_platforms, s.quotas)
-    ctx.repo.create_publications(content.id, platforms)
+    ctx.repo.save_generated(
+        content,
+        persona_topic=persona_topic,
+        approved_by_policy=decision.status == "approved",
+        item_ids=[i.id for i in items],
+        platforms=assign_platforms(index_today, s.enabled_platforms, s.quotas),
+    )
     result.counts.setdefault("templates", []).append(template)
     return content.id

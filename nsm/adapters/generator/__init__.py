@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from nsm.adapters.generator.image_api import NullImageGenerator, OpenAIImageGenerator
@@ -33,5 +34,9 @@ def make_image_generator(
     if mode == "off" or (mode == "auto" and not key):
         return NullImageGenerator()
     if not key:
-        raise RuntimeError("image_generation=on인데 OpenAI API 키가 없습니다 (`nsm init`)")
+        # 이미지 하나 때문에 모든 잡이 멈추면 안 된다: 경고하고 템플릿 배경으로
+        logging.getLogger(__name__).warning(
+            "image_generation=on인데 OpenAI API 키가 없어 템플릿 배경을 씁니다 (`nsm init`)"
+        )
+        return NullImageGenerator()
     return OpenAIImageGenerator(key, cfg.settings.models.image, media_dir, cost_sink)
