@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (배치 A 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 C 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -91,8 +91,8 @@ erDiagram
 | `nsm/cli.py` | 구현 중 | 경계 밖(CLI 테스트) | A | doctor·help 동작, 나머지 명령은 해당 배치 안내 후 종료 |
 | `nsm/domain/models.py` | 완료 | 단위 | A | 동결. ADR 0009 반영 |
 | `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
-| `nsm/store/` (스키마·리포지토리) | 구현 중 | 단위 | A(스키마), C | 스키마·`Database`·UTC 변환 완료, 리포지토리는 C |
-| `nsm/config/` (YAML·keyring·마법사) | 계획 | - | C | |
+| `nsm/store/` (스키마·리포지토리) | 완료 | 단위 | A(스키마), C | `Repository`: 중복 제거, 상태 전이 검사, 게시 재시도 조회, 답글 횟수, 비용 합계, 실행 로그 |
+| `nsm/config/` (YAML·keyring·마법사) | 완료 | 단위 | C | 마법사는 `WizardIO`로 입출력 분리, 키는 환경 변수 → keyring 순 |
 | `nsm/adapters/sources/` 4종 | 계획 | - | D1 | |
 | `nsm/adapters/classifier/` jev·claude | 계획 | - | D1 | |
 | `nsm/adapters/generator/` 텍스트·이미지 | 계획 | - | D2 | |
