@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS contents (
     review_reason VARCHAR,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
-    approved_by VARCHAR                -- 'policy' | 'human'
+    approved_by VARCHAR,               -- 'policy' | 'human'
+    persona_topic VARCHAR              -- 페르소나 관심 주제(주제 순환용, v2)
 );
 
 CREATE TABLE IF NOT EXISTS publications (

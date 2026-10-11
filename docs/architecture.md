@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (배치 D1 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 D2 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -95,9 +95,9 @@ erDiagram
 | `nsm/config/` (YAML·keyring·마법사) | 완료 | 단위 | C | 마법사는 `WizardIO`로 입출력 분리, 키는 환경 변수 → keyring 순 |
 | `nsm/adapters/sources/` 4종 | 완료 | 단위 + 실사이트 스모크 | D1 | 업로드·네이버(블로그·뉴스)·구글 트렌드 RSS·커뮤니티 |
 | `nsm/adapters/classifier/` jev·claude | 완료 | 단위(가짜 클라이언트) | D1 | + 키워드 대체(ADR 0011). jev·Claude 실호출은 키 확보 후 확인 필요 |
-| `nsm/adapters/generator/` 텍스트·이미지 | 계획 | - | D2 | |
-| `nsm/domain/policy.py` | 계획 | - | E | |
-| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect 완료, `runner`가 실행 로그·실패 알림 |
+| `nsm/adapters/generator/` 텍스트·이미지 | 완료 | 단위(가짜 클라이언트) | D2 | Claude(구조화 출력 + fallback), OpenAI 배경. 실호출은 키 확보 후 확인 필요 |
+| `nsm/domain/policy.py` | 구현 중 | 단위 | D1·D2, E | 활동 시간·게시 판정·금칙어·배정·템플릿 순환·비용 상한 완료. 댓글 판정·표기 삽입은 E |
+| `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | collect·generate 완료, `runner`가 실행 로그·실패 알림 |
 | `nsm/adapters/platforms/dryrun.py` | 계획 | - | E | |
 | `nsm/app/` 대시보드 | 계획 | - | F(백엔드), I(디자인) | |
 | `nsm/scheduler/` + autostart | 계획 | - | F | |
@@ -121,3 +121,6 @@ erDiagram
 - 분류기는 용도별 묶음(`ClassifierSet`: 관련성·주제·댓글)으로 조립한다. 키워드 대체 구현 때문(ADR 0011).
 - 자료의 관련성은 "relevant일 확률"로 통일해 `source_items.relevance`에 저장한다.
 - collect 잡은 배치 E가 아니라 D1에서 먼저 만들었다(수집 결과를 실제로 확인하기 위해).
+- generate 잡과 게시 판정 정책도 D2에서 먼저 만들었다.
+- "최근 14일 주제 제외" 대신 페르소나 주제 순환 + 자료 1회 사용으로 바꿨다(ADR 0012). `topic_cooldown_days`는 아직 안 쓴다.
+- DB 스키마 v2: `contents.persona_topic`.

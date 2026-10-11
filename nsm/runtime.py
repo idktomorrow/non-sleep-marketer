@@ -82,6 +82,9 @@ def build_context(
         sources.append(GoogleTrendsSource(clock, tz=cfg.settings.timezone))
     sources += _web_sources(cfg, clock, stack)
     classifiers = make_classifiers(cfg, secrets, repo)
+    from nsm.adapters.generator import make_image_generator, make_text_generator
+    from nsm.render import get_renderer
+
     return JobContext(
         config=cfg,
         repo=repo,
@@ -92,6 +95,9 @@ def build_context(
         topic_classifier=classifiers.topic,
         comment_classifier=classifiers.comment,
         classifier_name=classifiers.name,
+        text_generator=make_text_generator(cfg, secrets, repo),
+        image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
+        renderer=get_renderer(),
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
         reports_dir=paths.reports_dir(),

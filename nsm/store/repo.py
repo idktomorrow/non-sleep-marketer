@@ -212,11 +212,11 @@ class Repository:
 
     # ------------------------------------------------------------ contents
 
-    def insert_content(self, content: Content) -> None:
+    def insert_content(self, content: Content, persona_topic: str | None = None) -> None:
         now = self._now()
         self.db.execute(
             "INSERT INTO contents (id, status, topic, template, generated, relevance_confidence, is_ad, "
-            "review_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "review_reason, created_at, updated_at, persona_topic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 content.id,
                 content.status,
@@ -228,6 +228,7 @@ class Repository:
                 content.review_reason,
                 to_db(content.created_at),
                 now,
+                persona_topic,
             ],
         )
 
@@ -253,12 +254,12 @@ class Repository:
     def list_contents(self, status: ContentStatus | None = None, limit: int = 100) -> list[Content]:
         if status:
             rows = self.db.execute(
-                f"SELECT {self._CONTENT_COLS} FROM contents WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                f"SELECT {self._CONTENT_COLS} FROM contents WHERE status = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 [status, limit],
             )
         else:
             rows = self.db.execute(
-                f"SELECT {self._CONTENT_COLS} FROM contents ORDER BY created_at DESC LIMIT ?",
+                f"SELECT {self._CONTENT_COLS} FROM contents ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 [limit],
             )
         return [self._row_to_content(r) for r in rows]
@@ -301,6 +302,28 @@ class Repository:
             "UPDATE contents SET generated = ?, updated_at = ? WHERE id = ?",
             [generated.model_dump_json(), self._now(), content_id],
         )
+
+    def count_contents_between(self, start: datetime, end: datetime) -> int:
+        return int(
+            self.db.execute(
+                "SELECT count(*) FROM contents WHERE created_at >= ? AND created_at < ?",
+                [to_db(start), to_db(end)],
+            )[0][0]
+        )
+
+    def recent_templates(self, limit: int = 3) -> list[str]:
+        """최근 콘텐츠의 템플릿, 최신순."""
+        rows = self.db.execute(
+            "SELECT template FROM contents ORDER BY created_at DESC, rowid DESC LIMIT ?", [limit]
+        )
+        return [r[0] for r in rows]
+
+    def persona_topic_last_used(self) -> dict[str, datetime]:
+        rows = self.db.execute(
+            "SELECT persona_topic, max(created_at) FROM contents "
+            "WHERE persona_topic IS NOT NULL GROUP BY persona_topic"
+        )
+        return {r[0]: from_db(r[1]) for r in rows}  # type: ignore[misc]
 
     def recent_topics(self, since: datetime) -> set[str]:
         rows = self.db.execute(

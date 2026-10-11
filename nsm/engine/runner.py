@@ -7,11 +7,13 @@ from collections.abc import Callable
 
 from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.generate import run_generate
 
 log = logging.getLogger(__name__)
 
 JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "collect": run_collect,
+    "generate": run_generate,
 }
 
 
