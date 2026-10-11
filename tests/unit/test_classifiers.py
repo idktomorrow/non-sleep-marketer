@@ -127,3 +127,25 @@ def test_make_classifiers_auto_selection(app_config) -> None:
     )
     with pytest.raises(RuntimeError):
         make_classifiers(forced, MemorySecretStore(), sink)
+
+
+def test_claude_classifier_wraps_bad_json() -> None:
+    class BadJson(FakeMessages):
+        def create(self, **kwargs):
+            r = super().create(**kwargs)
+            r.content[1].text = '{"label": "rel'
+            return r
+
+    c = ClaudeClassifier(SimpleNamespace(messages=BadJson({})), "claude-haiku-5-5")
+    with pytest.raises(AdapterError):
+        c.classify("x", ["relevant", "irrelevant"], "q")
+
+
+def test_jev_scrubs_token_from_errors() -> None:
+    def connect(token):
+        raise RuntimeError(f"cannot open md:?motherduck_token={token}")
+
+    c = JevClassifier("SECRET-TOKEN", connect=connect)
+    with pytest.raises(AdapterError) as e:
+        c.classify_many(["a"], ["x", "y"], "q")
+    assert "SECRET-TOKEN" not in str(e.value)

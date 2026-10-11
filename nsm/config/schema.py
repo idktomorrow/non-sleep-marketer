@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nsm.domain.models import Brand, Persona, Platform
 
@@ -26,6 +26,14 @@ class CollectSettings(_Model):
     per_source_limit: int = 10
     min_delay_seconds: float = 3.0
     max_delay_seconds: float = 9.0
+
+    @field_validator("community_urls")
+    @classmethod
+    def _has_query(cls, v: list[str]) -> list[str]:
+        bad = [u for u in v if "{query}" not in u]
+        if bad:
+            raise ValueError(f"커뮤니티 검색 URL에는 {{query}} 자리표시자가 필요합니다: {bad}")
+        return v
 
 
 class ModelSettings(_Model):

@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-_TRACKING = ("utm_", "fbclid", "gclid", "ref", "from")
+_TRACKING_EXACT = {"fbclid", "gclid", "ref", "from", "igshid", "mc_cid", "mc_eid"}
 
 MAX_TEXT = 20_000
 
@@ -19,7 +19,7 @@ def normalize_url(url: str) -> str:
     query = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if not any(k.lower().startswith(t) for t in _TRACKING)
+        if not (k.lower().startswith("utm_") or k.lower() in _TRACKING_EXACT)
     ]
     path = parts.path.rstrip("/") or "/"
     host = parts.netloc.lower()

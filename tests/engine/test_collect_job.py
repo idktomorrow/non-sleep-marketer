@@ -113,3 +113,43 @@ def test_runner_logs_runs_and_notifies_on_crash(ctx: JobContext) -> None:
     assert ctx.notifier.calls[-1][2] == "error"
     with pytest.raises(KeyError):
         run_job("nope", ctx)
+
+
+class FlakyClassifier(FakeClassifier):
+    """일괄 호출은 실패하고, 특정 텍스트는 한 건 호출도 실패한다."""
+
+    def __init__(self, bad: str, **kw) -> None:
+        super().__init__(**kw)
+        self.bad = bad
+
+    def classify_many(self, texts, labels, instruction):
+        raise RuntimeError("batch failed")
+
+    def classify(self, text, labels, instruction):
+        if self.bad in text:
+            raise RuntimeError("refused")
+        return super().classify(text, labels, instruction)
+
+
+def test_collect_isolates_single_item_failures(ctx: JobContext) -> None:
+    ctx.relevance_classifier = FlakyClassifier(
+        "코스피", default=Classification(label="relevant", confidence=0.9)
+    )
+    r = run_collect(ctx)
+    assert r.counts["classified"] == 4 and r.counts["relevant"] == 3
+    # 실패한 항목은 닫혀서 다음 실행에 다시 비용을 쓰지 않는다
+    assert ctx.repo.unclassified_items() == []
+
+
+def test_collect_retries_missing_topic_next_run(ctx: JobContext) -> None:
+    class Down(FakeClassifier):
+        def classify(self, text, labels, instruction):
+            raise RuntimeError("api down")
+
+    good_topic = ctx.topic_classifier
+    ctx.topic_classifier = Down()
+    run_collect(ctx)
+    assert len(ctx.repo.relevant_items_without_topic(0.8)) == 3
+    ctx.topic_classifier = good_topic
+    run_collect(ctx)
+    assert ctx.repo.relevant_items_without_topic(0.8) == []

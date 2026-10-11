@@ -113,7 +113,8 @@ class CommunitySource:
         self.search_url = search_url
         host = urlsplit(search_url.replace("{query}", "x")).netloc
         self.name = f"community:{host}"
-        self._pattern = re.compile(rf"^https?://{re.escape(host)}/.+")
+        # 게시글 주소에는 보통 숫자 ID가 있다. 메뉴·게시판 목록·로그인 링크를 거른다.
+        self._pattern = re.compile(rf"^https?://{re.escape(host)}/\S*\d{{3,}}")
         self.driver = driver
         self.clock = clock
         self.pacer = pacer

@@ -112,14 +112,14 @@ def test_naver_source_respects_limit_and_survives_failure(clock) -> None:
 
 def test_community_source_keeps_same_host_links(clock) -> None:
     links = [
-        Link("홈카페 드리퍼 추천 부탁드려요", "https://cafe.example.com/board/10", "질문글"),
+        Link("홈카페 드리퍼 추천 부탁드려요", "https://cafe.example.com/board/10234", "질문글"),
         Link("다른 사이트로 가는 링크입니다", "https://other.com/x/1", "외부"),
     ]
     driver = FakeDriver({"https://cafe.example.com/search": links})
     src = CommunitySource("https://cafe.example.com/search?q={query}", driver, clock, _pacer()[0])
     assert src.name == "community:cafe.example.com"
     items = src.collect(["드리퍼"], 5)
-    assert [i.url for i in items] == ["https://cafe.example.com/board/10"]
+    assert [i.url for i in items] == ["https://cafe.example.com/board/10234"]
     with pytest.raises(ValueError):
         CommunitySource("https://cafe.example.com/search", driver, clock, _pacer()[0])
 
@@ -141,3 +141,42 @@ def test_google_trends_source_failure_returns_empty(clock) -> None:
         raise OSError("offline")
 
     assert GoogleTrendsSource(clock, fetch=boom).collect([], 5) == []
+
+
+def test_upload_source_skips_known_files_before_limit(tmp_path: Path, clock) -> None:
+    for n in range(4):
+        (tmp_path / f"{n}.txt").write_text(f"자료 {n}", encoding="utf-8")
+    first = UploadSource(tmp_path, clock).collect([], 2)
+    known = {i.url_hash for i in first}
+    second = UploadSource(tmp_path, clock, is_known=known.__contains__).collect([], 2)
+    assert {i.title for i in second} == {"2", "3"}
+
+
+def test_normalize_url_keeps_meaningful_params() -> None:
+    assert url_hash("https://x.com/view?refId=1") != url_hash("https://x.com/view?refId=2")
+    assert normalize_url("https://x.com/a?ref=tw&id=3") == normalize_url("https://x.com/a?id=3")
+
+
+def test_community_source_ignores_menu_links(clock) -> None:
+    links = [
+        Link("자유게시판 바로가기 메뉴", "https://cafe.example.com/board/free", "메뉴"),
+        Link("이용약관 및 개인정보처리방침", "https://cafe.example.com/terms", "푸터"),
+        Link("드리퍼 추천 부탁드립니다 질문", "https://cafe.example.com/board/free/12345", "본문"),
+    ]
+    driver = FakeDriver({"https://cafe.example.com/search": links})
+    src = CommunitySource("https://cafe.example.com/search?q={query}", driver, clock, _pacer()[0])
+    assert [i.url for i in src.collect(["드리퍼"], 5)] == [
+        "https://cafe.example.com/board/free/12345"
+    ]
+
+
+def test_trends_day_uses_local_timezone(fixtures_dir: Path) -> None:
+    from datetime import UTC, datetime
+
+    from tests.fakes import FixedClock
+
+    xml = (fixtures_dir / "sources" / "trends_kr.xml").read_text("utf-8")
+    # 23:30 UTC 10/10 = 08:30 KST 10/11, 01:00 UTC 10/11 = 10:00 KST 10/11 -> 같은 현지 날짜
+    a = parse_trends_rss(xml, FixedClock(datetime(2026, 10, 10, 23, 30, tzinfo=UTC)), 1)
+    b = parse_trends_rss(xml, FixedClock(datetime(2026, 10, 11, 1, 0, tzinfo=UTC)), 1)
+    assert a[0].url_hash == b[0].url_hash

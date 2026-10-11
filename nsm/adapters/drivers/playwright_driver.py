@@ -60,8 +60,14 @@ class PlaywrightDriver:
         return str(self._ensure().inner_text("body"))
 
     def close(self) -> None:
-        if self._ctx is not None:
-            self._ctx.close()
-        if self._pw is not None:
-            self._pw.stop()
-        self._ctx = self._pw = self._page = None
+        try:
+            if self._ctx is not None:
+                self._ctx.close()
+        except Exception:  # noqa: BLE001  브라우저가 이미 죽었어도 Playwright는 멈춘다
+            pass
+        finally:
+            try:
+                if self._pw is not None:
+                    self._pw.stop()
+            finally:
+                self._ctx = self._pw = self._page = None

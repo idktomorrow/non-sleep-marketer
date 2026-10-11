@@ -56,12 +56,15 @@ class ClaudeClassifier:
                 claude_cost(self.model, usage.input_tokens, usage.output_tokens),
                 "classify",
             )
-        if response.stop_reason == "refusal":
-            raise AdapterError("분류 요청이 거절됐습니다(refusal)")
+        if response.stop_reason in ("refusal", "max_tokens"):
+            raise AdapterError(f"분류 응답을 쓸 수 없습니다(stop_reason={response.stop_reason})")
         raw = next((b.text for b in response.content if b.type == "text"), None)
         if raw is None:
             raise AdapterError(f"분류 응답에 텍스트가 없습니다(stop_reason={response.stop_reason})")
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise AdapterError(f"분류 응답 JSON 파싱 실패: {e}") from e
         label = data["label"] if data.get("label") in labels else labels[-1]
         conf = min(1.0, max(0.0, float(data.get("confidence", 0.0))))
         return Classification(label=label, confidence=conf)

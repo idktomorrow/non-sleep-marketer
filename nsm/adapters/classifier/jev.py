@@ -62,8 +62,12 @@ class JevClassifier:
             else:
                 import duckdb
 
-                self._conn = duckdb.connect(f"md:?motherduck_token={self._token}")
+                # 토큰을 연결 문자열에 넣지 않는다(오류 메시지에 경로가 찍힐 수 있음)
+                self._conn = duckdb.connect("md:", config={"motherduck_token": self._token})
         return self._conn
+
+    def _scrub(self, e: Exception) -> str:
+        return str(e).replace(self._token, "***") if self._token else str(e)
 
     def _record(self, rows: int) -> None:
         if self.cost_sink:
@@ -77,7 +81,7 @@ class JevClassifier:
         except AdapterError:
             raise
         except Exception as e:  # noqa: BLE001
-            raise AdapterError(f"prompt_jev 호출 실패: {e}") from e
+            raise AdapterError(f"prompt_jev 호출 실패: {self._scrub(e)}") from None
         self._record(1)
         return _to_classification(row[0], labels)
 
@@ -86,12 +90,12 @@ class JevClassifier:
     ) -> list[Classification]:
         if not texts:
             return []
-        db = self._db()
         try:
+            db = self._db()
             db.execute("CREATE OR REPLACE TEMP TABLE nsm_jev_input (idx INTEGER, t VARCHAR)")
             db.executemany("INSERT INTO nsm_jev_input VALUES (?, ?)", list(enumerate(texts)))
             rows = db.execute(build_sql(instruction, labels, True)).fetchall()
         except Exception as e:  # noqa: BLE001
-            raise AdapterError(f"prompt_jev 일괄 호출 실패: {e}") from e
+            raise AdapterError(f"prompt_jev 일괄 호출 실패: {self._scrub(e)}") from None
         self._record(len(texts))
         return [_to_classification(r[1], labels) for r in rows]

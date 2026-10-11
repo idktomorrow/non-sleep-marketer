@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from nsm.adapters.sources.common import clip, url_hash
@@ -48,9 +49,13 @@ def extract_text(path: Path) -> str:
 class UploadSource:
     name = "upload"
 
-    def __init__(self, folder: Path, clock: Clock) -> None:
+    def __init__(
+        self, folder: Path, clock: Clock, is_known: Callable[[str], bool] | None = None
+    ) -> None:
         self.folder = folder
         self.clock = clock
+        # 이미 저장된 파일(해시)은 건너뛰어야 상한에 막혀 뒤쪽 파일이 영영 안 들어오는 일이 없다
+        self.is_known = is_known or (lambda _h: False)
 
     def collect(self, topics: list[str], limit: int) -> list[SourceItem]:
         if not self.folder.is_dir():
@@ -61,6 +66,11 @@ class UploadSource:
                 break
             if not path.is_file() or path.suffix.lower() not in SUPPORTED:
                 continue
+            st = path.stat()
+            uri = path.resolve().as_uri()
+            h = url_hash(f"{uri}#{st.st_size}-{int(st.st_mtime)}")
+            if self.is_known(h):
+                continue
             try:
                 text = clip(extract_text(path))
             except Exception as e:  # noqa: BLE001  파일 하나가 깨져도 나머지는 계속
@@ -68,8 +78,6 @@ class UploadSource:
                 continue
             if not text.strip():
                 continue
-            st = path.stat()
-            uri = path.resolve().as_uri()
             items.append(
                 SourceItem(
                     id=new_id(),
@@ -78,7 +86,7 @@ class UploadSource:
                     title=path.stem,
                     text=text,
                     collected_at=self.clock.now(),
-                    url_hash=url_hash(f"{uri}#{st.st_size}-{int(st.st_mtime)}"),
+                    url_hash=h,
                 )
             )
         return items

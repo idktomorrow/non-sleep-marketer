@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 
+from nsm.domain.models import Classification
 from nsm.domain.policy import should_act
 from nsm.engine.context import JobContext, JobResult
-from nsm.ports import AdapterError
 
 log = logging.getLogger(__name__)
 
@@ -60,34 +60,50 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
     if ctx.relevance_classifier is None or ctx.topic_classifier is None:
         result.errors.append("분류기가 설정되지 않았습니다")
         return 0, 0
-    pending = ctx.repo.unclassified_items()
-    if not pending:
-        return 0, 0
     threshold = ctx.config.settings.relevance_threshold
-    topics = ctx.config.persona.topics
+    pending = ctx.repo.unclassified_items()
     texts = [f"{i.title}\n{i.text}" for i in pending]
+    instruction = relevance_instruction(ctx)
     try:
-        rel = ctx.relevance_classifier.classify_many(
-            texts, RELEVANCE_LABELS, relevance_instruction(ctx)
+        rel: list[Classification | None] = list(
+            ctx.relevance_classifier.classify_many(texts, RELEVANCE_LABELS, instruction)
         )
-    except (AdapterError, Exception) as e:  # noqa: BLE001
-        result.errors.append(f"관련성 분류 실패: {e}")
-        return 0, 0
+    except Exception as e:  # noqa: BLE001  일괄 실패 → 한 건씩 다시 시도
+        log.warning("관련성 일괄 분류 실패, 한 건씩 재시도: %s", e)
+        rel = []
+        for text in texts:
+            try:
+                rel.append(ctx.relevance_classifier.classify(text, RELEVANCE_LABELS, instruction))
+            except Exception as e2:  # noqa: BLE001
+                result.errors.append(f"관련성 분류 실패: {e2}")
+                rel.append(None)
 
     relevant = 0
-    for item, text, c in zip(pending, texts, rel, strict=True):
+    for item, c in zip(pending, rel, strict=True):
+        if c is None:
+            # 같은 항목이 매 실행마다 실패하며 비용만 쓰지 않도록 관련성 0으로 닫는다
+            ctx.repo.set_source_relevance(item.id, 0.0)
+            ctx.repo.record_classification(
+                "source_item", item.id, "relevance", "error", 0.0, ctx.classifier_name
+            )
+            continue
         # "relevant일 확률"로 통일해서 저장한다
         score = c.confidence if c.label == "relevant" else 1.0 - c.confidence
         ctx.repo.set_source_relevance(item.id, score)
         ctx.repo.record_classification(
             "source_item", item.id, "relevance", c.label, c.confidence, ctx.classifier_name
         )
-        if score < threshold:
-            continue
-        relevant += 1
+        if score >= threshold:
+            relevant += 1
+
+    # 관련 자료 중 주제가 아직 없는 것(이번 것 + 지난번 주제 분류 실패분)
+    topics = ctx.config.persona.topics
+    for item in ctx.repo.relevant_items_without_topic(threshold):
         try:
-            t = ctx.topic_classifier.classify(text, topics, topic_instruction(ctx))
-        except Exception as e:  # noqa: BLE001
+            t = ctx.topic_classifier.classify(
+                f"{item.title}\n{item.text}", topics, topic_instruction(ctx)
+            )
+        except Exception as e:  # noqa: BLE001  다음 실행에서 다시 시도된다
             result.errors.append(f"주제 분류 실패({item.id}): {e}")
             continue
         ctx.repo.set_source_topic(item.id, t.label, t.confidence)

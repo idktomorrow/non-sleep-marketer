@@ -72,10 +72,14 @@ def build_context(
     repo = Repository(db, clock)
     c = cfg.settings.collect
     sources: list = [
-        UploadSource(Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(), clock)
+        UploadSource(
+            Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(),
+            clock,
+            is_known=repo.has_url_hash,
+        )
     ]
     if c.google_trends:
-        sources.append(GoogleTrendsSource(clock))
+        sources.append(GoogleTrendsSource(clock, tz=cfg.settings.timezone))
     sources += _web_sources(cfg, clock, stack)
     classifiers = make_classifiers(cfg, secrets, repo)
     return JobContext(

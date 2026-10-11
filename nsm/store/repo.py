@@ -178,6 +178,15 @@ class Repository:
         )
         return [self._row_to_item(r) for r in rows]
 
+    def relevant_items_without_topic(self, threshold: float, limit: int = 200) -> list[SourceItem]:
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items "
+            "WHERE relevance >= ? AND topic IS NULL AND used_in_content_id IS NULL "
+            "ORDER BY collected_at LIMIT ?",
+            [threshold, limit],
+        )
+        return [self._row_to_item(r) for r in rows]
+
     def get_source_item(self, item_id: str) -> SourceItem | None:
         rows = self.db.execute(
             f"SELECT {self._ITEM_COLS} FROM source_items WHERE id = ?", [item_id]
