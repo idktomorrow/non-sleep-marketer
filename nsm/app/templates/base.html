@@ -12,6 +12,7 @@
   <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토 대기열</a>
   <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
   <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
+  {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
   <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 로그</a>
   <span class="muted">{{ cfg.persona.name }} {{ cfg.persona.handle }}{% if cfg.settings.dry_run %} · 드라이런{% endif %}</span>
 </nav>

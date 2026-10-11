@@ -25,3 +25,4 @@
 | [0011](0011-keyword-classifier-fallback.md) | 키가 없으면 키워드 분류기로 대체 | 제안 |
 | [0012](0012-daily-target-and-topic-rotation.md) | 하루 목표·플랫폼 배정·주제 순환 | 제안 |
 | [0013](0013-autostart-startup-folder.md) | 자동 실행은 시작프로그램 폴더로 | 제안 |
+| [0014](0014-rule-based-weekly-report.md) | 주간 리포트는 규칙 계산, 기간은 현지 날짜 지난 7일 | 제안 |

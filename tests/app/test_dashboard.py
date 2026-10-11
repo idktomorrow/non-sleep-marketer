@@ -51,6 +51,7 @@ def env(db, clock, app_config, tmp_path: Path):
         submit=_run_now,
         adapters=adapters,
         media_dir=tmp_path / "media",
+        reports_dir=tmp_path / "reports",
         run_job_now=lambda name: _run_now(lambda: name),
         job_names=frozenset({"collect", "publish"}),
     )
@@ -251,3 +252,25 @@ def test_reply_not_sent_twice(env) -> None:
     assert _post(env, f"/comments/{key}/reply", text="답").status_code == 303
     assert _post(env, f"/comments/{key}/reply", text="답").status_code == 409
     assert len(env["adapters"]["threads"].replied) == 1
+
+
+def test_reports_page(env) -> None:
+    d = env["state"].reports_dir
+    assert "아직 리포트가 없습니다" in env["client"].get("/reports").text
+    d.mkdir(parents=True)
+    (d / "weekly-2026-10-05.md").write_text("# 주간 리포트 지난주", encoding="utf-8")
+    (d / "weekly-2026-10-12.md").write_text("# 주간 리포트 이번주", encoding="utf-8")
+    assert "이번주" in env["client"].get("/reports").text  # 최신이 기본
+    assert "지난주" in env["client"].get("/reports?name=weekly-2026-10-05.md").text
+    assert env["client"].get("/reports?name=..%2Fconfig.yaml").status_code == 404
+
+
+def test_reports_link_hidden_without_reports_dir(env) -> None:
+    assert 'href="/reports"' in env["client"].get("/").text
+    env["state"].reports_dir = None
+    from fastapi.testclient import TestClient
+
+    from nsm.app.server import create_app
+
+    html = TestClient(create_app(env["state"])).get("/").text
+    assert 'href="/reports"' not in html
