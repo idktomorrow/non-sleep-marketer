@@ -85,6 +85,7 @@ def create_app(state: AppState) -> FastAPI:
                 "cfg": cfg,
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
+                "has_reports": state.reports_dir is not None,
                 **ctx,
             },
         )

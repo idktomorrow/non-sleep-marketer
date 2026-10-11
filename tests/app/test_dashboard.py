@@ -263,3 +263,14 @@ def test_reports_page(env) -> None:
     assert "이번주" in env["client"].get("/reports").text  # 최신이 기본
     assert "지난주" in env["client"].get("/reports?name=weekly-2026-10-05.md").text
     assert env["client"].get("/reports?name=..%2Fconfig.yaml").status_code == 404
+
+
+def test_reports_link_hidden_without_reports_dir(env) -> None:
+    assert 'href="/reports"' in env["client"].get("/").text
+    env["state"].reports_dir = None
+    from fastapi.testclient import TestClient
+
+    from nsm.app.server import create_app
+
+    html = TestClient(create_app(env["state"])).get("/").text
+    assert 'href="/reports"' not in html

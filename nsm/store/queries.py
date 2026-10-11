@@ -113,3 +113,51 @@ def comment_stats(db: Database, since: datetime) -> dict[str, Any]:
 
 def default_since(now: datetime, days: int = 30) -> datetime:
     return now - timedelta(days=days)
+
+
+def posts_between(db: Database, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    """기간 [start, end) 에 게시된 글과 최신 지표. 주간 리포트용."""
+    rows = _rows(
+        db,
+        "WITH latest AS ("
+        "  SELECT *, row_number() OVER (PARTITION BY platform, post_external_id ORDER BY captured_at DESC) AS rn"
+        "  FROM metrics_posts) "
+        "SELECT p.platform, p.url, p.published_at, c.topic, c.template, c.is_ad, c.persona_topic, "
+        "  m.views, m.likes, m.comments, m.saves, m.shares "
+        "FROM publications p JOIN contents c ON c.id = p.content_id "
+        "LEFT JOIN latest m ON m.platform = p.platform AND m.post_external_id = p.external_id AND m.rn = 1 "
+        "WHERE p.status = 'published' AND p.published_at >= ? AND p.published_at < ?",
+        [to_db(start), to_db(end)],
+    )
+    for r in rows:
+        r["published_at"] = from_db(r["published_at"])
+    return rows
+
+
+def follower_change(db: Database, start: datetime, end: datetime) -> dict[str, tuple[int, int]]:
+    """플랫폼별 (기간 첫 팔로워 수, 마지막 팔로워 수). 읽지 못한(NULL) 기록은 뺀다."""
+    rows = db.execute(
+        "SELECT platform, arg_min(followers, captured_at), arg_max(followers, captured_at) "
+        "FROM metrics_account WHERE followers IS NOT NULL AND captured_at >= ? AND captured_at < ? "
+        "GROUP BY platform",
+        [to_db(start), to_db(end)],
+    )
+    return {r[0]: (int(r[1]), int(r[2])) for r in rows}
+
+
+def cost_by_kind(db: Database, start: datetime, end: datetime) -> dict[str, float]:
+    rows = db.execute(
+        "SELECT kind, round(sum(usd), 2) FROM costs WHERE occurred_at >= ? AND occurred_at < ? GROUP BY 1",
+        [to_db(start), to_db(end)],
+    )
+    return {r[0]: float(r[1]) for r in rows}
+
+
+def unused_counts_by_topic(db: Database, threshold: float) -> dict[str, int]:
+    """아직 콘텐츠에 쓰지 않은 관련 자료 수(주제별, 상한 없이 전부)."""
+    rows = db.execute(
+        "SELECT topic, count(*) FROM source_items WHERE used_in_content_id IS NULL "
+        "AND relevance >= ? AND topic IS NOT NULL GROUP BY topic",
+        [threshold],
+    )
+    return {r[0]: int(r[1]) for r in rows}

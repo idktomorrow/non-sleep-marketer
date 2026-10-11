@@ -93,6 +93,7 @@ def ctx(db, clock, app_config, tmp_path: Path) -> JobContext:
         AccountMetrics(platform="threads", captured_at=clock.now(), followers=130)
     )
     c.repo.record_cost("llm", "anthropic", 1.25)
+    c.clock.advance(days=1)  # 리포트는 "어제까지 7일"을 본다
     return c
 
 
@@ -132,3 +133,43 @@ def test_job_writes_file_and_notifies(ctx: JobContext) -> None:
     path = ctx.reports_dir / r.counts["file"]
     assert path.exists() and path.read_text("utf-8").startswith("# 주간 리포트")
     assert ctx.notifier.calls[-1][0] == "주간 리포트"
+
+
+def test_window_is_previous_full_local_days(ctx: JobContext) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 같은 날 아침·밤에 만들어도 기간이 같다(지터·수동 실행에 흔들리지 않음)
+    ctx.clock.set(datetime(2026, 10, 12, 8, 9, tzinfo=ZoneInfo("Asia/Seoul")))
+    a, _ = build_report(ctx)
+    ctx.clock.set(datetime(2026, 10, 12, 23, 50, tzinfo=ZoneInfo("Asia/Seoul")))
+    b, _ = build_report(ctx)
+    assert a.splitlines()[0] == b.splitlines()[0] == "# 주간 리포트 2026-10-05 ~ 2026-10-11"
+    # 오늘 게시한 글은 이번 리포트에 들어가지 않는다
+    _publish(ctx, "c9", "오늘 글", "info", "threads", "t9", views=10, likes=1)
+    c, s = build_report(ctx)
+    assert s["posts"] == 3 and "오늘 글" not in c
+
+
+def test_null_followers_and_zero_views(ctx: JobContext) -> None:
+    ctx.repo.insert_account_metrics(
+        AccountMetrics(
+            platform="instagram", captured_at=ctx.clock.now() - timedelta(days=3), followers=None
+        )
+    )
+    _publish(ctx, "c4", "협찬 0조회", "info", "instagram", "i9", views=0, likes=0, is_ad=True)
+    ctx.repo.db.execute(
+        "UPDATE publications SET published_at = published_at - INTERVAL 1 DAY WHERE external_id = 'i9'"
+    )
+    text, _ = build_report(ctx)
+    assert "None" not in text
+    assert "협찬 0조회 (instagram): 조회 0" in text
+
+
+def test_untried_topic_does_not_beat_proven_one(ctx: JobContext) -> None:
+    from nsm.engine.weekly_report import UNTRIED_TOPIC_FACTOR
+
+    _, s = build_report(ctx)
+    # 원두(성과 있음, 평균보다 낮음) vs 홈카페(기록 없음): 기록 없는 쪽은 평균 x 0.8로 본다
+    assert UNTRIED_TOPIC_FACTOR < 1
+    assert s["recommended"].index("핸드드립") == 0
