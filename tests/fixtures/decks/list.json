@@ -1,0 +1,12 @@
+{
+  "template": "list",
+  "brand": {"name": "달빛로스터리", "primary_color": "#1E3A5F", "accent_color": "#F2A541", "logo_path": null},
+  "persona": {"name": "루나", "handle": "@luna.coffee.ai"},
+  "labels": {"virtual_person": true, "ad": true, "ai_generated_image": true},
+  "slides": [
+    {"kind": "cover", "title": "가을 원두 고르는 법 5", "subtitle": "향이 오래 가는 보관 팁까지", "background": null},
+    {"kind": "list", "heading": "고를 때", "bullets": ["로스팅 날짜 2주 이내", "원산지·가공 방식 표기 확인", "소용량으로 자주 구매"], "background": null},
+    {"kind": "list", "heading": "보관할 때", "bullets": ["밀폐 용기 + 서늘한 곳", "냉장 보관은 피하기"], "background": null},
+    {"kind": "outro", "cta": "팔로우하고 다음 리스트 받아보기", "sources": ["https://example.com/bean-storage"], "background": null}
+  ]
+}

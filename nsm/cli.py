@@ -1,0 +1,85 @@
+"""명령줄 진입점: `uv run nsm --help`."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import typer
+
+app = typer.Typer(help="논슬립 마케터: 로컬 AI 가상 인플루언서 마케터", no_args_is_help=True)
+
+
+@app.command()
+def doctor() -> None:
+    """환경을 진단합니다 (Python, DB, 설정, API 키, 브라우저, 폰트)."""
+    from nsm.doctor import run_checks
+
+    checks = run_checks()
+    for c in checks:
+        typer.echo(f"[{c.status:4}] {c.name}: {c.detail}")
+    if any(c.status == "FAIL" for c in checks):
+        raise typer.Exit(1)
+
+
+@app.command()
+def init() -> None:
+    """설정 마법사: 위험 고지 → 브랜드 → 페르소나 → API 키."""
+    from nsm.config.wizard import run_wizard
+
+    run_wizard()
+
+
+@app.command()
+def run(
+    once: bool = typer.Option(False, "--once", help="잡 하나만 1회 실행하고 종료"),
+    job: str = typer.Option(
+        "",
+        "--job",
+        help="--once와 함께: collect|generate|publish|reply|metrics|health|weekly_report",
+    ),
+) -> None:
+    """스케줄러와 대시보드를 한 프로세스로 실행합니다."""
+    from nsm.runtime import run_forever, run_job_once
+
+    if once:
+        if not job:
+            raise typer.BadParameter("--once에는 --job이 필요합니다")
+        run_job_once(job)
+    else:
+        run_forever()
+
+
+@app.command("render-preview")
+def render_preview(
+    deck: Path = typer.Argument(..., exists=True, help="카드 덱 JSON"),
+    out: Path | None = typer.Option(None, "--out", help="기본: <NSM_HOME>/preview/render"),
+) -> None:
+    """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α)."""
+    from nsm.config.paths import preview_dir
+    from nsm.domain.models import CardDeck
+    from nsm.render import get_renderer
+
+    d = CardDeck.model_validate_json(deck.read_text(encoding="utf-8"))
+    paths = get_renderer().render(d, out or preview_dir() / "render")
+    for p in paths:
+        typer.echo(str(p))
+
+
+@app.command("install-autostart")
+def install_autostart() -> None:
+    """Windows 로그온 시 `nsm run`이 자동 실행되도록 작업 스케줄러에 등록합니다."""
+    from nsm.scheduler.autostart import install
+
+    typer.echo(install())
+
+
+@app.command("uninstall-autostart")
+def uninstall_autostart() -> None:
+    """자동 실행 등록을 해제합니다."""
+    from nsm.scheduler.autostart import uninstall
+
+    typer.echo(uninstall())
+
+
+if __name__ == "__main__":
+    app()

@@ -6,3 +6,4 @@
 
 ### Added
 - 기획·설계 문서: PRD v2, contracts, issues, process, architecture, user-guide(1절), ADR 0001~0008, 용어집, 온보딩 (2026-10-11)
+- 배치 A: 프로젝트 골격(uv, ruff, pytest, CI), 도메인 모델·포트·DB 스키마 동결, 가짜 포트·픽스처, `nsm doctor`, Stop 훅 (#1 #2 #17)

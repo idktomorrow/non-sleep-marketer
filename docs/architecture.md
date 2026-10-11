@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-11 (설계 기준, 구현 전) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-11 (배치 A 완료) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -88,10 +88,10 @@ erDiagram
 
 | 모듈 | 상태 | 테스트 | 배치 | 비고 |
 |---|---|---|---|---|
-| `nsm/cli.py` | 계획 | - | A | |
-| `nsm/domain/models.py` | 계획 | - | A | 동결 대상 |
-| `nsm/ports/` | 계획 | - | A | 동결 대상 |
-| `nsm/store/` (스키마·리포지토리) | 계획 | - | A(스키마), C | |
+| `nsm/cli.py` | 구현 중 | 경계 밖(CLI 테스트) | A | doctor·help 동작, 나머지 명령은 해당 배치 안내 후 종료 |
+| `nsm/domain/models.py` | 완료 | 단위 | A | 동결. ADR 0009 반영 |
+| `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
+| `nsm/store/` (스키마·리포지토리) | 구현 중 | 단위 | A(스키마), C | 스키마·`Database`·UTC 변환 완료, 리포지토리는 C |
 | `nsm/config/` (YAML·keyring·마법사) | 계획 | - | C | |
 | `nsm/adapters/sources/` 4종 | 계획 | - | D1 | |
 | `nsm/adapters/classifier/` jev·claude | 계획 | - | D1 | |
@@ -102,10 +102,10 @@ erDiagram
 | `nsm/app/` 대시보드 | 계획 | - | F(백엔드), I(디자인) | |
 | `nsm/scheduler/` + autostart | 계획 | - | F | |
 | `nsm/adapters/notify/` | 계획 | - | F | |
-| `nsm/render/` + `nsm/templates/` | 계획 | - | S-α | 서브 |
+| `nsm/render/` + `nsm/templates/` | 구현 중 | 단위 | S-α | 서브. 지금은 `PlaceholderRenderer`(단색 PNG)가 대신함 |
 | `nsm/adapters/drivers/` aside·playwright | 계획 | - | G | 기본값은 배치 B 결과 |
 | `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
-| `tests/fakes/`, `tests/conftest.py` | 계획 | - | A | |
+| `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
 | `tests/engine/` 시나리오 | 계획 | - | E | |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |
 | `tests/render/` | 계획 | - | S-α | 서브 |
@@ -115,4 +115,6 @@ erDiagram
 
 배치 중 계약과 다르게 구현했거나 미뤄 둔 것을 여기 적는다(없으면 "없음").
 
-- 없음 (구현 전)
+- 콘텐츠 상태와 플랫폼별 게시 상태를 분리했다(ADR 0009). 계약 초안의 `publishing/failed/abandoned`는 `publications.status`로 옮김.
+- 브라우저 드라이버 기본값을 Playwright로 둠(ADR 0010).
+- 렌더러가 들어오기 전까지 `nsm/render/placeholder.py`가 슬라이드마다 단색 PNG를 만든다.

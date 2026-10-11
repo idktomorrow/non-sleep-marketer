@@ -1,0 +1,6 @@
+[
+  {"id": "src-001", "source": "naver", "url": "https://example.com/brew-temp", "title": "핸드드립 적정 물 온도", "text": "핸드드립 추출 시 물 온도는 일반적으로 90~96도가 권장된다. 로스팅 정도에 따라 조절한다.", "published_at": "2026-10-09T09:00:00+09:00", "collected_at": "2026-10-11T09:00:00+09:00", "url_hash": "h-001"},
+  {"id": "src-002", "source": "naver", "url": "https://example.com/sca-guide", "title": "SCA 추출 가이드 요약", "text": "SCA 골든컵 기준은 추출 수율 18~22%를 권장한다.", "published_at": null, "collected_at": "2026-10-11T09:00:00+09:00", "url_hash": "h-002"},
+  {"id": "src-003", "source": "google_trends", "url": "https://trends.google.com/trending/rss?geo=KR#가을원두", "title": "가을 원두", "text": "급상승 검색어: 가을 원두 (5000+)", "published_at": "2026-10-11T07:00:00+09:00", "collected_at": "2026-10-11T09:00:00+09:00", "url_hash": "h-003"},
+  {"id": "src-004", "source": "naver", "url": "https://example.com/stock-market", "title": "코스피 마감 시황", "text": "오늘 코스피는 외국인 매도로 하락 마감했다.", "published_at": "2026-10-10T16:00:00+09:00", "collected_at": "2026-10-11T09:00:00+09:00", "url_hash": "h-004"}
+]

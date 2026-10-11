@@ -47,102 +47,205 @@ non-sleep-marketer/
 
 ## 2. 도메인 모델 (`nsm/domain/models.py`, pydantic)
 
+> 배치 A 이후 **코드가 원본**입니다. 아래는 초안 요약이며 차이가 있으면 `nsm/domain/models.py`가 우선합니다. 주요 차이: 게시 상태를 플랫폼별 `Publication`으로 분리([ADR 0009](adr/0009-per-platform-publication-state.md)), `GeneratedContent.blog_title` 추가, `ImageGenerator`는 이미지가 없으면 `None` 반환, 비용 보고용 `CostSink` 포트 추가.
+
 ```python
 Platform = Literal["instagram", "threads", "naver_blog"]
-ContentStatus = Literal["draft", "pending_review", "approved", "publishing", "published", "failed", "abandoned", "discarded"]
-CommentCategory = Literal["praise_general", "question", "complaint", "price_refund", "legal", "spam"]
+ContentStatus = Literal[
+    "draft",
+    "pending_review",
+    "approved",
+    "publishing",
+    "published",
+    "failed",
+    "abandoned",
+    "discarded",
+]
+CommentCategory = Literal[
+    "praise_general", "question", "complaint", "price_refund", "legal", "spam"
+]
 CommentAction = Literal["auto_reply", "hide", "escalate", "ignore"]
 TemplateKind = Literal["info", "list", "compare"]
 
+
 class Persona(BaseModel):
-    name: str; handle: str; character: str; tone: str
-    banned_words: list[str]; banned_patterns: list[str]   # 정규식, 예: 1인칭 체험 표현
+    name: str
+    handle: str
+    character: str
+    tone: str
+    banned_words: list[str]
+    banned_patterns: list[str]  # 정규식, 예: 1인칭 체험 표현
     topics: list[str]
-    active_hours: list[tuple[time, time]]                  # 로컬 시간대 구간
+    active_hours: list[tuple[time, time]]  # 로컬 시간대 구간
     enabled: bool
-    ad_label: bool                                         # "광고" 표기 삽입 여부
+    ad_label: bool  # "광고" 표기 삽입 여부
+
 
 class Brand(BaseModel):
-    name: str; industry: str; products: list[str]; key_messages: list[str]
-    primary_color: str; accent_color: str; logo_path: Path | None
+    name: str
+    industry: str
+    products: list[str]
+    key_messages: list[str]
+    primary_color: str
+    accent_color: str
+    logo_path: Path | None
+
 
 class SourceItem(BaseModel):
-    id: str; source: str; url: str | None; title: str; text: str
-    published_at: datetime | None; collected_at: datetime; url_hash: str
+    id: str
+    source: str
+    url: str | None
+    title: str
+    text: str
+    published_at: datetime | None
+    collected_at: datetime
+    url_hash: str
+
 
 class Classification(BaseModel):
-    label: str; confidence: float                          # 0.0 ~ 1.0
+    label: str
+    confidence: float  # 0.0 ~ 1.0
+
 
 class Claim(BaseModel):
-    text: str; source_item_id: str                         # 모든 사실 주장은 출처 자료와 연결
+    text: str
+    source_item_id: str  # 모든 사실 주장은 출처 자료와 연결
+
 
 class GeneratedContent(BaseModel):
-    topic: str; template: TemplateKind
-    deck: CardDeck                                         # 5절
-    threads_text: str; blog_markdown: str
+    topic: str
+    template: TemplateKind
+    deck: CardDeck  # 5절
+    threads_text: str
+    blog_markdown: str
     claims: list[Claim]
     instagram_caption: str
 
-class Content(BaseModel):                                  # DB 레코드
-    id: str; status: ContentStatus; generated: GeneratedContent
-    relevance_confidence: float; created_at: datetime
-    review_reason: str | None; attempts: int; next_attempt_at: datetime | None
 
-class RenderedPost(BaseModel):                             # 어댑터에 넘기는 플랫폼별 최종 형태
-    content_id: str; platform: Platform
-    text: str; images: list[Path]; title: str | None       # 블로그는 title 필수
+class Content(BaseModel):  # DB 레코드
+    id: str
+    status: ContentStatus
+    generated: GeneratedContent
+    relevance_confidence: float
+    created_at: datetime
+    review_reason: str | None
+    attempts: int
+    next_attempt_at: datetime | None
 
-class PublishResult(BaseModel): external_id: str; url: str
+
+class RenderedPost(BaseModel):  # 어댑터에 넘기는 플랫폼별 최종 형태
+    content_id: str
+    platform: Platform
+    text: str
+    images: list[Path]
+    title: str | None  # 블로그는 title 필수
+
+
+class PublishResult(BaseModel):
+    external_id: str
+    url: str
+
+
 class Comment(BaseModel):
-    platform: Platform; external_id: str; post_external_id: str
-    author_id: str; author_name: str; text: str; created_at: datetime
+    platform: Platform
+    external_id: str
+    post_external_id: str
+    author_id: str
+    author_name: str
+    text: str
+    created_at: datetime
+
+
 class PostMetrics(BaseModel):
-    platform: Platform; post_external_id: str; captured_at: datetime
-    views: int | None; reach: int | None; impressions: int | None
-    likes: int | None; comments: int | None; saves: int | None; shares: int | None
-class AccountMetrics(BaseModel): platform: Platform; captured_at: datetime; followers: int | None
-class HealthStatus(BaseModel): logged_in: bool; detail: str
-class CostRecord(BaseModel): kind: Literal["llm", "image", "classifier"]; usd: float; at: datetime; ref: str
+    platform: Platform
+    post_external_id: str
+    captured_at: datetime
+    views: int | None
+    reach: int | None
+    impressions: int | None
+    likes: int | None
+    comments: int | None
+    saves: int | None
+    shares: int | None
+
+
+class AccountMetrics(BaseModel):
+    platform: Platform
+    captured_at: datetime
+    followers: int | None
+
+
+class HealthStatus(BaseModel):
+    logged_in: bool
+    detail: str
+
+
+class CostRecord(BaseModel):
+    kind: Literal["llm", "image", "classifier"]
+    usd: float
+    at: datetime
+    ref: str
 ```
 
-## 3. 포트 (`nsm/ports/*.py`, `typing.Protocol`)
+## 3. 포트 (`nsm/ports/__init__.py`, `typing.Protocol`)
+
+> 배치 A 이후 코드가 원본입니다.
 
 ```python
 class PlatformAdapter(Protocol):
     platform: Platform
-    def capabilities(self) -> set[str]: ...
+
+    def capabilities(self) -> set[str]:
+        ...
         # 가능한 값: "publish" "fetch_comments" "reply" "hide_comment" "delete_comment" "post_metrics" "account_metrics"
+
     def health(self) -> HealthStatus: ...
     def publish(self, post: RenderedPost) -> PublishResult: ...
-    def fetch_new_comments(self, post_external_ids: list[str], since: datetime | None) -> list[Comment]: ...
-    def reply(self, comment: Comment, text: str) -> str: ...            # 답글 external_id
-    def hide_comment(self, comment: Comment) -> None: ...                # capability 없으면 NotSupported
+    def fetch_new_comments(
+        self, post_external_ids: list[str], since: datetime | None
+    ) -> list[Comment]: ...
+    def reply(self, comment: Comment, text: str) -> str: ...  # 답글 external_id
+    def hide_comment(self, comment: Comment) -> None: ...  # capability 없으면 NotSupported
     def read_post_metrics(self, post_external_id: str) -> PostMetrics: ...
     def read_account_metrics(self) -> AccountMetrics: ...
 
+
 class Source(Protocol):
     name: str
+
     def collect(self, topics: list[str], limit: int) -> list[SourceItem]: ...
+
 
 class Classifier(Protocol):
     def classify(self, text: str, labels: list[str], instruction: str) -> Classification: ...
-    def classify_many(self, texts: list[str], labels: list[str], instruction: str) -> list[Classification]: ...
+    def classify_many(
+        self, texts: list[str], labels: list[str], instruction: str
+    ) -> list[Classification]: ...
+
 
 class TextGenerator(Protocol):
-    def generate_content(self, brief: ContentBrief, persona: Persona, brand: Brand) -> GeneratedContent: ...
+    def generate_content(
+        self, brief: ContentBrief, persona: Persona, brand: Brand
+    ) -> GeneratedContent: ...
     def generate_reply(self, comment: Comment, persona: Persona, post_context: str) -> str: ...
 
-class ImageGenerator(Protocol):
-    def generate_background(self, prompt: str, width: int, height: int) -> Path: ...   # 비활성 시 NullImageGenerator
 
-class CardRenderer(Protocol):                                                           # [서브 구현]
-    def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...                 # 슬라이드 순서대로 PNG
+class ImageGenerator(Protocol):
+    def generate_background(
+        self, prompt: str, width: int, height: int
+    ) -> Path: ...  # 비활성 시 NullImageGenerator
+
+
+class CardRenderer(Protocol):  # [서브 구현]
+    def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...  # 슬라이드 순서대로 PNG
+
 
 class Notifier(Protocol):
     def notify(self, title: str, body: str, level: Literal["info", "warn", "error"]) -> None: ...
 
+
 class Clock(Protocol):
-    def now(self) -> datetime: ...     # 테스트에서 고정 시각 주입
+    def now(self) -> datetime: ...  # 테스트에서 고정 시각 주입
 ```
 
 브라우저 드라이버는 어댑터 내부 세부사항이며 포트가 아닙니다. `adapters/drivers/`는 `open(url)`, `click`, `type`, `upload`, `read_text` 수준의 얇은 래퍼이고 Aside/Playwright 두 구현을 둡니다. 플랫폼 어댑터는 드라이버를 주입받습니다.
@@ -239,6 +342,8 @@ class Clock(Protocol):
 - 드라이런 어댑터(제품 기능, 메인)와 가짜 어댑터(테스트 전용, 서브)는 다릅니다. 드라이런은 미리보기 폴더에 파일을 쓰고, 가짜는 메모리에 기록만 합니다.
 
 ## 8. DB 테이블 (`nsm/store/schema.sql`, DuckDB)
+
+> 배치 A 이후 `schema.sql`이 원본입니다. 시각은 UTC naive로 저장합니다.
 
 `source_items`, `classifications`, `contents`(status, generated JSON, attempts, next_attempt_at, review_reason), `publications`(content_id, platform, external_id, url, published_at), `comments`(+ category, action, handled_at, handled_by), `reply_counts`(platform, author_id, date, count), `metrics_posts`, `metrics_account`, `costs`, `run_logs`(job, started_at, finished_at, ok, message), `settings_kv`(persona_enabled, auto_publish_enabled, protect_count 등 대시보드에서 바꾸는 값).
 
