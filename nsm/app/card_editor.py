@@ -30,6 +30,14 @@ TEXT_FIELDS = {
     "outro": ("cta",),
 }
 LIST_FIELDS = {"body": ("bullets",), "list": ("bullets",)}
+# 비우면 빈 카드가 게시된다(모델은 빈 문자열을 허용하므로 편집기에서 막는다)
+REQUIRED_TEXT = {
+    "cover": ("title",),
+    "body": ("heading", "body"),
+    "list": ("heading",),
+    "compare": ("heading",),
+    "outro": ("cta",),
+}
 
 
 class EditError(ValueError):
@@ -59,6 +67,13 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
                     data[side]["title"] = str(form[f"s{i}_{side}_title"]).strip()
                 if f"s{i}_{side}_points" in form:
                     data[side]["points"] = _lines(form[f"s{i}_{side}_points"])
+        for f in REQUIRED_TEXT.get(s.kind, ()):
+            if not str(data.get(f) or "").strip():
+                raise EditError(f"{i + 1}장 {f}: 비워 둘 수 없습니다")
+        if s.kind == "compare":
+            for side in ("left", "right"):
+                if not data[side]["title"].strip() or not data[side]["points"]:
+                    raise EditError(f"{i + 1}장 {side}: 제목과 항목이 필요합니다")
         try:
             slides.append(type(s).model_validate(data))
         except ValidationError as e:
@@ -66,6 +81,15 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
             where = ".".join(str(x) for x in first.get("loc", ()))
             raise EditError(f"{i + 1}장 {where}: {first.get('msg', '형식 오류')}") from e
     return deck.model_copy(update={"slides": slides})
+
+
+def drop_old_upload(media_dir: Path, cid: str, old: str | None) -> None:
+    """바뀐(지워진) 배경이 사람이 올린 파일이면 지운다. 생성기 배경이나 다른 곳의 파일은 건드리지 않는다."""
+    if not old:
+        return
+    p = Path(old).resolve()
+    if p.parent == upload_dir(media_dir, cid).resolve() and p.is_file():
+        p.unlink()
 
 
 def sniff_image(head: bytes) -> str | None:
@@ -126,9 +150,12 @@ def set_background(
     return gen.model_copy(update={"deck": deck})
 
 
-def clear_rendered(media_dir: Path, cid: str) -> None:
+def clear_rendered(media_dir: Path, cid: str, cards: bool = True) -> None:
     """고친 뒤에는 렌더된 카드(게시용)와 미리보기를 버린다. 다음 게시 때 다시 렌더한다."""
-    for d in (media_dir / "cards" / cid, media_dir / "previews" / cid):
+    dirs = [media_dir / "previews" / cid]
+    if cards:
+        dirs.append(media_dir / "cards" / cid)
+    for d in dirs:
         for p in d.glob("slide-*.png"):
             p.unlink()
         (d / "overflow.txt").unlink(missing_ok=True)

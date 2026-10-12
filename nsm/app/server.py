@@ -28,6 +28,7 @@ from nsm.app.card_editor import (
     EditError,
     apply_slide_edits,
     clear_rendered,
+    drop_old_upload,
     save_upload,
     set_background,
 )
@@ -161,11 +162,10 @@ def create_app(state: AppState) -> FastAPI:
         cards = sorted((state.media_dir / "cards" / cid).glob("slide-*.png"))
         prev_dir = state.media_dir / "previews" / cid
         previews = sorted(prev_dir.glob("slide-*.png"))
-        overflow = (
-            (prev_dir / "overflow.txt").read_text("utf-8").strip()
-            if previews and (prev_dir / "overflow.txt").exists()
-            else ""
-        )
+        ov_file = prev_dir / "overflow.txt"
+        if previews and not ov_file.exists():
+            previews = []  # 그리는 중이거나 실패한 미리보기는 보여 주지 않는다
+        overflow = ov_file.read_text("utf-8").strip() if previews else ""
         return page(
             request,
             "review_detail.html",
@@ -281,6 +281,7 @@ def create_app(state: AppState) -> FastAPI:
         except EditError as e:
             raise HTTPException(400, str(e)) from e
         state.repo.update_generated(cid, new)
+        drop_old_upload(state.media_dir, cid, c.generated.deck.slides[index].background)
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
 
@@ -292,30 +293,43 @@ def create_app(state: AppState) -> FastAPI:
         except EditError as e:
             raise HTTPException(400, str(e)) from e
         state.repo.update_generated(cid, new)
+        drop_old_upload(state.media_dir, cid, c.generated.deck.slides[index].background)
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
 
     @app.post("/review/{cid}/preview", dependencies=[Depends(check_csrf)])
     def preview(cid: str) -> RedirectResponse:
         """지금 원고로 카드를 그려 본다. 게시용 카드(cards/)와 따로 둔다."""
-        c = _content_or_404(cid)
+        _content_or_404(cid)
         if state.renderer is None:
             raise HTTPException(503, "카드 렌더러가 없습니다(`nsm doctor`로 크로미움 확인)")
         out = state.media_dir / "previews" / cid
         renderer = state.renderer
 
-        def render() -> list[int]:
-            for p in out.glob("slide-*.png"):
-                p.unlink()
-            renderer.render(labeled_deck(c), out)
-            return list(getattr(renderer, "last_overflow", []) or [])
+        def render() -> None:
+            # 잡 스레드에서 실행된다. 요청이 시간 초과로 먼저 끝나도 이 안에서 결과를 완결한다:
+            # 실행 시점의 원고를 다시 읽고, 넘침 기록은 PNG와 함께 쓰고, 실패하면 반쯤 그린 것을 지운다.
+            clear_rendered(state.media_dir, cid, cards=False)
+            c = state.repo.get_content(cid)
+            if c is None:
+                return
+            try:
+                renderer.render(labeled_deck(c), out)
+                overflow = list(getattr(renderer, "last_overflow", []) or [])
+                (out / "overflow.txt").write_text(",".join(map(str, overflow)), encoding="utf-8")
+            except Exception:
+                clear_rendered(state.media_dir, cid, cards=False)
+                raise
 
         # 잡 스레드에서 그린다: 게시 잡의 렌더와 겹쳐 넘침 결과가 섞이지 않게
         try:
-            overflow = state.submit(render).result(timeout=90)
+            state.submit(render).result(timeout=90)
         except FutureTimeout as e:
-            raise HTTPException(504, "미리보기 렌더가 오래 걸립니다. 잠시 뒤 다시 누르세요") from e
-        (out / "overflow.txt").write_text(",".join(map(str, overflow)), encoding="utf-8")
+            raise HTTPException(
+                504, "다른 작업이 끝나면 미리보기를 그립니다. 잠시 뒤 새로고침하세요"
+            ) from e
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"미리보기 렌더 실패: {e}") from e
         return back(f"/review/{cid}#preview")
 
     # ------------------------------------------------------------------ 댓글

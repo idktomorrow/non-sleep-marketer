@@ -257,7 +257,13 @@ def test_preview_without_renderer_is_503(env) -> None:
 
 
 @pytest.mark.parametrize(
-    "path", ["/previews/c1/..%2Fx.png", "/previews/nope/slide-01.png", "/previews/c1/x.txt"]
+    "path",
+    [
+        "/previews/c1/x..png",
+        "/previews/c1/slide-..%5Cx.png",
+        "/previews/nope/slide-01.png",
+        "/previews/c1/x.txt",
+    ],
 )
 def test_preview_image_route_rejects_bad_paths(env, path: str) -> None:
     assert env["client"].get(path).status_code == 404
@@ -269,3 +275,60 @@ def test_editor_page_shows_every_slide(env) -> None:
     for i, _ in enumerate(deck.slides):
         assert f"/review/c2/slides/{i}/background" in html
     assert 'name="s0_title"' in html and "출처는 사실 근거라" in html
+
+
+def test_empty_required_text_is_rejected(env) -> None:
+    before = env["repo"].get_content("c1").generated.deck
+    r = _post(env, "/review/c1/edit", s0_title="   ")
+    assert r.status_code == 400 and "1장 title" in r.json()["detail"]
+    assert env["repo"].get_content("c1").generated.deck == before
+
+
+def test_upload_size_limit_in_route(env, monkeypatch) -> None:
+    from nsm.app import server
+
+    monkeypatch.setattr(server, "MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(E, "MAX_UPLOAD_BYTES", 10)
+    big = _ONE_PX_PNG + b"0" * 100
+    r = _post(env, "/review/c1/slides/0/background", files={"file": ("a.png", big, "image/png")})
+    assert r.status_code == 400
+
+
+def test_replacing_background_deletes_previous_upload(env) -> None:
+    _post(
+        env, "/review/c1/slides/1/background", files={"file": ("a.png", _ONE_PX_PNG, "image/png")}
+    )
+    first = Path(env["repo"].get_content("c1").generated.deck.slides[1].background)
+    _post(
+        env, "/review/c1/slides/1/background", files={"file": ("b.png", _ONE_PX_PNG, "image/png")}
+    )
+    second = Path(env["repo"].get_content("c1").generated.deck.slides[1].background)
+    assert not first.exists() and second.exists()
+    _post(env, "/review/c1/slides/1/background/remove")
+    assert not second.exists()
+
+
+def test_late_preview_uses_latest_text_and_records_overflow(env) -> None:
+    """시간 초과로 요청이 먼저 끝나도, 늦게 도는 렌더가 최신 원고로 그리고 넘침 기록을 같이 남긴다."""
+    queued = []
+    env["state"].renderer = OverflowRenderer()
+    env["state"].submit = lambda fn: (queued.append(fn), _pending())[1]
+    r = _post(env, "/review/c1/preview")
+    assert r.status_code == 504
+    _post(env, "/review/c1/edit", s0_title="나중에 고친 표지")  # 그 사이에 고침
+    queued[0]()  # 잡 스레드가 늦게 실행
+    assert env["state"].renderer.rendered[-1].slides[0].title == "나중에 고친 표지"
+    assert "2장에 글이 넘칩니다" in env["client"].get("/review/c1").text
+
+
+def test_previews_without_overflow_record_are_hidden(env) -> None:
+    _rendered(env, "c1")  # PNG만 있고 넘침 기록 없음(그리는 중)
+    html = env["client"].get("/review/c1").text
+    assert "/previews/c1/" not in html and "넘치는 장 없음" not in html
+
+
+class _pending:
+    def result(self, timeout=None):
+        from concurrent.futures import TimeoutError as FutureTimeout
+
+        raise FutureTimeout()
