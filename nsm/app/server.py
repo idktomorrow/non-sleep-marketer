@@ -17,18 +17,26 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from nsm.app.card_editor import (
+    MAX_UPLOAD_BYTES,
+    EditError,
+    apply_slide_edits,
+    clear_rendered,
+    save_upload,
+    set_background,
+)
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
-from nsm.engine.publish import PAUSED_KEY
-from nsm.ports import Clock, PlatformAdapter
+from nsm.engine.publish import PAUSED_KEY, labeled_deck
+from nsm.ports import CardRenderer, Clock, PlatformAdapter
 from nsm.store import queries
 from nsm.store.repo import InvalidTransitionError, Repository
 
@@ -48,6 +56,7 @@ class AppState:
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     run_job_now: Callable[[str], Future] | None = None
     job_names: frozenset[str] = frozenset()
+    renderer: CardRenderer | None = None  # 카드 미리보기(M16). 없으면 미리보기 버튼이 안내만 한다
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -150,6 +159,13 @@ def create_app(state: AppState) -> FastAPI:
     def review_detail(request: Request, cid: str) -> HTMLResponse:
         c = _content_or_404(cid)
         cards = sorted((state.media_dir / "cards" / cid).glob("slide-*.png"))
+        prev_dir = state.media_dir / "previews" / cid
+        previews = sorted(prev_dir.glob("slide-*.png"))
+        overflow = (
+            (prev_dir / "overflow.txt").read_text("utf-8").strip()
+            if previews and (prev_dir / "overflow.txt").exists()
+            else ""
+        )
         return page(
             request,
             "review_detail.html",
@@ -161,7 +177,29 @@ def create_app(state: AppState) -> FastAPI:
                 for i in {x.source_item_id for x in c.generated.claims}
             ],
             cards=[p.name for p in cards],
+            previews=[p.name for p in previews],
+            overflow=overflow,
+            can_preview=state.renderer is not None,
+            max_upload_mb=MAX_UPLOAD_BYTES // (1024 * 1024),
         )
+
+    def _png_name_ok(name: str) -> bool:
+        return (
+            "/" not in name
+            and "\\" not in name
+            and name.startswith("slide-")
+            and name.endswith(".png")
+        )
+
+    @app.get("/previews/{cid}/{name}")
+    def preview_image(cid: str, name: str) -> FileResponse:
+        _content_or_404(cid)  # cid도 DB에 있는 것만(경로에 쓰므로)
+        if not _png_name_ok(name):
+            raise HTTPException(404)
+        path = state.media_dir / "previews" / cid / name
+        if not path.is_file():
+            raise HTTPException(404)
+        return FileResponse(path, media_type="image/png")
 
     @app.get("/cards/{cid}/{name}")
     def card_image(cid: str, name: str) -> FileResponse:
@@ -202,36 +240,83 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(409, str(e)) from e
         return back("/review")
 
-    @app.post("/review/{cid}/edit", dependencies=[Depends(check_csrf)])
-    def edit(
-        cid: str,
-        instagram_caption: str = Form(...),
-        threads_text: str = Form(...),
-        blog_title: str = Form(...),
-        blog_markdown: str = Form(...),
-        cover_title: str = Form(...),
-    ) -> RedirectResponse:
+    def _editable(cid: str):
         c = _content_or_404(cid)
         if c.status != "pending_review":
             raise HTTPException(409, "검토 대기 중인 콘텐츠만 고칠 수 있습니다")
+        return c
+
+    @app.post("/review/{cid}/edit", dependencies=[Depends(check_csrf)])
+    async def edit(cid: str, request: Request) -> RedirectResponse:
+        """원고 저장: 캡션·스레드·블로그 + 슬라이드별 문구(s{번호}_{칸}). 폼에 없는 칸은 그대로 둔다."""
+        c = _editable(cid)
+        form = dict((await request.form()).items())
+        if "cover_title" in form and "s0_title" not in form:
+            form["s0_title"] = form["cover_title"]  # 예전 폼 호환
         g = c.generated
-        slides = list(g.deck.slides)
-        if slides and slides[0].kind == "cover":
-            slides[0] = slides[0].model_copy(update={"title": cover_title})
-        new = g.model_copy(
-            update={
-                "instagram_caption": instagram_caption,
-                "threads_text": threads_text,
-                "blog_title": blog_title,
-                "blog_markdown": blog_markdown,
-                "deck": g.deck.model_copy(update={"slides": slides}),
-            }
-        )
-        state.repo.update_generated(cid, new)
-        # 고친 뒤 이미 렌더된 카드는 버린다(다음 게시 때 다시 렌더)
-        for p in (state.media_dir / "cards" / cid).glob("slide-*.png"):
-            p.unlink()
+        try:
+            deck = apply_slide_edits(g.deck, form)
+        except EditError as e:
+            raise HTTPException(400, str(e)) from e
+        updates: dict[str, Any] = {"deck": deck}
+        for f in ("instagram_caption", "threads_text", "blog_title", "blog_markdown"):
+            if f in form:
+                updates[f] = str(form[f])
+        state.repo.update_generated(cid, g.model_copy(update=updates))
+        # 고친 뒤 이미 렌더된 카드·미리보기는 버린다(다음 게시 때 다시 렌더)
+        clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
+
+    @app.post("/review/{cid}/slides/{index}/background", dependencies=[Depends(check_csrf)])
+    async def upload_background(
+        cid: str, index: int, file: UploadFile = File(...)
+    ) -> RedirectResponse:
+        c = _editable(cid)
+        data = await file.read(MAX_UPLOAD_BYTES + 1)
+        try:
+            if not 0 <= index < len(c.generated.deck.slides):
+                raise EditError("없는 슬라이드입니다")
+            path = save_upload(state.media_dir, cid, index, data)
+            new = set_background(c.generated, index, str(path), state.media_dir)
+        except EditError as e:
+            raise HTTPException(400, str(e)) from e
+        state.repo.update_generated(cid, new)
+        clear_rendered(state.media_dir, cid)
+        return back(f"/review/{cid}")
+
+    @app.post("/review/{cid}/slides/{index}/background/remove", dependencies=[Depends(check_csrf)])
+    def remove_background(cid: str, index: int) -> RedirectResponse:
+        c = _editable(cid)
+        try:
+            new = set_background(c.generated, index, None, state.media_dir)
+        except EditError as e:
+            raise HTTPException(400, str(e)) from e
+        state.repo.update_generated(cid, new)
+        clear_rendered(state.media_dir, cid)
+        return back(f"/review/{cid}")
+
+    @app.post("/review/{cid}/preview", dependencies=[Depends(check_csrf)])
+    def preview(cid: str) -> RedirectResponse:
+        """지금 원고로 카드를 그려 본다. 게시용 카드(cards/)와 따로 둔다."""
+        c = _content_or_404(cid)
+        if state.renderer is None:
+            raise HTTPException(503, "카드 렌더러가 없습니다(`nsm doctor`로 크로미움 확인)")
+        out = state.media_dir / "previews" / cid
+        renderer = state.renderer
+
+        def render() -> list[int]:
+            for p in out.glob("slide-*.png"):
+                p.unlink()
+            renderer.render(labeled_deck(c), out)
+            return list(getattr(renderer, "last_overflow", []) or [])
+
+        # 잡 스레드에서 그린다: 게시 잡의 렌더와 겹쳐 넘침 결과가 섞이지 않게
+        try:
+            overflow = state.submit(render).result(timeout=90)
+        except FutureTimeout as e:
+            raise HTTPException(504, "미리보기 렌더가 오래 걸립니다. 잠시 뒤 다시 누르세요") from e
+        (out / "overflow.txt").write_text(",".join(map(str, overflow)), encoding="utf-8")
+        return back(f"/review/{cid}#preview")
 
     # ------------------------------------------------------------------ 댓글
 

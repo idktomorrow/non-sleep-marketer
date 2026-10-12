@@ -1,0 +1,134 @@
+"""카드 편집(M16 #35): 슬라이드 문구 고치기, 배경 이미지 올리기·바꾸기·지우기, 미리보기 렌더.
+
+라우트는 server.py, 여기는 폼 → 덱 변환과 업로드 검사 같은 순수한 부분이다(테스트하기 쉽게).
+"""
+
+from __future__ import annotations
+
+import secrets
+from pathlib import Path
+from typing import Any
+
+from pydantic import ValidationError
+
+from nsm.domain.models import CardDeck, GeneratedContent
+from nsm.domain.quality import strip_bullet_marker
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+# 파일 내용(앞 바이트)으로 형식을 판정한다. 이름·Content-Type은 믿지 않는다.
+_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+)
+
+# 슬라이드 종류별로 고칠 수 있는 칸. 출처(outro.sources)는 사실 근거라 여기서 고치지 않는다.
+TEXT_FIELDS = {
+    "cover": ("title", "subtitle"),
+    "body": ("heading", "body"),
+    "list": ("heading",),
+    "compare": ("heading",),
+    "outro": ("cta",),
+}
+LIST_FIELDS = {"body": ("bullets",), "list": ("bullets",)}
+
+
+class EditError(ValueError):
+    """사람이 고친 값이 덱 계약(길이·필수값)에 맞지 않음. 400으로 돌려준다."""
+
+
+def _lines(v: str) -> list[str]:
+    return [strip_bullet_marker(x) for x in str(v).splitlines() if x.strip()]
+
+
+def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
+    """폼 값(s{번호}_{칸})을 덱에 반영한다. 폼에 없는 칸은 그대로 둔다(예전 폼과 호환)."""
+    slides = []
+    for i, s in enumerate(deck.slides):
+        data = s.model_dump()
+        for f in TEXT_FIELDS.get(s.kind, ()):
+            key = f"s{i}_{f}"
+            if key in form:
+                data[f] = str(form[key]).strip()
+        for f in LIST_FIELDS.get(s.kind, ()):
+            key = f"s{i}_{f}"
+            if key in form:
+                data[f] = _lines(form[key])
+        if s.kind == "compare":
+            for side in ("left", "right"):
+                if f"s{i}_{side}_title" in form:
+                    data[side]["title"] = str(form[f"s{i}_{side}_title"]).strip()
+                if f"s{i}_{side}_points" in form:
+                    data[side]["points"] = _lines(form[f"s{i}_{side}_points"])
+        try:
+            slides.append(type(s).model_validate(data))
+        except ValidationError as e:
+            first = e.errors()[0]
+            where = ".".join(str(x) for x in first.get("loc", ()))
+            raise EditError(f"{i + 1}장 {where}: {first.get('msg', '형식 오류')}") from e
+    return deck.model_copy(update={"slides": slides})
+
+
+def sniff_image(head: bytes) -> str | None:
+    """PNG·JPEG·WebP만 받는다. 맞으면 확장자, 아니면 None."""
+    for sig, ext in _SIGNATURES:
+        if head.startswith(sig):
+            return ext
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def upload_dir(media_dir: Path, cid: str) -> Path:
+    return media_dir / "uploads" / "backgrounds" / cid
+
+
+def save_upload(media_dir: Path, cid: str, index: int, data: bytes) -> Path:
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise EditError("이미지는 10MB 이하만 올릴 수 있습니다")
+    ext = sniff_image(data[:16])
+    if ext is None:
+        raise EditError("PNG, JPEG, WebP 이미지만 올릴 수 있습니다")
+    out = upload_dir(media_dir, cid)
+    out.mkdir(parents=True, exist_ok=True)
+    # 파일 이름은 우리가 만든다(사용자 파일 이름을 경로에 쓰지 않음)
+    path = out / f"slide-{index + 1:02d}-{secrets.token_hex(4)}{ext}"
+    path.write_bytes(data)
+    return path
+
+
+def is_ai_background(path: str | None, media_dir: Path) -> bool:
+    """이미지 생성기가 만든 배경(media/bg-*.png)인지. 사람이 올린 사진은 AI 생성이 아니다."""
+    if not path:
+        return False
+    p = Path(path)
+    return p.name.startswith("bg-") and p.parent.resolve() == media_dir.resolve()
+
+
+def set_background(
+    gen: GeneratedContent, index: int, path: str | None, media_dir: Path
+) -> GeneratedContent:
+    """슬라이드 배경을 바꾸고 "AI 생성 이미지" 표기를 다시 정한다.
+
+    표기는 덱 전체에 하나뿐이라(동결 계약) AI 배경이 하나라도 남아 있으면 켠다. 사람이 올린 사진에도
+    캡션이 붙을 수 있지만, 표기가 빠지는 것보다 안전하다(ADR 0024).
+    """
+    slides = list(gen.deck.slides)
+    if not 0 <= index < len(slides):
+        raise EditError("없는 슬라이드입니다")
+    slides[index] = slides[index].model_copy(update={"background": path})
+    ai = any(is_ai_background(s.background, media_dir) for s in slides)
+    deck = gen.deck.model_copy(
+        update={
+            "slides": slides,
+            "labels": gen.deck.labels.model_copy(update={"ai_generated_image": ai}),
+        }
+    )
+    return gen.model_copy(update={"deck": deck})
+
+
+def clear_rendered(media_dir: Path, cid: str) -> None:
+    """고친 뒤에는 렌더된 카드(게시용)와 미리보기를 버린다. 다음 게시 때 다시 렌더한다."""
+    for d in (media_dir / "cards" / cid, media_dir / "previews" / cid):
+        for p in d.glob("slide-*.png"):
+            p.unlink()
+        (d / "overflow.txt").unlink(missing_ok=True)

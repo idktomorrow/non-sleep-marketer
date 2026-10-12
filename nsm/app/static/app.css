@@ -14,3 +14,4 @@ textarea, input[type=text] { width:100%; font:inherit; padding:6px; } textarea {
 button { font:inherit; padding:6px 12px; cursor:pointer; } form.inline { display:inline; }
 .slides { display:flex; gap:8px; overflow-x:auto; } .slides img { height:220px; border:1px solid var(--line); }
 pre { white-space:pre-wrap; background:rgba(127,127,127,.08); padding:8px; border-radius:6px; }
+.card-editor fieldset { margin: 0 0 12px; border: 1px solid var(--line); padding: 8px 12px; }

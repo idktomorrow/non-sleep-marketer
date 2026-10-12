@@ -216,6 +216,7 @@ def run_forever() -> None:
             reports_dir=ctx.reports_dir,
             run_job_now=scheduler.run_now,
             job_names=frozenset(JOBS),
+            renderer=ctx.renderer,
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")
