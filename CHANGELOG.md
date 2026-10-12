@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 배치 G2: 인스타그램 실계정 어댑터(4:5 자르기·비율 확인, Threads 동시 공유 끔, 댓글·답글·인사이트 지표), 실계정 계약 테스트 (#14)
 - 배치 G1: 스레드 실계정 어댑터(Aside `repl`, 게시·댓글·답글·숨기기·지표, 로그인 계정 확인, 멱등 게시), 실계정 계약 테스트 (#14)
 - 배치 B: 1일차 검증 결과 `docs/day1-verification.md`, 플랫폼 capability 표(스레드만 댓글 숨기기), `settings.accounts`, `nsm doctor` Aside CLI 점검 (#3)
 - 후속 이슈 등록: S8 카드 디자인 스타일 선택(#34, 서브), M16 마케터용 카드 편집 화면(#35, 메인). issues.md·process.md 반영
