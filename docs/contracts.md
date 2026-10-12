@@ -14,7 +14,7 @@ non-sleep-marketer/
     domain/               # 도메인 모델(pydantic), 정책 규칙(순수 함수), 상태 머신  [메인]
     ports/                # Protocol 인터페이스 (아래 3절)                      [메인, 동결]
     adapters/
-      platforms/          # instagram.py threads.py naver_blog.py dryrun.py      [메인]
+      platforms/          # instagram.py threads.py dryrun.py (naver_blog는 범위 밖, ADR 0016) [메인]
       drivers/            # aside.py playwright.py  (브라우저 드라이버)           [메인]
       sources/            # upload.py naver.py google_trends.py community.py     [메인]
       classifier/         # jev.py claude.py                                     [메인]
@@ -50,7 +50,9 @@ non-sleep-marketer/
 > 배치 A 이후 **코드가 원본**입니다. 아래는 초안 요약이며 차이가 있으면 `nsm/domain/models.py`가 우선합니다. 주요 차이: 게시 상태를 플랫폼별 `Publication`으로 분리([ADR 0009](adr/0009-per-platform-publication-state.md)), `GeneratedContent.blog_title` 추가, `ImageGenerator`는 이미지가 없으면 `None` 반환, 비용 보고용 `CostSink` 포트 추가.
 
 ```python
-Platform = Literal["instagram", "threads", "naver_blog"]
+Platform = Literal[
+    "instagram", "threads", "naver_blog"
+]  # naver_blog는 동결 값으로만 남음(ADR 0016)
 ContentStatus = Literal[
     "draft",
     "pending_review",
@@ -279,7 +281,7 @@ class Clock(Protocol):
 - `apply_labels(text, platform, persona) -> str`: 첫 줄에 표기 삽입(5절 표기 규칙)
 - `check_quota(platform, today_count, settings) -> bool`, `check_cost_cap(today_usd, settings) -> bool`
 
-기본 설정값: 쿼터 instagram 1 / threads 2 / naver_blog 1 (일), 비용 상한 3달러/일, 보호 모드 20건, 재시도 3회.
+기본 설정값: 게시 대상 instagram·threads, 쿼터 instagram 1 / threads 2 (일), 비용 상한 3달러/일, 보호 모드 20건, 재시도 3회.
 
 재시작 복구: 시작 시 `publishing` 상태로 남은 콘텐츠는 자동 재시도하지 않고 `pending_review`로 옮기고 사유 "게시 중 중단됨, 플랫폼 확인 필요"를 기록합니다(이중 게시 방지).
 
@@ -371,7 +373,7 @@ class Clock(Protocol):
 - 대시보드: `tests/app/` 라우트 테스트(승인 → 상태 변화 등). 화면 모양은 테스트하지 않음.
 - 플랫폼별 지표 가용성(계약 테스트가 검사하는 필드):
 
-| 지표 | instagram(프로 계정) | threads | naver_blog |
+| 지표 | instagram(프로 계정) | threads | naver_blog(범위 밖, 참고) |
 |---|---|---|---|
 | views/impressions, reach | ○ | views ○ | 조회수 ○ |
 | likes, comments | ○ | ○ | 공감·댓글 ○ |

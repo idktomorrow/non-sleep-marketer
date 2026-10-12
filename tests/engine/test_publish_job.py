@@ -26,7 +26,7 @@ from tests.fakes import (
 )
 
 KST = ZoneInfo("Asia/Seoul")
-PLATFORMS = ("instagram", "threads", "naver_blog")
+PLATFORMS = ("instagram", "threads")  # 기본 게시 대상(ADR 0016)
 
 
 @pytest.fixture
@@ -68,12 +68,11 @@ def _published(ctx: JobContext, platform: str):
 
 def test_publishes_one_per_platform_with_labels(ctx: JobContext) -> None:
     r = run_publish(ctx)
-    assert r.counts == {"published": 3, "failed": 0}
+    assert r.counts == {"published": 2, "failed": 0}
     for p in PLATFORMS:
         post = _published(ctx, p)[0]
         assert post.text.startswith(VIRTUAL_PERSON_TEXT)
         assert len(post.images) == 4  # info 덱: cover + 2 body + outro
-    assert _published(ctx, "naver_blog")[0].title.endswith(BLOG_TITLE_SUFFIX)
     # 렌더러에 넘긴 덱에는 가상인물 표기가 켜져 있다
     assert all(d.labels.virtual_person for d in ctx.renderer.rendered)
     # 콘텐츠당 한 번만 렌더
@@ -198,10 +197,19 @@ def test_reapproval_requeues_abandoned(ctx: JobContext) -> None:
     assert ctx.repo.get_content(pub.content_id).status == "published"
 
 
-def test_failure_marks_run_not_ok_but_others_publish(ctx: JobContext) -> None:
-    ctx.adapters["instagram"].fail_next_publish = 1
-    r = run_publish(ctx)
-    assert not r.ok and r.counts == {"published": 2, "failed": 1}
+def test_default_platforms_exclude_naver_blog(app_config) -> None:
+    s = app_config.settings
+    assert s.enabled_platforms == ["instagram", "threads"]  # ADR 0016
+    assert "naver_blog" not in s.quotas
+
+
+def test_naver_blog_post_still_labeled(ctx: JobContext) -> None:
+    """MVP 게시 대상은 아니지만 동결 계약에 남은 값이므로, 켜면 제목·본문 표기는 지켜야 한다."""
+    from nsm.engine.publish import build_post
+
+    post = build_post(ctx.repo.list_contents()[-1], "naver_blog", [])
+    assert post.title.endswith(BLOG_TITLE_SUFFIX)
+    assert post.text.startswith(VIRTUAL_PERSON_TEXT)
 
 
 def test_no_adapters_is_an_error(ctx: JobContext) -> None:

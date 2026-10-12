@@ -14,14 +14,14 @@ flowchart LR
     E --> R
     E --> PT[포트]
   end
-  PT --> PA[플랫폼 어댑터<br/>instagram · threads · naver_blog · dryrun]
+  PT --> PA[플랫폼 어댑터<br/>instagram · threads · dryrun]
   PT --> SRC[수집 소스<br/>upload · naver · google_trends · community]
   PT --> CL[분류기<br/>jev · claude]
   PT --> GEN[생성기<br/>claude_text · image_api]
   PT --> RD[렌더러<br/>카드 덱 → PNG]
   PT --> NT[알림<br/>winotify]
   PA --> DRV[브라우저 드라이버<br/>aside · playwright]
-  DRV --> Web[(인스타그램 / 스레드 / 네이버)]
+  DRV --> Web[(인스타그램 / 스레드 / 네이버 검색)]
   CL --> MD[(MotherDuck prompt_jev)]
   GEN --> API[(Claude API / 이미지 API)]
   U[사용자 브라우저] --> W
@@ -104,7 +104,7 @@ erDiagram
 | `nsm/adapters/notify/` | 완료 | 수동 | F | winotify 데스크톱 알림 + 로그, 같은 제목 60초 내 중복 억제 |
 | `nsm/render/` + `nsm/templates/` | 완료 | 경계 3(렌더) | S-α | `HtmlCardRenderer`(Jinja2 + Playwright, 전용 스레드), 템플릿 3종, Pretendard 동봉. Playwright 없을 때만 단색 대체 |
 | `nsm/adapters/drivers/` aside·playwright | 구현 중 | 스모크 | D1(수집용 Playwright), G | Playwright 수집 동작 확인. Aside는 배치 B 후(ADR 0010) |
-| `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
+| `nsm/adapters/platforms/` threads·instagram | 계획 | - | G | 네이버 블로그는 범위 밖(ADR 0016). 기본 게시 대상은 인스타그램·스레드 |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
 | `tests/engine/` 시나리오 | 완료 | 경계 1 | D1·D2·E·F | 수집·생성·게시·대댓글·상태 점검·지표·드라이런 E2E |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |

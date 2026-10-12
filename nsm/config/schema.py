@@ -45,12 +45,9 @@ class ModelSettings(_Model):
 class Settings(_Model):
     dry_run: bool = True
     timezone: str = "Asia/Seoul"
-    enabled_platforms: list[Platform] = Field(
-        default_factory=lambda: ["instagram", "threads", "naver_blog"]
-    )
-    quotas: dict[Platform, int] = Field(
-        default_factory=lambda: {"instagram": 1, "threads": 2, "naver_blog": 1}
-    )
+    # 네이버 블로그는 MVP 게시 대상에서 뺐다(ADR 0016). "naver_blog" 값은 동결 계약이라 남아 있다.
+    enabled_platforms: list[Platform] = Field(default_factory=lambda: ["instagram", "threads"])
+    quotas: dict[Platform, int] = Field(default_factory=lambda: {"instagram": 1, "threads": 2})
     daily_cost_cap_usd: float = 3.0
     protect_count: int = 20
     retry_delays_minutes: list[int] = Field(default_factory=lambda: [15, 60, 240])

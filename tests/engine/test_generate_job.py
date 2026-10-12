@@ -69,7 +69,7 @@ def test_auto_publish_after_protect_mode(ctx: JobContext) -> None:
     approved = ctx.repo.list_contents("approved")
     assert len(approved) >= 1
     pubs = ctx.repo.publications_for_content(approved[-1].id)
-    assert {p.platform for p in pubs} == {"instagram", "threads", "naver_blog"}
+    assert {p.platform for p in pubs} == {"instagram", "threads"}
     assert all(p.status == "queued" for p in pubs)
 
 
