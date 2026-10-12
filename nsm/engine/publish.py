@@ -35,6 +35,10 @@ def labeled_deck(content: Content):
     return deck.model_copy(update={"labels": labels})
 
 
+class CardOverflowError(Exception):
+    """최소 글자 크기에서도 글이 카드에 다 들어가지 않음. 잘린 카드를 올리지 않고 사람에게 넘긴다."""
+
+
 def render_images(ctx: JobContext, content: Content) -> list[Path]:
     """콘텐츠당 한 번만 렌더하고 플랫폼끼리 같은 PNG를 쓴다."""
     out = ctx.media_dir / "cards" / content.id
@@ -42,19 +46,28 @@ def render_images(ctx: JobContext, content: Content) -> list[Path]:
     # 덱 내용(문구·표기 포함)의 지문이 같을 때만 재사용한다. 고친 뒤 옛 이미지가 나가면 안 된다.
     fingerprint = hashlib.sha256(deck.model_dump_json().encode("utf-8")).hexdigest()
     stamp = out / "deck.sha256"
+    overflow_mark = out / "overflow.txt"
     existing = sorted(out.glob("slide-*.png")) if out.exists() else []
     if (
         stamp.exists()
         and stamp.read_text(encoding="utf-8") == fingerprint
         and len(existing) == len(deck.slides)
     ):
+        if overflow_mark.exists() and overflow_mark.read_text(encoding="utf-8").strip():
+            raise CardOverflowError(
+                f"카드 {overflow_mark.read_text(encoding='utf-8').strip()}장 글이 넘침"
+            )
         return existing
     if ctx.renderer is None:
         raise RuntimeError("렌더러가 설정되지 않았습니다")
     for old in existing:
         old.unlink()
     paths = ctx.renderer.render(deck, out)
+    overflow = list(getattr(ctx.renderer, "last_overflow", []) or [])
+    overflow_mark.write_text(",".join(map(str, overflow)), encoding="utf-8")
     stamp.write_text(fingerprint, encoding="utf-8")
+    if overflow:
+        raise CardOverflowError(f"카드 {','.join(map(str, overflow))}장 글이 넘침")
     return paths
 
 
@@ -167,6 +180,24 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     attempts = pub.attempts + 1
     try:
         images = render_images(ctx, content)
+    except CardOverflowError as e:
+        # 재시도해도 같은 결과다: 바로 사람에게(문구를 줄여 고친 뒤 다시 승인)
+        msg = f"{e}. 검토 화면에서 문구를 줄여 주세요"
+        result.errors.append(f"{pub.platform}: {msg}")
+        ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
+        _back_to_review(ctx, content.id, msg)
+        ctx.notifier.notify("카드 글 넘침", msg, "warn")
+        return "failed"
+    except Exception as e:  # noqa: BLE001
+        msg = f"{type(e).__name__}: {e}"[:500]
+        result.errors.append(f"{pub.platform} 렌더 실패: {msg}")
+        try:
+            _record_failure(ctx, pub, content, attempts, msg)
+        except Exception as e2:  # noqa: BLE001
+            log.exception("게시 실패 기록 중 오류")
+            result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
+        return "failed"
+    try:
         res = adapter.publish(build_post(content, pub.platform, images))
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"[:500]

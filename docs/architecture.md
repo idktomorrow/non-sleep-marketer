@@ -102,13 +102,13 @@ erDiagram
 | `nsm/app/` 대시보드 | 구현 중 | 라우트 테스트 + 실서버 스모크 | F·H(백엔드), I(디자인) | 7개 화면(주간 리포트 포함)·CSRF·Host 검사·직접 답글. 화면은 최소 HTML(디자인은 I) |
 | `nsm/scheduler/` + autostart | 완료 | 단위 + 실서버 스모크 | F | 작업 스레드 1개, 활동 시간 기준 트리거, 시작프로그램 폴더(ADR 0013) |
 | `nsm/adapters/notify/` | 완료 | 수동 | F | winotify 데스크톱 알림 + 로그, 같은 제목 60초 내 중복 억제 |
-| `nsm/render/` + `nsm/templates/` | 구현 중 | 단위 | S-α | 서브. 지금은 `PlaceholderRenderer`(단색 PNG)가 대신함 |
+| `nsm/render/` + `nsm/templates/` | 완료 | 경계 3(렌더) | S-α | `HtmlCardRenderer`(Jinja2 + Playwright, 전용 스레드), 템플릿 3종, Pretendard 동봉. Playwright 없을 때만 단색 대체 |
 | `nsm/adapters/drivers/` aside·playwright | 구현 중 | 스모크 | D1(수집용 Playwright), G | Playwright 수집 동작 확인. Aside는 배치 B 후(ADR 0010) |
 | `nsm/adapters/platforms/` threads·instagram·naver_blog | 계획 | - | G | |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
 | `tests/engine/` 시나리오 | 완료 | 경계 1 | D1·D2·E·F | 수집·생성·게시·대댓글·상태 점검·지표·드라이런 E2E |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |
-| `tests/render/` | 계획 | - | S-α | 서브 |
+| `tests/render/` | 완료 | 경계 3 | S-α | PNG 크기·표기 슬롯·광고 배지·AI 캡션·극단 입력·스레드 충돌 |
 | `tests/app/` | 완료 | 라우트 | F | 승인·폐기·수정·토글·댓글 답글/완료·CSRF·경로 조작 차단 |
 
 ## 7. 설계와 구현의 차이
@@ -117,7 +117,7 @@ erDiagram
 
 - 콘텐츠 상태와 플랫폼별 게시 상태를 분리했다(ADR 0009). 계약 초안의 `publishing/failed/abandoned`는 `publications.status`로 옮김.
 - 브라우저 드라이버 기본값을 Playwright로 둠(ADR 0010).
-- 렌더러가 들어오기 전까지 `nsm/render/placeholder.py`가 슬라이드마다 단색 PNG를 만든다.
+- 카드 렌더는 `HtmlCardRenderer`가 한다. `PlaceholderRenderer`(단색 PNG)는 Playwright가 없는 환경의 대체로만 남았다. 렌더는 수집 드라이버와 Playwright가 충돌하지 않도록 전용 스레드에서 한다.
 - 분류기는 용도별 묶음(`ClassifierSet`: 관련성·주제·댓글)으로 조립한다. 키워드 대체 구현 때문(ADR 0011).
 - 자료의 관련성은 "relevant일 확률"로 통일해 `source_items.relevance`에 저장한다.
 - collect 잡은 배치 E가 아니라 D1에서 먼저 만들었다(수집 결과를 실제로 확인하기 위해).
