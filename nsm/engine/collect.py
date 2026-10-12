@@ -137,12 +137,15 @@ def _fetch_bodies(ctx: JobContext, result: JobResult) -> int:
     fetched = 0
     threshold = ctx.config.settings.relevance_threshold
     for item in ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN):
-        fetch = getattr(by_name.get(item.source), "fetch_body", None)
-        if not callable(fetch) or not item.url or item.url.startswith("file:"):
+        if not item.url or item.url.startswith("file:"):
+            # 업로드 자료는 원문이 이미 본문이다
             ctx.repo.record_classification(
                 "source_item", item.id, "body", "skipped", 0.0, "collect"
             )
             continue
+        fetch = getattr(by_name.get(item.source), "fetch_body", None)
+        if not callable(fetch):
+            continue  # 이번 실행에 그 소스(브라우저)가 없음: 기록하지 않고 다음 실행에 다시
         try:
             body = fetch(item.url)
         except Exception as e:  # noqa: BLE001  본문 실패는 요약문으로 대신한다

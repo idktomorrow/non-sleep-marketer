@@ -138,18 +138,25 @@ class Repository:
     def set_source_relevance(self, item_id: str, relevance: float) -> None:
         self.db.execute("UPDATE source_items SET relevance = ? WHERE id = ?", [relevance, item_id])
 
+    BODY_RETRIES = 3
+
     def set_source_text(self, item_id: str, text: str) -> None:
         self.db.execute("UPDATE source_items SET text = ? WHERE id = ?", [text, item_id])
 
     def relevant_items_without_body(self, threshold: float, limit: int) -> list[SourceItem]:
-        """원문 본문을 아직 시도하지 않은 관련 자료(아직 콘텐츠에 쓰지 않은 것). 최근 것부터."""
+        """원문 본문을 아직 못 가져온 관련 자료(아직 콘텐츠에 쓰지 않은 것). 최근 것부터.
+
+        가져왔거나 건너뛴 것은 빼고, 실패는 BODY_RETRIES번까지 다시 시도한다(일시 장애 대비).
+        """
         rows = self.db.execute(
             f"SELECT {self._ITEM_COLS} FROM source_items s "
-            "WHERE relevance >= ? AND used_in_content_id IS NULL AND NOT EXISTS ("
-            "  SELECT 1 FROM classifications c WHERE c.target_type = 'source_item' "
-            "  AND c.target_id = s.id AND c.kind = 'body') "
+            "WHERE relevance >= ? AND used_in_content_id IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label IN ('fetched', 'skipped')) "
+            "AND (SELECT count(*) FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label = 'failed') < ? "
             "ORDER BY collected_at DESC LIMIT ?",
-            [threshold, limit],
+            [threshold, self.BODY_RETRIES, limit],
         )
         return [self._row_to_item(r) for r in rows]
 

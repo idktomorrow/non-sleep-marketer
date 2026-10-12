@@ -162,3 +162,65 @@ def test_sources_line_dedupes_and_caps() -> None:
 
 def test_fixture_deck_is_loadable() -> None:
     assert load_deck("info").slides
+
+
+# ---------------------------------------------------------------- 코드 리뷰 반영
+@pytest.mark.parametrize(
+    ("raw", "clean"),
+    [
+        ("3.5도 차이", "3.5도 차이"),
+        ("1.5배 진하게", "1.5배 진하게"),
+        ("*주의*", "*주의*"),
+        ("92.5도에서 추출", "92.5도에서 추출"),
+        ("1) 물 온도", "물 온도"),
+    ],
+)
+def test_numbers_and_emphasis_are_not_markers(raw: str, clean: str) -> None:
+    assert Q.strip_bullet_marker(raw) == clean
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "매일기록하는 홈카페 레시피",
+        "내일 일기예보와 커피",
+        "월요일기분 전환 라떼",
+        "커피 산지 다녀온 바리스타의 원두 고르는 법",
+        "핸드드립 웨이팅 시간",
+    ],
+)
+def test_genre_rule_does_not_catch_informative_titles(title: str) -> None:
+    assert Q.excluded_genre(title, "") is None
+
+
+@pytest.mark.parametrize("title", ["홈카페 일기 3일차", "성수 카페 리뷰", "웨이팅 길었던 카페"])
+def test_genre_rule_still_catches_diaries_and_reviews(title: str) -> None:
+    assert Q.excluded_genre(title, "")
+
+
+@pytest.mark.parametrize(
+    ("text", "n"),
+    [
+        ("👍🏻", 1),
+        ("🇰🇷", 1),
+        ("👨\u200d👩\u200d👧", 1),
+        ("1️⃣ 2️⃣", 2),
+        ("☕️", 1),
+        ("좋아요 👍🏻 ☕", 2),
+    ],
+)
+def test_count_emoji_counts_what_people_see(text: str, n: int) -> None:
+    assert Q.count_emoji(text) == n
+
+
+@pytest.mark.parametrize(
+    ("tone", "limit"),
+    [
+        ("이모지는 최대 한 개", 1),
+        ("이모지 1~2개", 2),
+        ("이모지는 한 개 정도", 1),
+        ("이모지는 두 개만", 2),
+    ],
+)
+def test_emoji_limit_more_phrasings(tone: str, limit: int) -> None:
+    assert Q.emoji_limit(tone) == limit

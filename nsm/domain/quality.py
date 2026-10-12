@@ -6,18 +6,23 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import urlsplit
 
 from nsm.domain.models import GeneratedContent, Persona
 
+log = logging.getLogger(__name__)
+
 # ------------------------------------------------------------------ 관련성: 제외 장르
 
 # 방문 후기·여행기·개인 일기. 정보성 글이 아니고, 후기형은 공정위 지침 위험으로 쓰지 않는다(ADR 0007).
 _EXCLUDED_GENRE = re.compile(
-    r"내돈내산|방문\s*후기|방문기|다녀왔|다녀온|여행기|여행\s*(?:후기|일기|중에|브이로그)|"
-    r"카페\s*투어|투어\s*후기|브이로그|vlog|일상\s*(?:기록|일기|브이로그)|일기|데이트\s*(?:코스|후기)|"
-    r"(?:구매|사용|솔직|체험|시음|맛집|카페)\s*후기|후기\s*[♥❤!]|웨이팅",
+    r"내돈내산|방문\s*후기|방문기|다녀왔어|다녀왔습|다녀온\s*(?:후기|곳|카페|맛집)|"
+    r"여행기|여행\s*(?:후기|일기|중에|브이로그)|카페\s*투어|투어\s*후기|브이로그|vlog|"
+    r"(?:육아|하루|여행|카페|커피|일상|다이어트|홈카페)\s*일기|(?:오늘|나|우리)\s*의?\s*일기|일기\s*(?:장|쓰기)|일상\s*(?:기록|브이로그)|"
+    r"데이트\s*(?:코스|후기)|(?:구매|사용|솔직|체험|시음|맛집|카페|방문)\s*(?:후기|리뷰)|후기\s*[♥❤!]|"
+    r"웨이팅\s*(?:후기|있|길|필수)",
     re.IGNORECASE,
 )
 
@@ -30,7 +35,7 @@ def excluded_genre(title: str, text: str) -> str | None:
 
 # ------------------------------------------------------------------ 카드 목록 번호
 
-_BULLET_MARK = re.compile(r"^\s*(?:\d{1,2}\s*[.)]|[①-⑳]|[-•·*▪︎✔✅☑]️?)\s*")
+_BULLET_MARK = re.compile(r"^\s*(?:\d{1,2}\s*[.)](?=\s|$)|[①-⑳]|[-•·*▪︎✔✅☑]️?(?=\s))\s*")
 
 
 def strip_bullet_marker(s: str) -> str:
@@ -66,20 +71,39 @@ _EMOJI = re.compile("[\U0001f000-\U0001faff☀-➿⬀-⯿⌀-⏿〰〽㊗㊙]")
 _NUM_WORDS = {"한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4}
 
 
+_EMOJI_MODIFIERS = re.compile("[\U0001f3fb-\U0001f3ff\ufe0f]")
+_ZWJ_SEQ = re.compile(f"{_EMOJI.pattern}(?:\u200d{_EMOJI.pattern})+")
+_FLAG = re.compile("[\U0001f1e6-\U0001f1ff]{2}")
+_KEYCAP = re.compile("[0-9#*]\u20e3")
+
+
 def count_emoji(text: str) -> int:
-    return len(_EMOJI.findall(text))
+    """화면에 보이는 이모지 개수: 👍🏻·🇰🇷·👨‍👩‍👧는 1개, 1️⃣ 같은 키캡도 1개."""
+    t = _EMOJI_MODIFIERS.sub("", text)
+    n = len(_KEYCAP.findall(t))
+    t = _KEYCAP.sub("", t)
+    n += len(_ZWJ_SEQ.findall(t))
+    t = _ZWJ_SEQ.sub("", t)
+    n += len(_FLAG.findall(t))
+    t = _FLAG.sub("", t)
+    return n + len(_EMOJI.findall(t))
 
 
 def emoji_limit(tone: str) -> int | None:
     """말투 설정에서 이모지 상한을 읽는다: "이모지는 한 개까지" → 1, "이모지 없이" → 0. 없으면 None."""
     if re.search(r"이모지\s*(?:는|를|은)?\s*(?:없이|쓰지\s*않|사용하지\s*않|금지)", tone):
         return 0
+    num = r"(\d+|한|하나|두|둘|세|셋|네|넷)"
     m = re.search(
-        r"이모지\s*(?:는|를|은)?\s*(\d+|한|하나|두|둘|세|셋|네|넷)\s*개?\s*(?:까지|이하|이내)", tone
-    )
+        rf"이모지\s*(?:는|를|은)?\s*(?:최대\s*)?(?:{num}\s*(?:~|-|에서)\s*)?{num}\s*개?\s*"
+        r"(?:까지|이하|이내|정도|만)?(?![0-9])",
+        tone,
+    ) or re.search(rf"이모지\s*(?:는|를|은)?\s*최대\s*{num}\s*개?", tone)
     if not m:
+        if "이모지" in tone:
+            log.info("말투 설정의 이모지 규칙을 읽지 못함(검사 안 함): %s", tone)
         return None
-    v = m.group(1)
+    v = m.groups()[-1]  # 범위("1~2개")면 큰 쪽이 상한
     return int(v) if v.isdigit() else _NUM_WORDS[v]
 
 

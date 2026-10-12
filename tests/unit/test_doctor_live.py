@@ -145,10 +145,21 @@ def test_live_check_costs_are_recorded_with_doctor_ref(fake_anthropic, monkeypat
     assert recorded[0][3].startswith("doctor")
 
 
+def test_cost_sink_does_not_create_db_before_init(nsm_home) -> None:
+    from nsm.config import paths
+    from nsm.doctor_live import cost_sink
+
+    with cost_sink() as sink:
+        assert sink is None
+    assert not paths.db_path().exists()
+
+
 def test_cost_sink_writes_to_configured_db(nsm_home) -> None:
     from nsm.config import paths
     from nsm.doctor_live import cost_sink
     from nsm.store.db import Database
+
+    Database(paths.db_path()).close()  # nsm init 이후처럼 DB가 있음
 
     with cost_sink() as sink:
         assert sink is not None

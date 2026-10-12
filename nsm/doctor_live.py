@@ -50,6 +50,10 @@ def cost_sink() -> Iterator[CostSink | None]:
         from nsm.store.db import Database
         from nsm.store.repo import Repository
 
+        if not paths.db_path().exists():
+            # `nsm init` 전: 점검만 하려고 DB를 새로 만들거나 마이그레이션하지 않는다
+            yield None
+            return
         db = Database(paths.db_path())
     except Exception:  # noqa: BLE001  점검은 기록 없이도 한다
         yield None

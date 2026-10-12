@@ -199,3 +199,35 @@ def test_body_fetch_failure_keeps_snippet(db, clock, app_config) -> None:
 def test_clean_text_removes_zero_width_chars() -> None:
     # 2026-10-13 실측: 네이버 블로그 본문에 ​가 섞여 있었다
     assert clean_text("기준 5가지 ​ ​ 분쇄 방식﻿") == "기준 5가지 분쇄 방식"
+
+
+def test_body_fetch_retries_failures_and_waits_for_missing_source(db, clock, app_config) -> None:
+    items = [_item(1, "핸드드립 물 온도 기준 정리", "https://blog.naver.com/a/1")]
+    src = BodySource(items, body=None)
+    ctx = _ctx(
+        db,
+        clock,
+        app_config,
+        src,
+        FakeClassifier(default=Classification(label="relevant", confidence=0.9)),
+    )
+    for _ in range(5):
+        run_collect(ctx)
+    assert len(src.fetched) == Repository.BODY_RETRIES  # 실패는 3번까지만 다시
+    # 그 소스가 없는 실행(브라우저 없음)에서는 기록하지 않고 넘어간다
+    items2 = [_item(2, "원두 보관 기준 정리", "https://blog.naver.com/b/2")]
+    ctx2 = _ctx(
+        db,
+        clock,
+        app_config,
+        BodySource(items2, body=None),
+        FakeClassifier(default=Classification(label="relevant", confidence=0.9)),
+    )
+    ctx2.sources = []
+    from nsm.engine.collect import _fetch_bodies
+    from nsm.engine.context import JobResult
+
+    ctx2.repo.insert_source_item(items2[0])
+    ctx2.repo.set_source_relevance("s2", 0.9)
+    _fetch_bodies(ctx2, JobResult("collect"))
+    assert [i.id for i in ctx2.repo.relevant_items_without_body(0.8, 10)] == ["s2"]

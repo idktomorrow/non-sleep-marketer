@@ -97,7 +97,11 @@ def build_post(content: Content, platform: Platform, images: list[Path]) -> Rend
         content_id=content.id,
         platform=platform,
         title=labeled_blog_title(g.blog_title) if platform == "naver_blog" else None,
-        text=fit_with_tail(apply_labels(body, content.is_ad), platform, _sources_tail(content)),
+        text=fit_with_tail(
+            apply_labels(body, content.is_ad),
+            platform,
+            _sources_tail(content) if platform in ("instagram", "threads") else "",
+        ),
         images=images,
     )
 
