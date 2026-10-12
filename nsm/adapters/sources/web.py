@@ -1,7 +1,8 @@
 """브라우저로 읽는 웹 수집 소스: 네이버 검색, 커뮤니티 검색.
 
-검색 결과 화면의 링크와 요약문만 읽는다. 본문을 통째로 복사하지 않는다(ADR 0001 위험 완화).
-요청 사이에 무작위 지연을 두고, 소스당 개수 상한을 지킨다.
+검색 결과 화면에서는 링크와 요약문만 읽는다. 관련 자료로 판정된 글만 `fetch_body`로 원문을 열어
+본문을 상한(BODY_MAX)까지 가져온다(ADR 0022). 본문은 생성 재료로만 쓰고 그대로 옮기지 않는다
+(생성 규칙: 20자 넘게 그대로 옮기지 않음). 요청 사이에 무작위 지연을 두고, 소스당 개수 상한을 지킨다.
 """
 
 from __future__ import annotations
@@ -11,15 +12,15 @@ import re
 from urllib.parse import quote, urlsplit
 
 from nsm.adapters.drivers.base import BrowserDriver, Link
-from nsm.adapters.sources.common import Pacer, clip, normalize_url, url_hash
+from nsm.adapters.sources.common import A11Y_NOISE, Pacer, clean_text, normalize_url, url_hash
 from nsm.domain.clock import new_id
 from nsm.domain.models import SourceItem
 from nsm.ports import Clock
 
 log = logging.getLogger(__name__)
 
-# 화면 낭독기용 안내 문구(링크 텍스트에 섞여 들어온다)
-_A11Y_NOISE = re.compile(r"새\s*창\s*열림|새\s*창으로\s*열기")
+BODY_MAX = 3000  # 원문 본문 상한(글자). 생성 프롬프트도 자료당 3000자까지만 쓴다.
+BODY_MIN = 200  # 이보다 짧으면 본문을 못 찾은 것으로 보고 요약문을 그대로 둔다
 
 NAVER_TABS = {
     "blog": (
@@ -45,14 +46,14 @@ def _items_from_links(
     for link in links:
         if len(out) >= limit:
             break
-        title = " ".join(_A11Y_NOISE.sub(" ", link.text).split())
+        title = " ".join(A11Y_NOISE.sub(" ", link.text).split())
         if len(title) < 8 or not pattern.match(link.href):
             continue
         key = normalize_url(link.href)
         if key in seen:
             continue
         seen.add(key)
-        context = clip(link.context, 400)
+        context = clean_text(link.context, 400)
         out.append(
             SourceItem(
                 id=new_id(),
@@ -65,6 +66,28 @@ def _items_from_links(
             )
         )
     return out
+
+
+def body_url(url: str) -> str:
+    """네이버 블로그 PC 주소는 본문이 iframe 안에 있다. 모바일 주소는 본문이 바로 보인다."""
+    parts = urlsplit(url)
+    if parts.netloc.lower() == "blog.naver.com":
+        return url.replace("://blog.naver.com", "://m.blog.naver.com", 1)
+    return url
+
+
+def fetch_article(driver: BrowserDriver, pacer: Pacer, url: str) -> str | None:
+    """원문 본문(정리 + 상한). 못 찾거나 너무 짧으면 None."""
+    pacer.wait()
+    try:
+        driver.goto(body_url(url))
+        reader = getattr(driver, "article_text", None)
+        raw = reader() if callable(reader) else driver.page_text()
+    except Exception as e:  # noqa: BLE001  본문 실패는 요약문으로 대신한다
+        log.info("본문 가져오기 실패(%s): %s", url, e)
+        return None
+    text = clean_text(raw, BODY_MAX)
+    return text if len(text) >= BODY_MIN else None
 
 
 class NaverSearchSource:
@@ -102,6 +125,9 @@ class NaverSearchSource:
                     links, pattern, self.name, self.clock, min(per_query, limit - len(items)), seen
                 )
         return items
+
+    def fetch_body(self, url: str) -> str | None:
+        return fetch_article(self.driver, self.pacer, url)
 
 
 class CommunitySource:
@@ -142,3 +168,6 @@ class CommunitySource:
                 seen,
             )
         return items
+
+    def fetch_body(self, url: str) -> str | None:
+        return fetch_article(self.driver, self.pacer, url)

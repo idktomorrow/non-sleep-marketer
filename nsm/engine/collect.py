@@ -6,19 +6,25 @@ import logging
 
 from nsm.domain.models import Classification
 from nsm.domain.policy import should_act
+from nsm.domain.quality import excluded_genre
 from nsm.engine.context import JobContext, JobResult
 
 log = logging.getLogger(__name__)
 
 RELEVANCE_LABELS = ["relevant", "irrelevant"]
+MAX_BODIES_PER_RUN = 6  # 한 번에 원문을 여는 글 수(사이트 부담·시간 상한)
 
 
 def relevance_instruction(ctx: JobContext) -> str:
     b, p = ctx.config.brand, ctx.config.persona
+    # jev·Claude 분류기가 같은 지시를 쓴다(ADR 0003). 2026-10-12 드라이런에서 카페 방문 후기가
+    # 관련 0.93으로 통과해, "정보성 글만"과 제외 장르를 명시한다.
     return (
-        f"이 자료가 브랜드 '{b.name}'({b.industry})의 SNS 콘텐츠 소재로 쓸 만큼 "
-        f"다음 관심 주제와 관련 있는가? 관심 주제: {', '.join(p.topics)}. "
-        "relevant 또는 irrelevant로 답하라."
+        f"이 자료가 브랜드 '{b.name}'({b.industry})의 SNS 정보 콘텐츠 소재로 쓸 수 있는가? "
+        f"관심 주제: {', '.join(p.topics)}. "
+        "관심 주제와 직접 관련된 정보성 글(방법, 기준, 원리, 비교, 정리, 소식)만 relevant다. "
+        "주제 낱말이 나와도 방문 후기, 맛집·카페 리뷰, 여행기, 개인 일기·일상 기록, 구매·사용 후기, "
+        "광고 홍보 글은 irrelevant다. relevant 또는 irrelevant로 답하라."
     )
 
 
@@ -52,6 +58,7 @@ def run_collect(ctx: JobContext) -> JobResult:
 
     relevant, classified = _classify_pending(ctx, result)
     result.counts.update(classified=classified, relevant=relevant)
+    result.counts["bodies"] = _fetch_bodies(ctx, result)
     result.ok = not result.errors or new > 0 or classified > 0
     return result
 
@@ -61,7 +68,18 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
         result.errors.append("분류기가 설정되지 않았습니다")
         return 0, 0
     threshold = ctx.config.settings.relevance_threshold
-    pending = ctx.repo.unclassified_items()
+    pending = []
+    for item in ctx.repo.unclassified_items():
+        hit = excluded_genre(item.title, item.text)
+        if hit:
+            # 후기·여행기·일기는 분류기를 부르지 않고 제외한다(비용도 아낀다)
+            ctx.repo.set_source_relevance(item.id, 0.0)
+            ctx.repo.record_classification(
+                "source_item", item.id, "relevance", "irrelevant", 1.0, f"rule:{hit}"
+            )
+            result.counts["excluded_genre"] = result.counts.get("excluded_genre", 0) + 1
+            continue
+        pending.append(item)
     texts = [f"{i.title}\n{i.text}" for i in pending]
     instruction = relevance_instruction(ctx)
     try:
@@ -110,4 +128,35 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
         ctx.repo.record_classification(
             "source_item", item.id, "topic", t.label, t.confidence, ctx.classifier_name
         )
-    return relevant, len(pending)
+    return relevant, len(pending) + result.counts.get("excluded_genre", 0)
+
+
+def _fetch_bodies(ctx: JobContext, result: JobResult) -> int:
+    """관련 자료로 판정된 웹 글만 원문 본문을 가져온다(ADR 0022). 실패하면 검색 요약문을 그대로 쓴다."""
+    by_name = {getattr(s, "name", ""): s for s in ctx.sources}
+    fetched = 0
+    threshold = ctx.config.settings.relevance_threshold
+    for item in ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN):
+        fetch = getattr(by_name.get(item.source), "fetch_body", None)
+        if not callable(fetch) or not item.url or item.url.startswith("file:"):
+            ctx.repo.record_classification(
+                "source_item", item.id, "body", "skipped", 0.0, "collect"
+            )
+            continue
+        try:
+            body = fetch(item.url)
+        except Exception as e:  # noqa: BLE001  본문 실패는 요약문으로 대신한다
+            log.info("본문 가져오기 실패(%s): %s", item.url, e)
+            body = None
+        if body:
+            ctx.repo.set_source_text(item.id, body)
+            fetched += 1
+        ctx.repo.record_classification(
+            "source_item",
+            item.id,
+            "body",
+            "fetched" if body else "failed",
+            1.0 if body else 0.0,
+            "collect",
+        )
+    return fetched

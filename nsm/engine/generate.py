@@ -23,6 +23,7 @@ from nsm.domain.policy import (
     should_act,
     under_cost_cap,
 )
+from nsm.domain.quality import normalize_bullets, rule_violations
 from nsm.engine.context import JobContext, JobResult
 from nsm.ports import AdapterError
 
@@ -104,6 +105,32 @@ def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -
         }
     )
     return gen.model_copy(update={"deck": deck})
+
+
+def _check_rules(
+    ctx: JobContext, brief: ContentBrief, gen: GeneratedContent, result: JobResult
+) -> tuple[GeneratedContent, list[str]]:
+    """프롬프트에만 있던 규칙(이모지 수, 딱딱한 표현)을 검사하고, 어기면 한 번 다시 만든다."""
+    persona = ctx.config.persona
+    violations = rule_violations(gen, persona)
+    if not violations:
+        return gen, []
+    log.info("페르소나 규칙 위반, 한 번 다시 생성: %s", violations)
+    start, end = local_day_bounds(ctx.clock.now(), ctx.tz)
+    if not under_cost_cap(
+        ctx.repo.cost_between(start, end), ctx.config.settings.daily_cost_cap_usd
+    ):
+        return gen, violations  # 비용 상한: 다시 만들지 않고 검토로
+    try:
+        again = normalize_bullets(
+            ctx.text_generator.generate_content(brief, persona, ctx.config.brand)  # type: ignore[union-attr]
+        )
+    except Exception as e:  # noqa: BLE001  다시 만들기가 실패하면 처음 것을 검토로 보낸다
+        result.errors.append(f"규칙 위반 재생성 실패: {e}")
+        return gen, violations
+    result.counts["regenerated"] = result.counts.get("regenerated", 0) + 1
+    v2 = rule_violations(again, persona)
+    return (again, v2) if len(v2) <= len(violations) else (gen, violations)
 
 
 def run_generate(ctx: JobContext) -> JobResult:
@@ -188,6 +215,7 @@ def _make_one(
         log.warning("콘텐츠 생성 실패(다음에 재시도): %s", e)
         result.errors.append(f"생성 실패: {e}")
         return _RETRY_LATER
+    gen, violations = _check_rules(ctx, brief, normalize_bullets(gen), result)
     gen = _add_background(ctx, gen, result)
 
     claim_ids = [c.source_item_id for c in gen.claims]
@@ -207,19 +235,25 @@ def _make_one(
         human_approved=ctx.repo.count_human_approved(),
         protect_count=s.protect_count,
     )
+    reason = decision.reason_text
+    approved = decision.status == "approved"
+    if violations:
+        # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
+        approved = False
+        reason = "; ".join(filter(None, [f"페르소나 규칙 위반: {', '.join(violations)}", reason]))
     content = Content(
         id=new_id(),
-        status="pending_review" if decision.status != "approved" else "draft",
+        status="draft" if approved else "pending_review",
         generated=gen,
         relevance_confidence=relevance,
         is_ad=brief.is_ad,
         created_at=now,
-        review_reason=decision.reason_text,
+        review_reason=reason,
     )
     ctx.repo.save_generated(
         content,
         persona_topic=persona_topic,
-        approved_by_policy=decision.status == "approved",
+        approved_by_policy=approved,
         item_ids=[i.id for i in items],
         platforms=assign_platforms(index_today, s.enabled_platforms, s.quotas),
     )

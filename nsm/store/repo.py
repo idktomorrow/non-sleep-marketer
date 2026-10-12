@@ -138,6 +138,21 @@ class Repository:
     def set_source_relevance(self, item_id: str, relevance: float) -> None:
         self.db.execute("UPDATE source_items SET relevance = ? WHERE id = ?", [relevance, item_id])
 
+    def set_source_text(self, item_id: str, text: str) -> None:
+        self.db.execute("UPDATE source_items SET text = ? WHERE id = ?", [text, item_id])
+
+    def relevant_items_without_body(self, threshold: float, limit: int) -> list[SourceItem]:
+        """원문 본문을 아직 시도하지 않은 관련 자료(아직 콘텐츠에 쓰지 않은 것). 최근 것부터."""
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items s "
+            "WHERE relevance >= ? AND used_in_content_id IS NULL AND NOT EXISTS ("
+            "  SELECT 1 FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body') "
+            "ORDER BY collected_at DESC LIMIT ?",
+            [threshold, limit],
+        )
+        return [self._row_to_item(r) for r in rows]
+
     def set_source_topic(self, item_id: str, topic: str, confidence: float) -> None:
         self.db.execute(
             "UPDATE source_items SET topic = ?, topic_confidence = ? WHERE id = ?",
