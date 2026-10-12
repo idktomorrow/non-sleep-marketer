@@ -32,7 +32,9 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 
 /* 위·아래 띠: 핸들, 페이지, 표기 배지 */
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 64px; }
-.who { font-size: 30px; font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ident { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.ident .badge { flex-shrink: 0; }
+.who { font-size: 30px; font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .who .logo { height: 48px; vertical-align: middle; margin-right: 12px; }
 .badges { display: flex; gap: 12px; flex-shrink: 0; align-items: center; }
 .badge {

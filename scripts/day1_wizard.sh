@@ -274,16 +274,16 @@ asks TEST_COLLECT "수집 전용 계정(네이버 검색용, 없으면 빈칸):"
 
 # ── 5. Aside 무인 게시 ────────────────────────────────────────────────────
 stage "Aside가 사람 승인 없이 게시하는지 (가장 중요)"
-say "결과에 따라 브라우저 드라이버 기본값(Aside/Playwright)이 정해집니다(ADR 0002, 0010)."
+say "결과에 따라 브라우저 드라이버 기본값(Aside/Playwright)이 정해집니다(ADR 0002, 0010, 0017)."
 open_url "https://docs.aside.com/help/developers"
 step "Aside 앱을 설치하고, Aside 브라우저에서 스레드 '테스트 계정'으로 로그인"
 step "PowerShell에서 문서의 Windows 설치 스크립트로 CLI 설치 → 새 터미널에서  aside --update"
-step "Aside 앱 Settings > Agents 에서 게시 관련 권한을 Allow로 둘 수 있는지 확인"
+step "Aside 앱 Settings > File permissions > Can view 에 %USERPROFILE%\\.nsm 폴더 추가 (카드 이미지 읽기용)"
 step "새 터미널에서:  aside \"threads.net에서 '테스트 게시입니다' 라는 글을 올려줘\""
 note "에이전트가 '승인 요청'을 띄우고 멈추는지, 끝까지 올리는지 봅니다. 올라간 글은 바로 지우세요."
 asks ASIDE_VERSION "aside --version 결과 (모르면 빈칸):"
 yn ASIDE_UNATTENDED "승인 없이 끝까지 게시됐나요?"
-yn ASIDE_ALLOW "Settings > Agents에서 게시를 Allow로 둘 수 있었나요?"
+yn ASIDE_ALLOW "Can view에 .nsm 폴더를 추가했나요?"
 asks ASIDE_NOTES "관찰한 내용 한 줄 (승인 창 문구, 걸린 시간, 크레딧 소모 등):"
 
 # ── 6. 댓글 숨기기 메뉴·인스타 프로 계정 ──────────────────────────────────
@@ -323,7 +323,7 @@ mkdir -p docs
     "$(cell "$TEST_THREADS")" "$(cell "$TEST_INSTAGRAM")" "$(cell "$TEST_COLLECT")"
   printf '## Aside 무인 동작\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
-  printf '| 버전 | %s |\n| 승인 없이 끝까지 게시 | %s |\n| 게시 권한 Allow 설정 가능 | %s |\n| 관찰 | %s |\n\n' \
+  printf '| 버전 | %s |\n| 승인 없이 끝까지 게시 | %s |\n| 읽기 허용 폴더(.nsm) 추가 | %s |\n| 관찰 | %s |\n\n' \
     "$(cell "$ASIDE_VERSION")" "$ASIDE_UNATTENDED" "$ASIDE_ALLOW" "$(cell "$ASIDE_NOTES")"
   printf '## 플랫폼 기능\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'

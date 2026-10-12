@@ -5,9 +5,13 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
+
+from nsm.adapters.platforms import PLATFORM_CAPABILITIES
 from nsm.adapters.platforms.dryrun import DryRunAdapter
+from nsm.domain.labels import VIRTUAL_PERSON_TEXT
 from nsm.domain.models import RenderedPost
-from nsm.ports import CAPABILITIES, PlatformAdapter
+from nsm.ports import CAPABILITIES, NotSupportedError, PlatformAdapter
 
 
 def _post(tmp_path: Path, platform="threads") -> RenderedPost:
@@ -16,7 +20,7 @@ def _post(tmp_path: Path, platform="threads") -> RenderedPost:
     return RenderedPost(
         content_id="c1",
         platform=platform,
-        text="AI를 기반으로 생성된 가상인물이 포함된 게시물입니다\n\n본문",
+        text=f"{VIRTUAL_PERSON_TEXT}\n\n본문",
         images=[img],
         title="제목 [가상인물 포함]" if platform == "naver_blog" else None,
     )
@@ -25,7 +29,7 @@ def _post(tmp_path: Path, platform="threads") -> RenderedPost:
 def test_dryrun_is_a_platform_adapter(tmp_path: Path, clock) -> None:
     a = DryRunAdapter("threads", tmp_path / "preview", clock)
     assert isinstance(a, PlatformAdapter)
-    assert a.capabilities() == set(CAPABILITIES)
+    assert a.capabilities() == set(CAPABILITIES)  # 스레드는 숨기기까지 전부 지원
     assert a.health().logged_in
 
 
@@ -58,8 +62,8 @@ def test_simulated_comments_arrive_over_time(tmp_path: Path, clock) -> None:
 
 def test_reply_and_hide_are_logged(tmp_path: Path, clock) -> None:
     preview = tmp_path / "preview"
-    a = DryRunAdapter("instagram", preview, clock)
-    ext = a.publish(_post(tmp_path, "instagram")).external_id
+    a = DryRunAdapter("threads", preview, clock)
+    ext = a.publish(_post(tmp_path, "threads")).external_id
     clock.advance(hours=2)
     c = a.fetch_new_comments([ext], None)[0]
     a.reply(c, "고마워요")
@@ -92,3 +96,15 @@ def test_preview_folder_uses_local_date(tmp_path: Path) -> None:
     a = DryRunAdapter("threads", tmp_path / "preview", clock, tz="Asia/Seoul")
     a.publish(_post(tmp_path))
     assert (tmp_path / "preview" / "2026-10-12" / "c1" / "threads" / "post.txt").exists()
+
+
+def test_instagram_cannot_hide_comments(tmp_path: Path, clock) -> None:
+    """1일차 검증: 인스타그램 웹 댓글 메뉴에는 숨기기가 없다(ADR 0018)."""
+    a = DryRunAdapter("instagram", tmp_path / "preview", clock)
+    assert "hide_comment" not in a.capabilities()
+    assert a.capabilities() == set(PLATFORM_CAPABILITIES["instagram"])
+    ext = a.publish(_post(tmp_path, "instagram")).external_id
+    clock.advance(hours=2)
+    c = a.fetch_new_comments([ext], None)[0]
+    with pytest.raises(NotSupportedError):
+        a.hide_comment(c)

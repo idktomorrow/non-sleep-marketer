@@ -65,3 +65,10 @@ def test_capability_fallbacks() -> None:
 def test_apply_labels_strips_variants() -> None:
     messy = f"{AD_HASHTAG}\n{VIRTUAL_PERSON_TEXT}\n\n{AD_HASHTAG}\n본문"
     assert apply_labels(messy, is_ad=True) == apply_labels("본문", is_ad=True)
+
+
+def test_apply_labels_strips_legacy_wording() -> None:
+    from nsm.domain.labels import LEGACY_VIRTUAL_PERSON_TEXTS
+
+    pasted = f"{LEGACY_VIRTUAL_PERSON_TEXTS[0]}\n\n본문"  # 예전에 게시한 글을 붙여 넣은 경우
+    assert apply_labels(pasted, is_ad=False) == apply_labels("본문", is_ad=False)

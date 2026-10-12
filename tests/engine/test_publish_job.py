@@ -240,3 +240,17 @@ def test_overflowing_card_goes_to_review_not_published(ctx: JobContext) -> None:
     assert c.status == "pending_review" and "넘침" in c.review_reason
     assert all(not _published(ctx, p) for p in PLATFORMS)
     assert ctx.notifier.calls[-1][0] == "카드 글 넘침"
+
+
+def test_template_change_invalidates_render_cache(ctx: JobContext) -> None:
+    """템플릿(표기 배지 위치 등)이 바뀌면 옛 PNG를 재사용하지 않는다."""
+    from nsm.engine.publish import render_images
+
+    c = ctx.repo.list_contents()[-1]
+    ctx.renderer.version = "v1"
+    render_images(ctx, c)
+    render_images(ctx, c)
+    assert len(ctx.renderer.rendered) == 1  # 같은 버전이면 캐시
+    ctx.renderer.version = "v2"
+    render_images(ctx, c)
+    assert len(ctx.renderer.rendered) == 2

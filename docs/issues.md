@@ -50,6 +50,8 @@
 5. ~~네이버 블로그 글쓰기 화면 15분 탐색~~ (네이버 블로그 게시가 MVP 범위 밖이 되어 뺌, ADR 0016)
 6. **법규 원문 대조**: 공정위 개정 심사지침 원문·AI 기본법 시행령에서 표기 문구 확인 → `labels.py` 확정.
 
+결과(2026-10-13): [day1-verification.md](day1-verification.md). Aside 무인 게시 예, jev 동작, 숨기기는 스레드만, 인스타 크리에이터 전환, 문구는 예규 원문으로 교체.
+
 ### M3. 설정·시크릿·페르소나·설정 마법사 `week:1`
 - YAML 로딩/검증, `keyring`(Windows 자격 증명 관리자)에 API 키 저장, `nsm init` 마법사(위험 고지 동의 → 브랜드 → 페르소나 → 키 → 플랫폼 연결 "나중에"), 재편집 지원, 전역 `dry_run`.
 - 금칙 패턴 기본값에 1인칭 체험 표현("써봤", "먹어보니", "직접 사용해") 포함.
@@ -99,6 +101,7 @@
 ### M13. 실계정 플랫폼 어댑터 2종 + 드라이버 2종 `week:2`
 - `drivers/aside.py`(기본), `drivers/playwright.py`(영구 프로필, 사람이 직접 로그인). 순서: **스레드 → 인스타그램(캐러셀 업로드, 인사이트)**. 네이버 블로그는 MVP 범위 밖(ADR 0016).
 - 각 어댑터: publish / fetch_new_comments / reply / hide_comment(가능 시) / metrics. capability 정확히 선언. 로그인 만료 감지.
+- 배치 B 결과(docs/day1-verification.md): Aside 무인 게시 확인, 인스타그램 업로드는 4:5 자르기 선택 필수, 인스타그램 웹은 댓글 숨기기 없음, 게시 계정은 `settings.accounts`로 확인. 자세한 메모는 process.md 2절 "배치 G 메모".
 - 완료 기준: 플랫폼별로 S5 실계정 계약 테스트(`-m contract`) 통과.
 
 ### M14. 지표 수집 + 주간 리포트 `week:2`
