@@ -5,6 +5,7 @@
 ## [Unreleased]
 
 ### Added
+- 배치 B: 1일차 검증 결과 `docs/day1-verification.md`, 플랫폼 capability 표(스레드만 댓글 숨기기), `settings.accounts`, `nsm doctor` Aside CLI 점검 (#3)
 - 후속 이슈 등록: S8 카드 디자인 스타일 선택(#34, 서브), M16 마케터용 카드 편집 화면(#35, 메인). issues.md·process.md 반영
 - 배치 H: weekly_report 잡(참여율 상위·이유·추천 주제·협찬 성과·팔로워·비용), 대시보드 주간 리포트 화면 (#15)
 - 1주차 회고 초안 `docs/retro/week-1.md`
@@ -12,6 +13,7 @@
 - 배치 B 준비: 1일차 검증 마법사 `scripts/day1_wizard.sh`(키는 keyring에만, 결과는 `docs/day1-verification.md`), `nsm doctor --live`(실제 API 1회 호출) (#3)
 
 ### Changed
+- 배치 B: 가상인물 문구를 공정위 예규 원문으로, 카드 가상인물 배지를 페르소나 이름 옆으로, 브라우저 드라이버 기본값 `aside`(G 전까지 Playwright로 대신), ADR 0009~0015 채택 (#3)
 - 네이버 블로그 게시를 MVP 범위에서 뺌: 기본 게시 대상은 인스타그램·스레드, 배치 G는 어댑터 2종, 1일차 마법사에서 네이버 에디터 단계 삭제. 네이버 검색 수집은 유지 (ADR 0016)
 
 ## [v0.1-dryrun] - 2026-10-11

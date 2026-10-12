@@ -17,6 +17,7 @@ from importlib import resources
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from nsm.adapters.platforms import PLATFORM_CAPABILITIES
 from nsm.domain.models import (
     AccountMetrics,
     Comment,
@@ -26,7 +27,7 @@ from nsm.domain.models import (
     PublishResult,
     RenderedPost,
 )
-from nsm.ports import CAPABILITIES, Clock
+from nsm.ports import Clock, NotSupportedError
 
 COMMENT_INTERVAL = timedelta(minutes=20)
 
@@ -84,7 +85,8 @@ class DryRunAdapter:
     # ---------------------------------------------------------------- port
 
     def capabilities(self) -> set[str]:
-        return set(CAPABILITIES)
+        # 실계정과 같은 표를 써야 드라이런에서 본 댓글 처리(숨김/넘김)가 실제와 같다
+        return set(PLATFORM_CAPABILITIES[self.platform])
 
     def health(self) -> HealthStatus:
         return HealthStatus(logged_in=True, detail="드라이런")
@@ -147,6 +149,8 @@ class DryRunAdapter:
         return f"{comment.external_id}-reply"
 
     def hide_comment(self, comment: Comment) -> None:
+        if "hide_comment" not in self.capabilities():
+            raise NotSupportedError(f"{self.platform}: 댓글 숨기기 미지원")
         self._log(f"숨김 {comment.external_id} ({comment.author_name}): {comment.text}")
 
     def read_post_metrics(self, post_external_id: str) -> PostMetrics:

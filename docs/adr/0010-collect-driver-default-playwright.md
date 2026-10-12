@@ -1,6 +1,6 @@
 # 0010. 배치 B 검증 전까지 브라우저 드라이버 기본값을 Playwright로 둔다
 
-- 상태: 제안 (배치 A, 배치 B 결과로 재결정) · 날짜: 2026-10-11 · 관련: [ADR 0002](0002-aside-default-driver-split.md), 이슈 #3
+- 상태: 대체됨([0017](0017-aside-default-driver-after-day1.md)) (배치 B 결과) · 날짜: 2026-10-11 · 관련: [ADR 0002](0002-aside-default-driver-split.md), 이슈 #3
 
 ## 배경
 

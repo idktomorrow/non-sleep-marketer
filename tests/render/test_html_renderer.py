@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import struct
 from html.parser import HTMLParser
 from pathlib import Path
@@ -235,3 +236,15 @@ def test_get_renderer_prefers_html_and_falls_back(monkeypatch) -> None:
     assert isinstance(render.get_renderer(), PlaceholderRenderer)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)  # playwright 없음
     assert isinstance(render.get_renderer(), PlaceholderRenderer)
+
+
+@pytest.mark.parametrize("template", ["info", "list", "compare"])
+def test_virtual_person_badge_sits_next_to_persona_name(template: str) -> None:
+    # 심사지침 Ⅴ.5: 사진에는 "가상인물과 근접한 위치"에 표시. 카드에서 인물은 페르소나 이름이다(ADR 0019)
+    deck = load(template)
+    html = build_html(deck)
+    pattern = (
+        r'<div class="ident">\s*<div class="who">[^<]*(?:<img[^>]*>)?[^<]*</div>'
+        r'\s*<span class="badge" data-label="virtual-person">가상인물</span>'
+    )
+    assert len(re.findall(pattern, html)) == len(deck.slides)

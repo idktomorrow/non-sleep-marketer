@@ -60,7 +60,11 @@ class Settings(_Model):
     classifier: Literal["auto", "jev", "claude"] = "auto"
     # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경만
     image_generation: Literal["auto", "on", "off"] = "auto"
-    browser_driver: Literal["aside", "playwright"] = "playwright"  # ADR 0010
+    # ADR 0017: 1일차 검증에서 Aside 무인 게시 확인. 구현 전(배치 G)에는 Playwright로 대신 동작
+    browser_driver: Literal["aside", "playwright"] = "aside"
+    # 게시 계정 핸들(예: {"threads": "@nonsleepmarketer"}). 실계정 어댑터(배치 G)는 로그인된
+    # 계정이 여기 적힌 핸들과 다르면 게시하지 않는다. 비어 있으면 실계정 게시를 하지 않는다.
+    accounts: dict[Platform, str] = Field(default_factory=dict)
     browser_profile_dir: str | None = None  # 기본: <NSM_HOME>/browser-profile
     collect_profile_dir: str | None = (
         None  # 수집 전용 계정 프로필. 기본: <NSM_HOME>/collect-profile

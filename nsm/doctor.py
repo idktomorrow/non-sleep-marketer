@@ -88,7 +88,26 @@ def _fonts() -> Check:
     return Check("Pretendard 폰트", "WARN", "nsm/templates/fonts/ 비어 있음 (배치 S-α)")
 
 
-CHECKS = [_python, _duckdb, _config, _secrets, _chromium, _fonts]
+def _aside() -> Check:
+    from nsm.adapters.drivers import find_aside_cli
+    from nsm.config import paths
+
+    exe = find_aside_cli()
+    if exe is None:
+        return Check(
+            "Aside CLI",
+            "WARN",
+            "없음. 기본 브라우저 드라이버(ADR 0017)에 필요: https://docs.aside.com/help/developers",
+        )
+    # 실계정 게시 때 카드 PNG를 읽으려면 Aside의 읽기 허용 폴더에 NSM 폴더가 있어야 한다(1일차 검증)
+    return Check(
+        "Aside CLI",
+        "OK",
+        f"{exe} · Aside 설정 File permissions > Can view에 {paths.nsm_home()} 추가 필요",
+    )
+
+
+CHECKS = [_python, _duckdb, _config, _secrets, _chromium, _fonts, _aside]
 
 
 def run_checks() -> list[Check]:

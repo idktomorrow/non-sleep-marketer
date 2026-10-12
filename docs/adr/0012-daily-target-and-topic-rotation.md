@@ -1,6 +1,6 @@
 # 0012. 하루 콘텐츠 목표는 쿼터 최댓값, n번째 콘텐츠는 쿼터가 남은 플랫폼에만, 주제는 순환한다
 
-- 상태: 제안 (배치 D2) · 날짜: 2026-10-11 · 관련: [ADR 0008](0008-autopublish-guardrails.md), [ADR 0009](0009-per-platform-publication-state.md), 이슈 #8
+- 상태: 채택(2026-10-13, 배치 B 반영 PR에서 선웅제 확정) · 날짜: 2026-10-11 · 관련: [ADR 0008](0008-autopublish-guardrails.md), [ADR 0009](0009-per-platform-publication-state.md), 이슈 #8
 
 ## 배경
 

@@ -2,10 +2,13 @@
 
 {% macro chrome(s, i, n, deck, bg) -%}
 <div class="topbar">
-  <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
+  {#- 가상인물 배지는 인물(페르소나 이름) 바로 옆: 심사지침 "가상인물과 근접한 위치" (ADR 0019) -#}
+  <div class="ident">
+    <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
+    {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}
+  </div>
   <div class="badges">
     {%- if s.kind == 'cover' and deck.labels.ad %}<span class="badge ad" data-label="ad">광고</span>{% endif -%}
-    {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}
   </div>
 </div>
 <div class="bottombar">

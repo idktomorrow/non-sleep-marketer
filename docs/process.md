@@ -37,12 +37,19 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 | **F 대시보드·대댓글·스케줄러** | M10 #11, M11 #12, M12 #13, S6 #22 | 메인(Claude) | 6~7일차 | 없음 | `nsm run`으로 하루치 드라이런 흐름, 라우트 테스트, user-guide 3·4절 → 태그 `v0.1-dryrun` |
 | **S-α 템플릿·렌더러** | S2 #18, S3 #19 | 메인(Claude, ADR 0015) | 1~4일차 | 디자인 승인은 PR 리뷰에서 | 3템플릿 PNG, 렌더 테스트, `nsm render-preview` |
 | **S-β 계약 테스트** | S5 #21 | 서브(Claude) | 5~6일차 | 없음 | 드라이런 어댑터 계약 테스트 통과 |
-| **G 실계정 어댑터** | M13 #14, PR 2개(스레드 → 인스타그램, 네이버 블로그는 범위 밖·ADR 0016) | 메인(사람 로그인 + Claude) | 8~12일차 | 테스트 계정 로그인 | 플랫폼별 `-m contract` 통과, user-guide 5절. 시작 전 `/security-review` 1회 |
+| **G 실계정 어댑터** | M13 #14, PR 2개(스레드 → 인스타그램, 네이버 블로그는 범위 밖·ADR 0016) | 메인(사람 로그인 + Claude) | 8~12일차 | 테스트 계정 로그인 | 플랫폼별 `-m contract` 통과, user-guide 5절. 시작 전 `/security-review` 1회. 배치 B 결과 메모(아래) |
 | **H 지표·주간 리포트** | M14 #15 | 메인(Claude) | 11~13일차 | 없음 | 주간 리포트 페이지·md → 태그 `v0.2-live` |
 | **I UI/UX 패스** | M15 #16 | 메인(사람 + Claude) | 13~14일차 | 디자인 결정 | 라우트 테스트 회귀 없이 화면 완성 → 태그 `v0.3-mvp` |
 | **S-γ 2주차 품질** | S7 #23 | 서브 | 11~14일차 | 수동 점검 | 품질 체크리스트, 회귀 테스트 |
 | **M16 카드 편집 화면** | M16 #35 | 메인(Claude, I와 같은 시기) | 13~14일차 | 화면 디자인은 I에서 | 검토 상세에서 슬라이드 문구·배경·스타일 수정, 미리보기 렌더, `tests/app/` 라우트 테스트 |
 | **S8 카드 디자인 스타일** | S8 #34 | 서브(S-γ와 같은 시기) | 11~14일차 | 레퍼런스 수집·시각 승인 | `clean`·`photo`·`illust` 스타일, `brand.card_style`, `nsm render-preview --style`, 스타일별 렌더 테스트 |
+
+배치 G 메모(배치 B 결과, [day1-verification](day1-verification.md), ADR 0017·0018·0019):
+- Aside 드라이버 구현(`drivers/aside.py`). 자연어 `aside "..."`가 아니라 `aside repl`로 정해진 순서를 실행해 결과를 고정한다. 기본값은 이미 `aside`이고 지금은 Playwright로 대신 동작한다.
+- 카드 PNG는 `~/.nsm` 아래에서 올린다. 사용자가 Aside 설정 File permissions > Can view에 이 폴더를 추가해야 한다.
+- 인스타그램: 업로드 자르기 단계에서 **4:5**를 고른다(기본 1:1이면 가상인물 배지가 잘림). 올린 뒤 잘리지 않았는지 확인한다.
+- 로그인된 계정이 `settings.accounts` 핸들과 다르면 게시하지 않는다. 테스트 계정은 스레드·인스타그램 모두 `@nonsleepmarketer`.
+- capability는 `PLATFORM_CAPABILITIES`를 그대로 쓴다(스레드 숨기기 지원, 인스타그램 미지원).
 
 배치 A의 Stop 훅: `.claude/settings.json`에 Stop 훅으로 `uv run pytest -q`를 등록한다. 조건: `stop_hook_active`가 true면 즉시 통과(무한 루프 방지), 현재 브랜치가 `batch/`로 시작할 때만 실행, pyproject가 없으면 통과. 이 훅은 저장소에 pyproject가 생기는 배치 A PR에 포함한다.
 
