@@ -21,15 +21,51 @@
 <table><tr><th>플랫폼</th><th>상태</th><th>시도</th><th>오류</th><th>주소</th></tr>
 {% for p in pubs %}<tr><td>{{ p.platform }}</td><td>{{ p.status }}</td><td>{{ p.attempts }}</td><td class="bad">{{ p.last_error or '' }}</td><td>{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.url }}</a>{% endif %}</td></tr>{% endfor %}
 </table>
+<h2 id="preview">카드 미리보기</h2>
+{% if previews %}<div class="slides">{% for n in previews %}<img src="/previews/{{ c.id }}/{{ n }}" alt="미리보기 {{ n }}">{% endfor %}</div>
+{% if overflow %}<p class="warn">{{ overflow }}장에 글이 넘칩니다. 문구를 줄여 주세요(그대로 두면 게시 때 검토 대기열로 돌아옵니다).</p>{% else %}<p class="muted">넘치는 장 없음</p>{% endif %}
+{% else %}<p class="muted">아직 미리보기가 없습니다. 고친 뒤 "미리보기 렌더"를 누르면 지금 원고로 카드를 그려 봅니다.</p>{% endif %}
+{% if can_preview %}<form method="post" action="/review/{{ c.id }}/preview"><input type="hidden" name="csrf" value="{{ csrf }}"><button>미리보기 렌더</button></form>
+{% else %}<p class="warn">카드 렌더러가 없어 미리보기를 만들 수 없습니다(`nsm doctor`로 크로미움 확인).</p>{% endif %}
+
 {% if c.status == 'pending_review' %}
 <h2>고치기</h2>
-<form method="post" action="/review/{{ c.id }}/edit"><input type="hidden" name="csrf" value="{{ csrf }}">
-<label>표지 제목<input type="text" name="cover_title" value="{{ g.deck.slides[0].title }}"></label>
+<form method="post" action="/review/{{ c.id }}/edit" class="card-editor"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% for s in g.deck.slides %}{% set i = loop.index0 %}
+<fieldset><legend>{{ loop.index }}장 · {{ {'cover': '표지', 'body': '본문', 'list': '목록', 'compare': '비교', 'outro': '마무리'}[s.kind] }}</legend>
+{% if s.kind == 'cover' %}
+<label>제목<textarea name="s{{ i }}_title" rows="2">{{ s.title }}</textarea></label>
+<label>부제<input type="text" name="s{{ i }}_subtitle" value="{{ s.subtitle or '' }}"></label>
+{% elif s.kind in ('body', 'list', 'compare') %}
+<label>소제목<input type="text" name="s{{ i }}_heading" value="{{ s.heading }}"></label>
+{% endif %}
+{% if s.kind == 'body' %}<label>본문<textarea name="s{{ i }}_body" rows="3">{{ s.body }}</textarea></label>{% endif %}
+{% if s.kind in ('body', 'list') %}<label>목록(한 줄에 하나){% if s.kind == 'list' %} · 3~5개{% endif %}<textarea name="s{{ i }}_bullets" rows="4">{{ s.bullets|join('\n') }}</textarea></label>{% endif %}
+{% if s.kind == 'compare' %}
+<label>왼쪽 제목<input type="text" name="s{{ i }}_left_title" value="{{ s.left.title }}"></label>
+<label>왼쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_left_points" rows="3">{{ s.left.points|join('\n') }}</textarea></label>
+<label>오른쪽 제목<input type="text" name="s{{ i }}_right_title" value="{{ s.right.title }}"></label>
+<label>오른쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_right_points" rows="3">{{ s.right.points|join('\n') }}</textarea></label>
+{% endif %}
+{% if s.kind == 'outro' %}<label>마무리 문구<input type="text" name="s{{ i }}_cta" value="{{ s.cta }}"></label>
+<p class="muted">출처는 사실 근거라 여기서 고치지 않습니다: {{ s.sources|join(', ') }}</p>{% endif %}
+<p class="muted">배경: {% if s.background %}{{ s.background.split('\\')[-1].split('/')[-1] }}{% else %}브랜드 색{% endif %}</p>
+</fieldset>
+{% endfor %}
 <label>인스타그램 캡션<textarea name="instagram_caption">{{ g.instagram_caption }}</textarea></label>
 <label>스레드 글<textarea name="threads_text">{{ g.threads_text }}</textarea></label>
 <label>블로그 제목<input type="text" name="blog_title" value="{{ g.blog_title }}"></label>
 <label>블로그 본문<textarea name="blog_markdown" style="min-height:300px">{{ g.blog_markdown }}</textarea></label>
-<button>저장</button></form>
+<button>저장</button> <span class="muted">저장하면 이미 그린 카드와 미리보기는 지워지고 게시 때 다시 그립니다.</span></form>
+
+<h3>배경 이미지</h3>
+<p class="muted">PNG·JPEG·WebP, {{ max_upload_mb }}MB 이하. 글자는 사진 위에 올라가며, 직접 찍은 사진은 "AI 생성 이미지"가 아닙니다.</p>
+{% for s in g.deck.slides %}{% set i = loop.index0 %}
+<form class="inline" method="post" action="/review/{{ c.id }}/slides/{{ i }}/background" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+{{ loop.index }}장 <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button>올리기</button></form>
+{% if s.background %}<form class="inline" method="post" action="/review/{{ c.id }}/slides/{{ i }}/background/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button>배경 지우기</button></form>{% endif %}<br>
+{% endfor %}
+
 <p><form class="inline" method="post" action="/review/{{ c.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>승인</button></form>
 <form class="inline" method="post" action="/review/{{ c.id }}/discard"><input type="hidden" name="csrf" value="{{ csrf }}"><button>폐기</button></form></p>
 {% endif %}
