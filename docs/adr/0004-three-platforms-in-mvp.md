@@ -1,6 +1,6 @@
 # 0004. 인스타그램·스레드·네이버 블로그를 MVP부터 모두 지원한다
 
-- 상태: 채택 · 날짜: 2026-10-11 · 결정: 선웅제 · 관련: [planning-decisions](../planning-decisions.md) Round 1(네이버 제외) → Round 3 Q23(포함)
+- 상태: 대체됨([0016](0016-drop-naver-blog-publishing.md)) · 날짜: 2026-10-11 · 결정: 선웅제 · 관련: [planning-decisions](../planning-decisions.md) Round 1(네이버 제외) → Round 3 Q23(포함)
 
 ## 배경
 

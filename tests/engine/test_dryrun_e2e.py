@@ -6,7 +6,7 @@ from pathlib import Path
 
 from nsm.adapters.platforms.dryrun import DryRunAdapter
 from nsm.config.store import parse_windows
-from nsm.domain.labels import BLOG_TITLE_SUFFIX, VIRTUAL_PERSON_TEXT
+from nsm.domain.labels import VIRTUAL_PERSON_TEXT
 from nsm.domain.models import Classification
 from nsm.engine.context import JobContext
 from nsm.engine.generate import AUTO_PUBLISH_KEY
@@ -21,7 +21,7 @@ from tests.fakes import (
     load_source_items,
 )
 
-PLATFORMS = ("instagram", "threads", "naver_blog")
+PLATFORMS = ("instagram", "threads")  # 기본 게시 대상(ADR 0016)
 
 
 def test_dryrun_pipeline_writes_preview(db, clock, app_config, tmp_path: Path) -> None:
@@ -54,7 +54,7 @@ def test_dryrun_pipeline_writes_preview(db, clock, app_config, tmp_path: Path) -
 
     assert run_job("collect", ctx).ok
     assert run_job("generate", ctx).counts["created"] == 2
-    assert run_job("publish", ctx).counts["published"] == 3
+    assert run_job("publish", ctx).counts["published"] == 2
 
     day = preview / "2026-10-11"
     content_dirs = [d for d in day.iterdir() if d.is_dir()]
@@ -64,7 +64,5 @@ def test_dryrun_pipeline_writes_preview(db, clock, app_config, tmp_path: Path) -
         files = {f.name for f in (c / p).iterdir()}
         assert any(n.startswith("slide-") and n.endswith(".png") for n in files)
     assert (c / "threads" / "post.txt").read_text("utf-8").startswith(VIRTUAL_PERSON_TEXT)
-    blog = (c / "naver_blog" / "post.md").read_text("utf-8")
-    assert blog.splitlines()[0].endswith(BLOG_TITLE_SUFFIX)
-    assert VIRTUAL_PERSON_TEXT in blog
+    assert not (c / "naver_blog").exists()
     assert [r["job"] for r in ctx.repo.recent_runs()] == ["publish", "generate", "collect"]

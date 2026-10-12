@@ -190,7 +190,7 @@ finish() {
 # API 키는 파일이 아니라 Windows 자격 증명 관리자(keyring)에만 저장한다(CLAUDE.md 가드레일).
 # 결과는 docs/day1-verification.md 로 기록된다.
 
-TOTAL_STAGES=8
+TOTAL_STAGES=7
 REPORT="docs/day1-verification.md"
 # 비밀이 아닌 답은 여기에 저장해, 중간에 멈췄다 다시 실행해도 기존 답이 기본값으로 나온다(.gitignore 대상)
 ENV_FILE=".day1-wizard.env"
@@ -270,8 +270,7 @@ say "실계정 어댑터(배치 G)는 여기 적은 테스트 계정에만 게�
 warn "비밀번호는 적지 마세요. 핸들(아이디)만 기록합니다."
 asks TEST_THREADS "스레드 테스트 계정 핸들 (예: @luna.test):"
 asks TEST_INSTAGRAM "인스타그램 테스트 계정 핸들:"
-asks TEST_NAVER "네이버 블로그 테스트 계정 아이디:"
-asks TEST_COLLECT "수집 전용 계정(네이버, 없으면 빈칸):"
+asks TEST_COLLECT "수집 전용 계정(네이버 검색용, 없으면 빈칸):"
 
 # ── 5. Aside 무인 게시 ────────────────────────────────────────────────────
 stage "Aside가 사람 승인 없이 게시하는지 (가장 중요)"
@@ -300,15 +299,7 @@ step "인스타그램 앱 → 설정 → 계정 유형 및 도구 → 프로페�
 note "프로 계정이어야 도달·노출 같은 인사이트를 읽을 수 있습니다."
 yn IG_PRO "테스트 계정을 프로 계정으로 전환했나요?"
 
-# ── 7. 네이버 블로그 에디터 ───────────────────────────────────────────────
-stage "네이버 블로그 글쓰기 화면 15분 탐색"
-say "세 플랫폼 중 자동화가 가장 어려운 곳입니다. 2주차 위험을 미리 봅니다."
-open_url "https://blog.naver.com/"
-step "테스트 계정 로그인 → 글쓰기 → 사진 1장 올리기, 본문 입력, 임시저장까지 해 보기"
-note "팝업(이전 글 이어쓰기, 도움말), 사진 업로드 방식, 발행 버튼 위치를 눈여겨보세요."
-asks NAVER_NOTES "관찰한 내용 한 줄 (막힌 곳, 팝업, 업로드 방식):"
-
-# ── 8. 법규 원문 대조 ─────────────────────────────────────────────────────
+# ── 7. 법규 원문 대조 ─────────────────────────────────────────────────────
 stage "표기 문구를 법규 원문과 대조"
 say "지금 코드의 문구(nsm/domain/labels.py):"
 note "  첫 줄: AI를 기반으로 생성된 가상인물이 포함된 게시물입니다"
@@ -328,16 +319,16 @@ mkdir -p docs
   printf '## 실제 API 연결 (nsm doctor --live)\n\n```\n%s\n```\n\n' "$LIVE_RESULT"
   printf '## 테스트 계정 (실계정 어댑터는 이 계정에만 게시)\n\n'
   printf '| 플랫폼 | 계정 |\n|---|---|\n'
-  printf '| 스레드 | %s |\n| 인스타그램 | %s |\n| 네이버 블로그 | %s |\n| 수집 전용(네이버) | %s |\n\n' \
-    "$(cell "$TEST_THREADS")" "$(cell "$TEST_INSTAGRAM")" "$(cell "$TEST_NAVER")" "$(cell "$TEST_COLLECT")"
+  printf '| 스레드 | %s |\n| 인스타그램 | %s |\n| 수집 전용(네이버 검색) | %s |\n\n' \
+    "$(cell "$TEST_THREADS")" "$(cell "$TEST_INSTAGRAM")" "$(cell "$TEST_COLLECT")"
   printf '## Aside 무인 동작\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
   printf '| 버전 | %s |\n| 승인 없이 끝까지 게시 | %s |\n| 게시 권한 Allow 설정 가능 | %s |\n| 관찰 | %s |\n\n' \
     "$(cell "$ASIDE_VERSION")" "$ASIDE_UNATTENDED" "$ASIDE_ALLOW" "$(cell "$ASIDE_NOTES")"
   printf '## 플랫폼 기능\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
-  printf '| 스레드 웹 댓글 숨기기 | %s |\n| 인스타그램 웹 댓글 숨기기 | %s |\n| 인스타그램 프로 계정 전환 | %s |\n| 네이버 에디터 관찰 | %s |\n\n' \
-    "$HIDE_THREADS" "$HIDE_IG" "$IG_PRO" "$(cell "$NAVER_NOTES")"
+  printf '| 스레드 웹 댓글 숨기기 | %s |\n| 인스타그램 웹 댓글 숨기기 | %s |\n| 인스타그램 프로 계정 전환 | %s |\n\n' \
+    "$HIDE_THREADS" "$HIDE_IG" "$IG_PRO"
   printf '## 표기 문구 원문 대조\n\n'
   printf '| 항목 | 결과 |\n|---|---|\n'
   printf '| 심사지침 가상인물 표시 예시 | %s |\n| 표시 위치 | %s |\n| AI 기본법 시행령 | %s |\n\n' \

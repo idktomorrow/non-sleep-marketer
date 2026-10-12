@@ -33,4 +33,4 @@
 - main에는 PR로만 반영한다(규칙, GitHub 룰셋은 걸지 않음). 브랜치 이름은 `batch/<id>-<slug>`.
 - 시크릿은 `keyring`에만 둔다. 파일·로그·테스트 픽스처에 키를 쓰지 않는다.
 - 실계정 어댑터는 `docs/day1-verification.md`에 적힌 테스트 계정에만 게시한다.
-- 재론하지 않는 결정: 공식 API 사용, 네이버 제외, Streamlit, 후기형 템플릿 (`docs/adr/` 참고).
+- 재론하지 않는 결정: 공식 API 사용, 네이버 블로그 게시 제외(수집은 유지, ADR 0016), Streamlit, 후기형 템플릿 (`docs/adr/` 참고).
