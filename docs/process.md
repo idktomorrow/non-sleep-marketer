@@ -50,7 +50,7 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 - 인스타그램: 업로드 자르기 단계에서 **4:5**를 고른다(기본 1:1이면 가상인물 배지가 잘림). 올린 뒤 잘리지 않았는지 확인한다.
 - 로그인된 계정이 `settings.accounts` 핸들과 다르면 게시하지 않는다. 테스트 계정은 스레드·인스타그램 모두 `@nonsleepmarketer`.
 - capability는 `PLATFORM_CAPABILITIES`를 그대로 쓴다(스레드 숨기기 지원, 인스타그램 미지원).
-- 진행: G1 스레드 완료(실계정 계약 테스트 통과, `nsm/adapters/platforms/threads.py`). G2 인스타그램은 같은 틀(`aside_common.py`)로.
+- 진행: G1 스레드(PR #39), G2 인스타그램 완료. 둘 다 실계정 계약 테스트 통과.
 
 배치 A의 Stop 훅: `.claude/settings.json`에 Stop 훅으로 `uv run pytest -q`를 등록한다. 조건: `stop_hook_active`가 true면 즉시 통과(무한 루프 방지), 현재 브랜치가 `batch/`로 시작할 때만 실행, pyproject가 없으면 통과. 이 훅은 저장소에 pyproject가 생기는 배치 A PR에 포함한다.
 

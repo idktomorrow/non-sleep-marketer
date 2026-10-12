@@ -71,9 +71,10 @@ def make_platform_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
 
 def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
     """실계정 어댑터(배치 G). settings.accounts에 핸들이 없는 플랫폼은 만들지 않는다(게시 안 함)."""
+    from nsm.adapters.platforms.instagram import InstagramAdapter
     from nsm.adapters.platforms.threads import ThreadsAdapter
 
-    live = {"threads": ThreadsAdapter}  # 인스타그램은 배치 G2
+    live = {"threads": ThreadsAdapter, "instagram": InstagramAdapter}
     out = {}
     for p in cfg.settings.enabled_platforms:
         cls = live.get(p)
