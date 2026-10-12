@@ -24,7 +24,7 @@
 
 - 배치 G에서 Aside 드라이버를 구현한다. 메모:
   - 매번 결과가 같아야 하므로 자연어 `aside "..."` 대신 `aside repl`(Playwright 형식 스크립트)로 정해진 순서를 실행한다. 자연어는 느리고 매번 동작이 달라질 수 있다.
-  - 카드 PNG는 NSM 폴더(`~/.nsm`)에 두고, 사용자가 Aside 설정 Can view에 이 폴더를 추가한다(`nsm doctor`가 안내).
+  - 카드 PNG는 NSM 폴더(`~/.nsm`)에 두고, 사용자가 Aside 설정 Can view에 이 폴더를 추가한다(`nsm doctor`가 안내). → 배치 G1에서 바뀜: repl에는 Can view가 적용되지 않아 일회용 로컬 서버로 넘긴다([0020](0020-aside-repl-execution.md)).
   - 인스타그램은 자르기 단계에서 4:5를 고르고, 올린 뒤 배지가 잘리지 않았는지 확인한다.
   - 로그인된 계정이 `settings.accounts`의 핸들과 다르면 게시하지 않는다.
 - `nsm doctor`에 Aside CLI 점검을 추가했다.

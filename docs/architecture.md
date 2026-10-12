@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-13 (배치 B 결과 반영. 남은 메인 배치: G 실계정, I 디자인, M16 카드 편집) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-13 (배치 G1 스레드 실계정. 남은 메인 배치: G2 인스타그램, I 디자인, M16 카드 편집) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -104,8 +104,9 @@ erDiagram
 | `nsm/scheduler/` + autostart | 완료 | 단위 + 실서버 스모크 | F | 작업 스레드 1개, 활동 시간 기준 트리거, 시작프로그램 폴더(ADR 0013) |
 | `nsm/adapters/notify/` | 완료 | 수동 | F | winotify 데스크톱 알림 + 로그, 같은 제목 60초 내 중복 억제 |
 | `nsm/render/` + `nsm/templates/` | 완료 | 경계 3(렌더) | S-α | `HtmlCardRenderer`(Jinja2 + Playwright, 전용 스레드), 템플릿 3종, Pretendard 동봉. Playwright 없을 때만 단색 대체 |
-| `nsm/adapters/drivers/` aside·playwright | 구현 중 | 단위 + 스모크 | D1(수집용 Playwright), B, G | 기본값 `aside`(ADR 0017). Aside 드라이버는 G에서 구현, 그 전에는 Playwright로 대신. `find_aside_cli`·doctor 점검은 B |
-| `nsm/adapters/platforms/` threads·instagram | 계획 | capability 표 단위 | B, G | 네이버 블로그는 범위 밖(ADR 0016). capability 표 `PLATFORM_CAPABILITIES`(ADR 0018)는 B에서 완료, 드라이런도 사용 |
+| `nsm/adapters/drivers/` aside·playwright | 구현 중 | 단위 + 스모크 | D1(수집용 Playwright), B, G1 | 기본값 `aside`(ADR 0017). `aside.py`: repl 실행기·일회용 파일 서버·수집용 `AsideDriver`(G1, ADR 0020). 수집은 아직 `make_driver`가 Playwright로 대신(전환은 G2 후 실측) |
+| `nsm/adapters/platforms/threads.py` | 완료 | 단위(가짜 실행기) + 실계정 계약(`-m contract`) | G1 | 게시(멱등)·댓글 읽기·답글·숨기기·지표·삭제, 계정 확인. `runtime.make_live_adapters`가 `settings.accounts` 있을 때만 생성 |
+| `nsm/adapters/platforms/instagram.py` | 계획 | - | G2 | 4:5 자르기 선택·확인, 숨기기 미지원(ADR 0018) |
 | `tests/fakes/`, `tests/conftest.py` | 완료 | - | A | 모든 포트의 가짜 + 픽스처 로더 |
 | `tests/engine/` 시나리오 | 완료 | 경계 1 | D1·D2·E·F | 수집·생성·게시·대댓글·상태 점검·지표·드라이런 E2E |
 | `tests/contracts/` | 계획 | - | S-β, G | 서브 |

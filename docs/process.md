@@ -46,10 +46,11 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 
 배치 G 메모(배치 B 결과, [day1-verification](day1-verification.md), ADR 0017·0018·0019):
 - Aside 드라이버 구현(`drivers/aside.py`). 자연어 `aside "..."`가 아니라 `aside repl`로 정해진 순서를 실행해 결과를 고정한다. 기본값은 이미 `aside`이고 지금은 Playwright로 대신 동작한다.
-- 카드 PNG는 `~/.nsm` 아래에서 올린다. 사용자가 Aside 설정 File permissions > Can view에 이 폴더를 추가해야 한다.
+- 카드 PNG는 `~/.nsm/media` 아래에서 올린다. repl은 세션 폴더 밖을 못 읽으므로 일회용 127.0.0.1 서버로 넘긴다(ADR 0020, Can view 설정 불필요).
 - 인스타그램: 업로드 자르기 단계에서 **4:5**를 고른다(기본 1:1이면 가상인물 배지가 잘림). 올린 뒤 잘리지 않았는지 확인한다.
 - 로그인된 계정이 `settings.accounts` 핸들과 다르면 게시하지 않는다. 테스트 계정은 스레드·인스타그램 모두 `@nonsleepmarketer`.
 - capability는 `PLATFORM_CAPABILITIES`를 그대로 쓴다(스레드 숨기기 지원, 인스타그램 미지원).
+- 진행: G1 스레드 완료(실계정 계약 테스트 통과, `nsm/adapters/platforms/threads.py`). G2 인스타그램은 같은 틀(`aside_common.py`)로.
 
 배치 A의 Stop 훅: `.claude/settings.json`에 Stop 훅으로 `uv run pytest -q`를 등록한다. 조건: `stop_hook_active`가 true면 즉시 통과(무한 루프 방지), 현재 브랜치가 `batch/`로 시작할 때만 실행, pyproject가 없으면 통과. 이 훅은 저장소에 pyproject가 생기는 배치 A PR에 포함한다.
 

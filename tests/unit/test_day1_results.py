@@ -62,4 +62,4 @@ def test_doctor_aside_check(monkeypatch, nsm_home) -> None:
     assert doctor._aside().status == "WARN"
     monkeypatch.setattr(drivers, "find_aside_cli", lambda: Path("C:/aside.exe"))
     c = doctor._aside()
-    assert c.status == "OK" and str(nsm_home) in c.detail  # 읽기 허용 폴더 안내
+    assert c.status == "OK" and "로그인" in c.detail
