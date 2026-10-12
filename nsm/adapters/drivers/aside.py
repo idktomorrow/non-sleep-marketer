@@ -58,9 +58,12 @@ def scrub(text: str, limit: int = 300) -> str:
 _PRELUDE = r"""
 const ARGS = JSON.parse(Buffer.from(__PAYLOAD__, 'base64').toString('utf8'));
 const __opened = [];
+// repl은 120초에 끊긴다. 결과 줄을 찍을 시간을 남기고 모든 대기를 이 예산 안에서 끝낸다.
+const __deadline = Date.now() + 105000;
+function nsmLeft() { return Math.max(0, __deadline - Date.now()); }
 class NsmError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
 async function nsmOpen(url) { const p = await openTab(url); __opened.push(p); return p; }
-async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: ms || 20000 }); return loc.first(); }
+async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: Math.max(1000, Math.min(ms || 20000, nsmLeft())) }); return loc.first(); }
 async function nsmFiles() {
   const out = [];
   for (const f of (ARGS.__files || [])) {

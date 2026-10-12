@@ -60,14 +60,19 @@ def test_publish_passes_text_as_data_and_returns_url(tmp_path, clock) -> None:
     body, args, files = a.repl.calls[0]
     assert args["handle"] == "nonsleepmarketer"  # 게시 직전 로그인 계정 확인에 쓰인다
     assert args["text"].startswith(VIRTUAL_PERSON_TEXT) and "핸드드립" not in body
-    assert args["probe"] == "핸드드립 물 온도 정리"[:20] and files[0].name == "slide-01.png"
+    assert args["probe"] == "핸드드립 물 온도 정리" and files[0].name == "slide-01.png"
+    assert args["since"] < datetime.now(UTC).isoformat()  # 멱등 확인은 최근 글만
 
 
 def test_probe_skips_label_and_hashtags() -> None:
-    assert (
-        _probe(f"{VIRTUAL_PERSON_TEXT}\n\n짧은 줄\n아주 긴 본문 줄입니다 정말로\n#태그")
-        == ("아주 긴 본문 줄입니다 정말로"[:20])
-    )
+    text = f"{VIRTUAL_PERSON_TEXT}\n\n첫 줄 본문\n  #들여쓴 태그\n둘째 줄 본문입니다\n#태그"
+    assert _probe(text) == "첫 줄 본문 둘째 줄 본문입니다"
+
+
+def test_probe_is_empty_when_body_too_short_or_only_hashtags() -> None:
+    # 표기 줄로 돌아가면 모든 기존 글과 맞아 새 글이 안 올라간다
+    assert _probe(f"{VIRTUAL_PERSON_TEXT}\n\n#태그 #또") == ""
+    assert _probe(f"{VIRTUAL_PERSON_TEXT}\n\n좋아요") == ""
 
 
 def test_only_png_inside_media_can_be_uploaded(tmp_path: Path) -> None:
@@ -217,3 +222,53 @@ def test_publish_is_idempotent_and_never_errors_after_posting(tmp_path, clock) -
     a.repl.data = {"code": "", "posted": True}
     res = a.publish(_post(media))
     assert res.external_id == "" and res.url == "https://www.threads.com/@nonsleepmarketer"
+
+
+def test_comments_are_read_in_small_batches(tmp_path, clock) -> None:
+    from nsm.adapters.platforms import threads as T
+
+    a, _ = _adapter(tmp_path, clock, data=[])
+    a.fetch_new_comments([f"P{i}" for i in range(T.COMMENT_BATCH * 2 + 1)], None)
+    assert [len(args["codes"]) for _, args, _ in a.repl.calls] == [
+        T.COMMENT_BATCH,
+        T.COMMENT_BATCH,
+        1,
+    ]
+
+
+def test_one_failed_batch_does_not_lose_the_others(tmp_path, clock) -> None:
+    rows = [
+        {
+            "code": "C1",
+            "handle": "fan",
+            "text": "hi",
+            "at": "2026-10-11T10:00:00.000Z",
+            "parent": "P1",
+        }
+    ]
+    a, _ = _adapter(tmp_path, clock)
+
+    calls = {"n": 0}
+
+    def run(body, args=None, files=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise AsideError("시간 초과", code="timeout")
+        return rows
+
+    a.repl.run = run
+    got = a.fetch_new_comments([f"P{i}" for i in range(8)], None)
+    assert [c.external_id for c in got] == ["fan:C1"]
+
+
+def test_reply_unconfirmed_returns_empty_not_error(tmp_path, clock) -> None:
+    a, _ = _adapter(tmp_path, clock, data={"code": ""})
+    assert a.reply(_comment(), "고마워요") == ""
+
+
+def test_find_aside_cli_ignores_cmd_wrappers(tmp_path, monkeypatch) -> None:
+    from nsm.adapters import drivers
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
+    monkeypatch.setattr(drivers.shutil, "which", lambda _: str(tmp_path / "aside.cmd"))
+    assert drivers.find_aside_cli() is None

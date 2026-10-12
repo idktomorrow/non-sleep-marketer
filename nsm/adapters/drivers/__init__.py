@@ -11,15 +11,18 @@ log = logging.getLogger(__name__)
 
 
 def find_aside_cli() -> Path | None:
-    """Aside CLI 실행 파일. PATH에 없으면 Windows 기본 설치 위치를 본다."""
-    found = shutil.which("aside")
-    if found:
-        return Path(found)
+    """Aside CLI 실행 파일(.exe만). 기본 설치 위치를 먼저, 없으면 PATH.
+
+    .cmd/.bat 래퍼는 cmd.exe가 인자를 다시 해석해 스크립트가 깨지거나 주입될 수 있어 쓰지 않는다.
+    """
     local = os.environ.get("LOCALAPPDATA")
     if local:
         p = Path(local) / "Aside" / "CLI" / "current" / "aside.exe"
         if p.exists():
             return p
+    found = shutil.which("aside")
+    if found and Path(found).suffix.lower() == ".exe":
+        return Path(found)
     return None
 
 

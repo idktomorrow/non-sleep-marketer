@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
@@ -28,6 +28,8 @@ from nsm.ports import AdapterError
 log = logging.getLogger(__name__)
 
 BASE = "https://www.threads.com"
+COMMENT_BATCH = 4  # repl 한 번에 읽을 글 수(글당 약 10초)
+IDEMPOTENCY_WINDOW = timedelta(hours=6)  # 재시도 간격 합(15분·1시간·4시간)보다 넉넉히
 
 JS_HANDLE = (
     JS_ASSERT_HANDLE
@@ -65,10 +67,15 @@ async function findMine(pg) {
       const href = a.getAttribute('href');
       if (!href.startsWith('/@' + args.handle + '/post/')) continue;
       const box = a.closest('[data-pressable-container="true"]') || a.parentElement;
-      if (box && (box.innerText || '').includes(args.probe)) return href.split('/post/')[1].split(/[/?]/)[0];
+      // 줄바꿈·연속 공백을 한 칸으로: probe는 본문 줄을 공백으로 이어 만든다
+      if (!box || !(box.innerText || '').replace(/\s+/g, ' ').includes(args.probe)) continue;
+      const t = box.querySelector('time');
+      // 재시도 범위(약 6시간) 안에 올린 글만 같은 글로 본다. 오래된 비슷한 글과 헷갈리지 않게.
+      if (args.since && t && Date.parse(t.getAttribute('datetime')) < Date.parse(args.since)) continue;
+      return href.split('/post/')[1].split(/[/?]/)[0];
     }
     return '';
-  }, { handle: ARGS.handle, probe: ARGS.probe });
+  }, { handle: ARGS.handle, probe: ARGS.probe, since: ARGS.since });
 }
 """
 
@@ -79,7 +86,7 @@ _PUBLISH = (
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
 await nsmAssertHandle(pg, readHandle);
 // 멱등: 지난 시도가 실제로는 올라갔다면(시간 초과 등) 다시 올리지 않고 그 글을 돌려준다
-const before = await findMine(pg);
+const before = ARGS.probe ? await findMine(pg) : '';
 if (before) return { code: before, existing: true };
 const files = await nsmFiles();
 const comp = await nsmWait(pg.locator('[role="button"]').filter({ hasText: '새로운 소식을 공유해보세요' }));
@@ -94,10 +101,10 @@ if (files.length) {
   if (!ok) throw new NsmError('script', '이미지 미리보기가 나타나지 않음');
 }
 if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('script', '게시 버튼 없음');
+// 게시 버튼을 누른 뒤에는 오류로 돌리지 않는다: 오류 → 재시도 → 중복 게시가 될 수 있다.
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 90000);
-if (!closed) throw new NsmError('script', '게시 창이 닫히지 않음(업로드 실패 가능)');
-// 여기부터는 올라간 것으로 본다. 주소를 못 찾아도 오류로 돌려 재시도(중복 게시)하지 않는다.
-const found = await nsmUntil(() => findMine(pg), 45000, 3000);
+if (!closed) return { code: '', posted: 'unknown' };
+const found = ARGS.probe ? await nsmUntil(() => findMine(pg), 45000, 3000) : '';
 return { code: found || '', posted: true };
 """
 )
@@ -225,8 +232,9 @@ const box = await nsmWait(dlg.locator('[contenteditable="true"]'));
 await box.click();
 await pg.keyboard.insertText(ARGS.text);
 if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('script', '답글 게시 버튼 없음');
+// 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다(사람이 다시 답하면 중복)
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 60000);
-if (!closed) throw new NsmError('script', '답글 창이 닫히지 않음');
+if (!closed) return { code: '' };
 const mine = await nsmUntil(async () => {
   await pg.goto('https://www.threads.com/@' + ARGS.author + '/post/' + ARGS.code);
   await sleep(2500);
@@ -238,8 +246,7 @@ const mine = await nsmUntil(async () => {
     return '';
   }, { handle: ARGS.handle, probe: ARGS.probe });
 }, 60000, 3000);
-if (!mine) throw new NsmError('script', '답글을 올린 뒤 확인하지 못함');
-return { code: mine };
+return { code: mine || '' };
 """
 )
 
@@ -266,7 +273,13 @@ await sleep(800);
 if (!(await nsmClickText(pg, '모두에게 숨기기'))) throw new NsmError('script', '"모두에게 숨기기" 메뉴 없음');
 await sleep(1200);
 const dlg = pg.locator('[role="dialog"]');
-if ((await dlg.count()) > 0) { await nsmClickText(dlg, '숨기기'); await sleep(1200); }
+if ((await dlg.count()) > 0) {
+  if (!(await nsmClickText(dlg, '숨기기'))) throw new NsmError('script', '숨기기 확인 버튼 없음');
+  await sleep(1200);
+}
+// 숨긴 답글은 목록에서 빠진다. 그대로 보이면 숨기지 못한 것이다.
+await pg.reload(); await sleep(2500);
+if ((await pg.locator('a[href$="/post/' + ARGS.code + '"]').count()) > 0) throw new NsmError('script', '숨긴 뒤에도 댓글이 보임');
 return { hidden: true };
 """
 )
@@ -284,10 +297,13 @@ def _split_comment_id(external_id: str) -> tuple[str, str]:
 
 
 def _probe(text: str) -> str:
-    """프로필에서 이 글을 알아볼 고유 문구: 표기 줄을 뺀 가장 긴 줄의 앞 20자."""
-    lines = [ln.strip() for ln in text.splitlines()[1:] if ln.strip() and not ln.startswith("#")]
-    best = max(lines, key=len) if lines else text.strip()
-    return best[:20]
+    """프로필에서 이 글을 알아볼 고유 문구: 표기 줄·해시태그 줄을 뺀 본문 앞 40자.
+
+    너무 짧으면(8자 미만) 빈 문자열: 다른 글과 헷갈릴 수 있어 멱등 확인을 하지 않는다.
+    """
+    lines = [ln.strip() for ln in text.splitlines()[1:]]
+    body = " ".join(ln for ln in lines if ln and not ln.startswith("#"))
+    return body[:40] if len(body) >= 8 else ""
 
 
 class ThreadsAdapter(AsideAdapterBase):
@@ -304,7 +320,9 @@ class ThreadsAdapter(AsideAdapterBase):
     def publish(self, post: RenderedPost) -> PublishResult:
         self._need("publish")
         images = check_upload_paths(post.images, self.media_dir)
-        data = self._run(_PUBLISH, {"text": post.text, "probe": _probe(post.text)}, images) or {}
+        since = (self._now() - IDEMPOTENCY_WINDOW).isoformat()
+        args = {"text": post.text, "probe": _probe(post.text), "since": since}
+        data = self._run(_PUBLISH, args, images) or {}
         code = data.get("code", "")
         if data.get("existing"):
             log.warning("스레드: 지난 시도에서 이미 올라간 글을 찾아 다시 올리지 않음(%s)", code)
@@ -326,7 +344,17 @@ class ThreadsAdapter(AsideAdapterBase):
         self._need("fetch_comments")
         if not post_external_ids:
             return []
-        rows = self._run(_COMMENTS, {"codes": list(post_external_ids)}) or []
+        rows: list[dict] = []
+        errors: list[Exception] = []
+        ids = list(post_external_ids)
+        # 한 번의 repl(120초)에 글 몇 개만: 글이 쌓여도 제한에 걸려 통째로 실패하지 않게
+        for i in range(0, len(ids), COMMENT_BATCH):
+            try:
+                rows += self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+            except AdapterError as e:
+                errors.append(e)
+        if errors and not rows:
+            raise errors[0]
         out: list[Comment] = []
         for r in rows:
             if norm_handle(r["handle"]) == self.handle:
@@ -360,7 +388,9 @@ class ThreadsAdapter(AsideAdapterBase):
                 "probe": text.strip()[:20],
             },
         )
-        return d["code"]
+        if not d.get("code"):
+            log.warning("스레드: 답글은 보냈지만 확인하지 못함(%s)", comment.external_id)
+        return d.get("code", "")
 
     def hide_comment(self, comment: Comment) -> None:
         self._need("hide_comment")

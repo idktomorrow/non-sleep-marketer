@@ -18,7 +18,7 @@ from nsm.ports import AdapterError, Clock, NotSupportedError
 
 
 class LoginRequiredError(AdapterError):
-    """로그인이 풀려 있음. health가 잡아 알림을 보내고 그 플랫폼을 멈춘다."""
+    """로그인이 풀려 있음. 이 호출은 일반 실패로 처리되고, 30분마다 도는 health 잡이 알림을 보내고 그 플랫폼을 멈춘다."""
 
 
 class AccountMismatchError(AdapterError):
@@ -120,7 +120,7 @@ async function nsmMarkIcon(pg, scopeSel, name, nth) {
   return ok ? pg.locator('[data-nsm-mark="' + key + '"]') : null;
 }
 async function nsmUntil(fn, ms, step) {
-  const end = Date.now() + (ms || 30000);
+  const end = Date.now() + Math.min(ms || 30000, nsmLeft());
   while (Date.now() < end) { const v = await fn(); if (v) return v; await sleep(step || 1000); }
   return null;
 }
