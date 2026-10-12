@@ -16,11 +16,12 @@ from pathlib import Path
 from nsm.domain.models import Content, Platform, Publication, RenderedPost
 from nsm.domain.policy import (
     apply_labels,
-    fit_to_limit,
+    fit_with_tail,
     labeled_blog_title,
     local_day_bounds,
     should_act,
 )
+from nsm.domain.quality import sources_line
 from nsm.engine.context import JobContext, JobResult
 from nsm.store.repo import InvalidTransitionError
 
@@ -82,6 +83,13 @@ _TEXT_FIELD = {
 }
 
 
+def _sources_tail(content: Content) -> str:
+    """SNS 글 끝에 붙일 출처 줄(배치 Q1). 카드 마무리 장의 출처에서 사이트 이름 1~2개."""
+    outro = next((s for s in content.generated.deck.slides if s.kind == "outro"), None)
+    line = sources_line(list(outro.sources) if outro else [])
+    return f"\n\n{line}" if line else ""
+
+
 def build_post(content: Content, platform: Platform, images: list[Path]) -> RenderedPost:
     g = content.generated
     body = getattr(g, _TEXT_FIELD[platform])
@@ -89,7 +97,11 @@ def build_post(content: Content, platform: Platform, images: list[Path]) -> Rend
         content_id=content.id,
         platform=platform,
         title=labeled_blog_title(g.blog_title) if platform == "naver_blog" else None,
-        text=fit_to_limit(apply_labels(body, content.is_ad), platform),
+        text=fit_with_tail(
+            apply_labels(body, content.is_ad),
+            platform,
+            _sources_tail(content) if platform in ("instagram", "threads") else "",
+        ),
         images=images,
     )
 

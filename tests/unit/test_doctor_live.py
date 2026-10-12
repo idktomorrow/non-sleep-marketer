@@ -124,3 +124,61 @@ def test_cli_flags(monkeypatch) -> None:
     assert "live" in r.output and seen["with_image"] is True
     r = CliRunner().invoke(app, ["doctor", "--live-only"])
     assert "offline" not in r.output and "live" in r.output
+
+
+def test_live_check_costs_are_recorded_with_doctor_ref(fake_anthropic, monkeypatch) -> None:
+    """배치 Q1: doctor --live 호출 비용도 오늘 비용(costs)에 들어간다."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("NSM_ANTHROPIC_API_KEY", raising=False)
+    recorded = []
+
+    class Sink:
+        def record_cost(self, kind, provider, usd, ref=""):
+            recorded.append((kind, provider, usd, ref))
+
+    from nsm.doctor_live import _Tagged
+
+    run_live_checks(
+        MemorySecretStore({"anthropic_api_key": "k"}), models=ModelSettings(), sink=_Tagged(Sink())
+    )
+    assert recorded and recorded[0][1] == "anthropic" and recorded[0][2] > 0
+    assert recorded[0][3].startswith("doctor")
+
+
+def test_cost_sink_does_not_create_db_before_init(nsm_home) -> None:
+    from nsm.config import paths
+    from nsm.doctor_live import cost_sink
+
+    with cost_sink() as sink:
+        assert sink is None
+    assert not paths.db_path().exists()
+
+
+def test_cost_sink_writes_to_configured_db(nsm_home) -> None:
+    from nsm.config import paths
+    from nsm.doctor_live import cost_sink
+    from nsm.store.db import Database
+
+    Database(paths.db_path()).close()  # nsm init 이후처럼 DB가 있음
+
+    with cost_sink() as sink:
+        assert sink is not None
+        sink.record_cost("classifier", "anthropic", 0.001, "x")
+    db = Database(paths.db_path())
+    try:
+        rows = [tuple(r) for r in db.execute("SELECT provider, ref FROM costs")]
+        assert rows == [("anthropic", "doctor:x")]
+    finally:
+        db.close()
+
+
+def test_cost_sink_is_none_when_db_is_locked(nsm_home, monkeypatch) -> None:
+    import nsm.store.db as dbmod
+    from nsm.doctor_live import cost_sink
+
+    def locked(*a, **k):
+        raise RuntimeError("IO Error: Could not set lock on file")
+
+    monkeypatch.setattr(dbmod, "Database", locked)
+    with cost_sink() as sink:
+        assert sink is None

@@ -27,9 +27,11 @@ def doctor(
     live = live or with_image or live_only
     checks = [] if live_only else run_checks()
     if live:
-        from nsm.doctor_live import run_live_checks
+        from nsm.doctor_live import cost_sink, run_live_checks
 
-        checks += run_live_checks(with_image=with_image)
+        # 실제 호출 비용도 오늘 비용에 들어가게 DB에 기록한다(배치 Q1). DB를 못 열면 기록 없이 점검만.
+        with cost_sink() as sink:
+            checks += run_live_checks(with_image=with_image, sink=sink)
     for c in checks:
         typer.echo(f"[{c.status:4}] {c.name}: {c.detail}")
     if any(c.status == "FAIL" for c in checks):

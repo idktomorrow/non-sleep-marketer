@@ -32,6 +32,7 @@ from nsm.domain.models import (
     Persona,
     SourceItem,
 )
+from nsm.domain.quality import STIFF_PHRASES, emoji_limit
 from nsm.ports import AdapterError, CostSink
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -108,6 +109,24 @@ _TEMPLATE_GUIDE = {
 }
 
 
+def _style_rules(persona: Persona) -> str:
+    """코드로 검사하는 규칙(nsm/domain/quality.py)을 프롬프트에도 그대로 알린다."""
+    limit = emoji_limit(persona.tone)
+    emoji = (
+        f"- 이모지는 캡션·스레드 글·카드 한 장마다 각각 {limit}개까지입니다(✔, ☕ 같은 기호도 이모지로 셉니다).\n"
+        if limit is not None
+        else ""
+    )
+    stiff = ", ".join(f'"{p}"' for p in STIFF_PHRASES[:4])
+    return (
+        emoji
+        + "- 카드의 bullets·points에는 번호나 기호(1., ①, -, ✔)를 붙이지 않습니다. 카드가 자동으로 붙입니다.\n"
+        + f"- 캡션·스레드는 친구에게 말하듯 씁니다. {stiff} 같은 보고서 말투를 쓰지 않습니다. "
+        + '예: "알고 보면 물 온도가 맛을 바꿔요", "이것만 기억해요: 92도", "여러분은 어떤 기준으로 고르세요?"\n'
+        + "- 출처는 시스템이 글 끝에 붙이므로 캡션·스레드에 출처 이름이나 URL을 쓰지 않습니다."
+    )
+
+
 def _system(persona: Persona, brand: Brand) -> str:
     return f"""당신은 한국어 SNS 콘텐츠를 쓰는 AI 가상 인플루언서 '{persona.name}'({persona.handle})입니다.
 인물상: {persona.character}
@@ -121,9 +140,10 @@ def _system(persona: Persona, brand: Brand) -> str:
 - 금칙어를 쓰지 않습니다: {", ".join(persona.banned_words) or "-"}.
 - "AI 가상인물", "광고" 같은 표기 문구는 시스템이 자동으로 붙이므로 직접 쓰지 않습니다.
 - instagram_caption: 300~800자, 줄바꿈으로 읽기 쉽게, 해시태그 3~5개를 끝에.
-- threads_text: 440자 이내의 짧은 글(표기 문구가 앞에 붙어 500자 상한을 넘지 않게).
+- threads_text: 400자 이내의 짧은 글(앞에 표기 문구, 끝에 출처 줄이 붙어 500자 상한을 넘지 않게).
 - blog_title: 40자 이내. blog_markdown: 1500~2500자 마크다운, ## 소제목 3개 이상, 끝에 '참고 자료' 목록.
-- cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내."""
+- cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내.
+{_style_rules(persona)}"""
 
 
 def _user(brief: ContentBrief) -> str:

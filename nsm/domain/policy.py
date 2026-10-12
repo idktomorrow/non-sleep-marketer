@@ -157,6 +157,16 @@ def apply_labels(text: str, is_ad: bool) -> str:
 TEXT_LIMITS: dict[str, int] = {"threads": 500, "instagram": 2200, "naver_blog": 50_000}
 
 
+def fit_with_tail(text: str, platform: str, tail: str) -> str:
+    """꼬리(출처 줄)는 그대로 두고 앞부분만 줄여 상한에 맞춘다. 표기 문구는 앞에 있어 항상 남는다."""
+    limit = TEXT_LIMITS.get(platform)
+    if not tail:
+        return fit_to_limit(text, platform)
+    if limit is None or len(text) + len(tail) <= limit:
+        return text + tail
+    return text[: max(0, limit - len(tail) - 1)].rstrip() + "…" + tail
+
+
 def fit_to_limit(text: str, platform: str) -> str:
     """상한을 넘으면 끝을 잘라 말줄임표. 앞쪽 표기 문구는 항상 남는다."""
     limit = TEXT_LIMITS.get(platform)

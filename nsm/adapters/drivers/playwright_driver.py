@@ -16,6 +16,25 @@ _LINKS_JS = """
 """
 
 
+# 본문 칸: 알려진 본문 선택자 → article/main → 문단이 가장 많은 칸. innerText만 돌려준다.
+_ARTICLE_JS = """
+() => {
+  const known = ['#dic_area', '#newsct_article', '.se-main-container', '#postViewArea',
+                 '.post_ct', '#viewTypeSelector', 'article', 'main', '[role="main"]'];
+  for (const sel of known) {
+    const el = document.querySelector(sel);
+    if (el && (el.innerText || '').trim().length > 200) return el.innerText;
+  }
+  let best = null, score = 0;
+  for (const el of document.querySelectorAll('div, section')) {
+    const ps = el.querySelectorAll(':scope > p, :scope > div > p').length;
+    if (ps > score) { score = ps; best = el; }
+  }
+  return (best || document.body).innerText;
+}
+"""
+
+
 class PlaywrightDriver:
     def __init__(self, profile_dir: Path, headless: bool = True, timeout_ms: int = 20000) -> None:
         self.profile_dir = profile_dir
@@ -58,6 +77,10 @@ class PlaywrightDriver:
 
     def page_text(self) -> str:
         return str(self._ensure().inner_text("body"))
+
+    def article_text(self) -> str:
+        """본문으로 보이는 칸의 글(메뉴·댓글·추천 글을 덜 섞음)."""
+        return str(self._ensure().evaluate(_ARTICLE_JS))
 
     def close(self) -> None:
         try:

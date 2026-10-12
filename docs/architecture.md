@@ -93,11 +93,12 @@ erDiagram
 | `nsm/ports/` | 완료 | 단위(fakes 적합성) | A | 동결. `CostSink` 추가 |
 | `nsm/store/` (스키마·리포지토리) | 완료 | 단위 | A(스키마), C | `Repository`: 중복 제거, 상태 전이 검사, 게시 재시도 조회, 답글 횟수, 비용 합계, 실행 로그 |
 | `nsm/config/` (YAML·keyring·마법사) | 완료 | 단위 | C | 마법사는 `WizardIO`로 입출력 분리, 키는 환경 변수 → keyring 순 |
-| `nsm/adapters/sources/` 4종 | 완료 | 단위 + 실사이트 스모크 | D1 | 업로드·네이버(블로그·뉴스)·구글 트렌드 RSS·커뮤니티 |
+| `nsm/adapters/sources/` 4종 | 완료 | 단위 + 실사이트 스모크 | D1·Q1 | 업로드·네이버(블로그·뉴스)·구글 트렌드 RSS·커뮤니티. Q1: 텍스트 정리, 관련 글 원문 본문 `fetch_body`(ADR 0022) |
 | `nsm/adapters/classifier/` jev·claude | 완료 | 단위(가짜 클라이언트) | D1 | + 키워드 대체(ADR 0011). jev·Claude 실호출은 키 확보 후 확인 필요 |
 | `nsm/adapters/generator/` 텍스트·이미지 | 완료 | 단위(가짜 클라이언트) | D2 | Claude(구조화 출력 + fallback), OpenAI 배경. 실호출은 키 확보 후 확인 필요 |
 | `nsm/domain/policy.py` | 완료 | 단위 | D1·D2·E | 활동 시간·게시 판정·금칙어·배정·템플릿 순환·비용 상한·표기 삽입·댓글 판정 |
 | `nsm/domain/labels.py` | 완료 | 단위 | A·B | 표기 문구. 배치 B에서 공정위 예규 원문으로 확정(ADR 0019) |
+| `nsm/domain/quality.py` | 완료 | 단위 | Q1 | 품질 규칙: 제외 장르, 카드 목록 번호 떼기, 이모지·딱딱한 표현 검사, 출처 줄(ADR 0023) |
 | `nsm/engine/` 잡 7개 | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report) | 잡 7개 전부 완료, `runner`가 실행 로그·실패 알림, 재시작 복구 |
 | `nsm/adapters/platforms/dryrun.py` | 완료 | 경계 2(드라이런) + E2E | E | 미리보기 저장, 게시 시각 기준 가짜 댓글·지표, 답글·숨김 로그 |
 | `nsm/app/` 대시보드 | 구현 중 | 라우트 테스트 + 실서버 스모크 | F·H(백엔드), I(디자인) | 7개 화면(주간 리포트 포함)·CSRF·Host 검사·직접 답글. 화면은 최소 HTML(디자인은 I) |

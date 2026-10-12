@@ -33,3 +33,5 @@
 | [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆 | 채택 |
 | [0020](0020-aside-repl-execution.md) | 실계정 어댑터는 `aside repl` 고정 스크립트, 이미지는 일회용 로컬 서버 | 채택 |
 | [0021](0021-collect-driver-stays-playwright.md) | 자료 수집은 Playwright 수집 전용 프로필 유지(게시·댓글만 Aside) | 채택 |
+| [0022](0022-fetch-article-body-for-relevant-items.md) | 관련 자료로 판정된 글만 원문 본문(상한 3,000자) | 제안 |
+| [0023](0023-code-checked-content-rules.md) | 코드로 검사할 수 있는 원고 규칙은 생성 후 검사, 출처 줄은 게시 때 | 제안 |
