@@ -180,6 +180,40 @@ def test_render_works_while_playwright_runs_on_same_thread(renderer, tmp_path: P
     assert len(paths) == 3
 
 
+def test_long_sources_wrap_not_ellipsis() -> None:
+    html = build_html(_extreme("info"))
+    assert (
+        "text-overflow"
+        not in (Path(__file__).resolve().parents[2] / "nsm/templates/cards/base.css")
+        .read_text("utf-8")
+        .split(".outro .sources li")[1]
+        .split("}")[0]
+    )
+    assert html.count('data-fit="16"') == 6  # 출처마다 글자 맞춤 대상
+
+
+def test_no_html_left_in_output_and_overflow_reset(renderer, tmp_path: Path) -> None:
+    renderer.last_overflow = [99]
+    renderer.render(load("info"), tmp_path)
+    assert renderer.last_overflow == []
+    assert not list(tmp_path.glob("*.html"))  # 로컬 경로가 담긴 HTML을 남기지 않음
+
+
+def test_ad_badge_stays_visible_when_accent_close_to_primary() -> None:
+    c = palette("#1E40AF", "#1E3A8A")
+    assert c["ad_bg"] != "#1E3A8A"
+    ok = palette("#1E3A5F", "#F2A541")
+    assert ok["ad_bg"] == "#F2A541"
+
+
+def test_mid_tone_primary_text_readable_across_gradient() -> None:
+    from nsm.render.html_renderer import _contrast, _rgb
+
+    c = palette("#F59E0B", "#1E3A5F")
+    fg = _rgb(c["on_primary"])
+    assert min(_contrast(fg, _rgb(c["primary"])), _contrast(fg, _rgb(c["primary_deep"]))) >= 3.0
+
+
 def test_palette_contrast() -> None:
     dark = palette("#1E3A5F", "#F2A541")
     assert dark["on_primary"] == "#FFFFFF" and dark["on_accent"] == "#121419"
@@ -195,5 +229,9 @@ def test_get_renderer_prefers_html_and_falls_back(monkeypatch) -> None:
     from nsm.render.placeholder import PlaceholderRenderer
 
     assert isinstance(render.get_renderer(), HtmlCardRenderer)
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    import nsm.render.html_renderer as hr
+
+    monkeypatch.setattr(hr, "chromium_available", lambda: False)  # 크로미움 미설치
+    assert isinstance(render.get_renderer(), PlaceholderRenderer)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)  # playwright 없음
     assert isinstance(render.get_renderer(), PlaceholderRenderer)

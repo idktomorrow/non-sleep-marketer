@@ -39,7 +39,7 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
   font-size: 26px; font-weight: 700; line-height: 1.2; padding: 10px 20px; border-radius: 999px;
   background: var(--badge-bg); color: var(--badge-fg); letter-spacing: 0; white-space: nowrap;
 }
-.badge.ad { font-size: 34px; padding: 10px 24px; background: var(--accent); color: var(--on-accent); }
+.badge.ad { font-size: 34px; padding: 10px 24px; background: var(--ad-bg); color: var(--ad-fg); }
 .bottombar {
   position: absolute; left: 88px; right: 88px; bottom: 48px; z-index: 1;
   display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; font-size: 26px; opacity: .8;
@@ -92,7 +92,7 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 .outro .cta { font-size: 84px; font-weight: 800; line-height: 1.22; }
 .outro .sources { margin-top: 24px; font-size: 26px; opacity: .85; display: flex; flex-direction: column; gap: 8px; }
 .outro .sources b { font-size: 28px; }
-.outro .sources li { list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.outro .sources li { list-style: none; overflow-wrap: anywhere; word-break: break-all; line-height: 1.3; }
 
 /* 배경별 대비: 표기 배지는 어떤 배경에서도 읽혀야 한다(ADR 0007) */
 .slide.brand .badge:not(.ad) { background: var(--on-primary); color: var(--primary); }

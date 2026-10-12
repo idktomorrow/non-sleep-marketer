@@ -78,7 +78,7 @@
   <div class="content">
     <p class="cta" data-fit="48">{{ s.cta }}</p>
     {% if s.sources %}
-    <ul class="sources" data-sources><b>출처</b>{% for src in s.sources %}<li>{{ src }}</li>{% endfor %}</ul>
+    <ul class="sources" data-sources><b>출처</b>{% for src in s.sources %}<li data-fit="16">{{ src }}</li>{% endfor %}</ul>
     {% endif %}
   </div>
 </section>

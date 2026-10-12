@@ -5,13 +5,16 @@
 - 글이 넘치면 템플릿의 `nsmFit()`이 `data-fit` 글자를 최소 크기까지 줄인다. 그래도 넘친 슬라이드 번호는
   `last_overflow`에 남는다(테스트·로그용).
 - Playwright 동기 API는 스레드에 하나만 띄울 수 있다. 수집용 브라우저 드라이버가 같은 작업 스레드에서
-  이미 떠 있을 수 있으므로, 렌더는 매번 전용 스레드에서 한다.
+  이미 떠 있을 수 있으므로, 렌더는 전용 스레드 하나에서 하고 크로미움은 한 번 띄워 재사용한다.
 """
 
 from __future__ import annotations
 
+import atexit
 import colorsys
 import logging
+import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
 from pathlib import Path
@@ -53,10 +56,14 @@ def _contrast(a: tuple[float, float, float], b: tuple[float, float, float]) -> f
     return (la + 0.05) / (lb + 0.05)
 
 
-def _on(rgb: tuple[float, float, float]) -> str:
-    """배경 위 글자색: 흰색과 거의 검정 중 대비가 큰 쪽."""
-    white, ink = (1.0, 1.0, 1.0), (0.07, 0.08, 0.1)
-    return "#FFFFFF" if _contrast(rgb, white) >= _contrast(rgb, ink) else "#121419"
+_WHITE, _INK = (1.0, 1.0, 1.0), (0.07, 0.08, 0.1)
+
+
+def _on(*backgrounds: tuple[float, float, float]) -> str:
+    """배경(여러 색이면 그라디언트 양 끝) 위 글자색: 가장 나쁜 쪽 대비가 더 큰 색."""
+    w = min(_contrast(b, _WHITE) for b in backgrounds)
+    k = min(_contrast(b, _INK) for b in backgrounds)
+    return "#FFFFFF" if w >= k else "#121419"
 
 
 def _shade(rgb: tuple[float, float, float], light: float) -> tuple[float, float, float]:
@@ -78,13 +85,20 @@ def _ink_on_light(rgb: tuple[float, float, float]) -> str:
 def palette(primary: str, accent: str) -> dict[str, str]:
     p, a = _rgb(primary), _rgb(accent)
     deep = tuple(v * 0.72 for v in p)
+    on_primary = _on(p, deep)  # type: ignore[arg-type]
+    # 광고 배지는 법적 표기라 반드시 눈에 띄어야 한다: 강조색이 브랜드 면과 비슷하면 반전 색을 쓴다
+    if min(_contrast(a, p), _contrast(a, deep)) >= 2.0:  # type: ignore[arg-type]
+        ad_bg, ad_fg = _hex(a), _on(a)
+    else:
+        ad_bg = on_primary
+        ad_fg = "#121419" if on_primary == "#FFFFFF" else "#FFFFFF"
     card = tuple(0.94 + 0.06 * v for v in p)
     card_accent = tuple(0.92 + 0.08 * v for v in a)
     return {
         "primary": _hex(p),
         "primary_deep": _hex(deep),  # type: ignore[arg-type]
         "accent": _hex(a),
-        "on_primary": _on(p),
+        "on_primary": on_primary,
         "on_accent": _on(a),
         "primary_ink": _ink_on_light(p),
         "accent_ink": _ink_on_light(a),
@@ -94,6 +108,8 @@ def palette(primary: str, accent: str) -> dict[str, str]:
         "card_accent": _hex(card_accent),  # type: ignore[arg-type]
         "badge_bg": "#1B1D22",
         "badge_fg": "#FFFFFF",
+        "ad_bg": ad_bg,
+        "ad_fg": ad_fg,
     }
 
 
@@ -149,39 +165,97 @@ def build_html(deck: CardDeck) -> str:
 
 
 class HtmlCardRenderer:
+    """렌더 전용 스레드 하나에서 크로미움을 한 번 띄워 계속 쓴다.
+
+    Playwright 객체는 만든 스레드에서만 쓸 수 있으므로 모든 렌더를 그 스레드로 보낸다.
+    호출한 스레드에 다른 Playwright(수집 드라이버)가 떠 있어도 충돌하지 않는다.
+    """
+
     def __init__(self, timeout_ms: int = 30_000) -> None:
         self.timeout_ms = timeout_ms
         self.last_overflow: list[int] = []
+        self._pool: ThreadPoolExecutor | None = None
+        self._pw = None
+        self._browser = None
+        self._lock = threading.Lock()
 
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
-        # 전용 스레드: 호출한 스레드에 Playwright(수집 드라이버)가 이미 떠 있어도 충돌하지 않는다
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render") as pool:
-            return pool.submit(self._render, deck, out_dir).result()
+        self.last_overflow = []  # 이전 덱의 값이 남지 않게
+        with self._lock:
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
+                atexit.register(self.close)
+            pool = self._pool
+        paths, overflow = pool.submit(self._render, deck, out_dir).result()
+        self.last_overflow = overflow
+        return paths
 
-    def _render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
-        from playwright.sync_api import sync_playwright
+    def _ensure_browser(self):
+        if self._browser is None:
+            from playwright.sync_api import sync_playwright
 
+            self._pw = sync_playwright().start()
+            self._browser = self._pw.chromium.launch()
+        return self._browser
+
+    def _render(self, deck: CardDeck, out_dir: Path) -> tuple[list[Path], list[int]]:
         out_dir.mkdir(parents=True, exist_ok=True)
-        html_path = out_dir / "deck.html"
-        html_path.write_text(build_html(deck), encoding="utf-8")
-        paths: list[Path] = []
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
+        browser = self._ensure_browser()
+        # 로컬 절대 경로가 담긴 HTML은 결과 폴더에 남기지 않는다(임시 폴더에서 렌더 후 삭제)
+        with tempfile.TemporaryDirectory(prefix="nsm-card-") as tmp:
+            html_path = Path(tmp) / "deck.html"
+            html_path.write_text(build_html(deck), encoding="utf-8")
+            page = browser.new_page(
+                viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1
+            )
             try:
-                page = browser.new_page(
-                    viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1
-                )
                 page.set_default_timeout(self.timeout_ms)
                 page.goto(html_path.resolve().as_uri(), wait_until="load")
                 page.evaluate("document.fonts.ready.then(() => true)")
-                self.last_overflow = list(page.evaluate("window.nsmFit()"))
-                if self.last_overflow:
-                    log.warning("글이 넘친 슬라이드(최소 글자 크기에서도): %s", self.last_overflow)
+                overflow = list(page.evaluate("window.nsmFit()"))
+                if overflow:
+                    log.warning("글이 넘친 슬라이드(최소 글자 크기에서도): %s", overflow)
+                paths: list[Path] = []
                 slides = page.locator("section.slide")
                 for i in range(slides.count()):
                     path = out_dir / f"slide-{i + 1:02d}.png"
                     slides.nth(i).screenshot(path=str(path))
                     paths.append(path)
             finally:
-                browser.close()
-        return paths
+                page.close()
+        return paths, overflow
+
+    def _shutdown(self) -> None:
+        try:
+            if self._browser is not None:
+                self._browser.close()
+            if self._pw is not None:
+                self._pw.stop()
+        finally:
+            self._browser = self._pw = None
+
+    def close(self) -> None:
+        with self._lock:
+            pool, self._pool = self._pool, None
+        if pool is not None:
+            try:
+                pool.submit(self._shutdown).result(timeout=30)
+            except Exception:  # noqa: BLE001  종료 시점에는 최선만 다한다
+                log.debug("렌더러 종료 중 오류", exc_info=True)
+            pool.shutdown(wait=False)
+
+
+def chromium_available() -> bool:
+    """크로미움 실행 파일이 설치돼 있는지(`playwright install chromium`). 전용 스레드에서 확인."""
+
+    def check() -> bool:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            return Path(p.chromium.executable_path).exists()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return bool(pool.submit(check).result(timeout=60))
+    except Exception:  # noqa: BLE001
+        return False

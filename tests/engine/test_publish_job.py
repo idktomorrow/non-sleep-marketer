@@ -219,3 +219,16 @@ def test_long_threads_text_fits_limit(ctx: JobContext, db) -> None:
     post = build_post(c.model_copy(update={"generated": g}), "threads", [])
     assert len(post.text) == TEXT_LIMITS["threads"]
     assert post.text.startswith(VIRTUAL_PERSON_TEXT) and post.text.endswith("…")
+
+
+def test_overflowing_card_goes_to_review_not_published(ctx: JobContext) -> None:
+    class Overflowing(FakeRenderer):
+        last_overflow = [2]
+
+    ctx.renderer = Overflowing()
+    r = run_publish(ctx)
+    assert r.counts["published"] == 0
+    c = ctx.repo.list_contents()[-1]
+    assert c.status == "pending_review" and "넘침" in c.review_reason
+    assert all(not _published(ctx, p) for p in PLATFORMS)
+    assert ctx.notifier.calls[-1][0] == "카드 글 넘침"
