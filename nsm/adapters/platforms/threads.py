@@ -355,6 +355,11 @@ class ThreadsAdapter(AsideAdapterBase):
                 errors.append(e)
         if errors and not rows:
             raise errors[0]
+        if errors:
+            # 일부 글을 못 읽으면 그 글의 새 댓글을 다음 실행에서 놓칠 수 있다(since가 앞당겨짐)
+            log.warning(
+                "%s 댓글: 글 묶음 %d개를 읽지 못함: %s", self.platform, len(errors), errors[0]
+            )
         out: list[Comment] = []
         for r in rows:
             if norm_handle(r["handle"]) == self.handle:

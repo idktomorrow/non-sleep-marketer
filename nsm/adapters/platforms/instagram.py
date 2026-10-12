@@ -86,17 +86,28 @@ async function postInfo(pg, code) {
   await pg.goto('https://www.instagram.com/p/' + code + '/');
   await nsmUntil(async () => (await pg.locator('article img, main img').count()) > 0, 20000);
   await sleep(1500);
-  return await pg.evaluate((code) => {
+  return await pg.evaluate(([code, handle]) => {
     const imgs = Array.from(document.querySelectorAll('main img')).filter(i => i.naturalWidth > 300 && !(i.alt || '').endsWith('님의 프로필 사진'));
     const img = imgs[0];
-    const t = document.querySelector('main time');
-    return {
-      code,
-      text: (document.querySelector('main') || document.body).innerText.replace(/\s+/g, ' '),
-      at: t ? t.getAttribute('datetime') : null,
-      ratio: img ? img.naturalWidth / img.naturalHeight : null,
-    };
-  }, code);
+    // 캡션 칸: 댓글 링크(/c/) 밖의 time 중, 같은 칸에 내 프로필 링크가 있는 것
+    let capText = '', capAt = null;
+    for (const t of document.querySelectorAll('main time')) {
+      if (t.closest('a[href*="/c/"]')) continue;
+      let box = t.parentElement;
+      for (let i = 0; i < 8 && box; i++, box = box.parentElement) {
+        if (box.querySelector('a[href*="/c/"]')) break;
+        // 핸들·시각 두 줄뿐인 머리 칸이 아니라 본문까지 품은 칸(3줄 이상)
+        const lines = (box.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+        if (box.querySelector('a[href="/' + handle + '/"]') && lines.length >= 3) {
+          capText = box.innerText.replace(/\s+/g, ' ');
+          capAt = t.getAttribute('datetime');
+          break;
+        }
+      }
+      if (capText) break;
+    }
+    return { code, text: capText, at: capAt, ratio: img ? img.naturalWidth / img.naturalHeight : null };
+  }, [code, ARGS.handle]);
 }
 async function latestCodes(pg, n) {
   await pg.goto('https://www.instagram.com/' + ARGS.handle + '/');
@@ -137,7 +148,7 @@ _PUBLISH = (
 const pg = await nsmOpen('https://www.instagram.com/');
 await nsmAssertHandle(pg, readHandle);
 // 멱등: 지난 시도가 실제로는 올라갔다면 다시 올리지 않는다
-const before = await findMine(pg, 3);
+const before = await findMine(pg, 2);
 if (before) return { code: before.code, ratio: before.ratio, existing: true };
 await pg.goto('https://www.instagram.com/');
 const files = await nsmFiles();
@@ -148,7 +159,7 @@ await np.click();
 const postItem = await nsmUntil(() => nsmMarkIcon(pg, null, '게시물', 0), 10000);
 if (postItem) await postItem.click();
 const fi = pg.locator('[role="dialog"] input[type="file"]').first();
-await fi.waitFor({ state: 'attached', timeout: Math.min(20000, nsmLeft()) });
+await fi.waitFor({ state: 'attached', timeout: Math.max(1000, Math.min(20000, nsmLeft())) });
 await fi.setInputFiles(files);
 // 자르기: 반드시 4:5
 const crop = await nsmUntil(() => nsmMarkIcon(pg, '[role="dialog"]', '자르기 선택', 0), 30000);
@@ -164,22 +175,38 @@ const cap = await nsmWait(pg.locator('[role="dialog"] [contenteditable="true"]')
 await cap.click();
 await pg.keyboard.insertText(ARGS.text);
 // "Threads에 공유" 스위치는 끈다(스레드는 따로 올린다. 켜져 있으면 두 번 올라감)
-await pg.evaluate(() => {
-  for (const sw of document.querySelectorAll('[role="dialog"] [role="switch"], [role="dialog"] input[type="checkbox"]')) {
-    const row = sw.closest('div');
-    const txt = (sw.parentElement && sw.parentElement.parentElement ? sw.parentElement.parentElement.innerText : '') || '';
-    const on = sw.getAttribute('aria-checked') === 'true' || sw.checked === true;
-    if (/Threads/.test(txt) && on) sw.click();
+const threadsSwitch = async (turnOff) => await pg.evaluate((turnOff) => {
+  const isOn = (sw) => sw.getAttribute('aria-checked') === 'true' || sw.checked === true;
+  const out = [];
+  for (const sw of document.querySelectorAll('[role="dialog"] [role="switch"]')) {
+    // 스위치에서 위로 올라가며 "Threads" 문구가 처음 나오는 칸 = 그 스위치의 행(다른 스위치를 품으면 멈춤)
+    let row = sw.parentElement, label = '';
+    for (let i = 0; i < 6 && row; i++, row = row.parentElement) {
+      if (row.querySelectorAll('[role="switch"]').length > 1) break;
+      if (/Threads/.test(row.innerText || '')) { label = row.innerText; break; }
+    }
+    if (!label) continue;
+    if (turnOff && isOn(sw)) sw.click();
+    out.push(isOn(sw));
   }
-});
-await sleep(500);
+  return out;
+}, turnOff);
+await threadsSwitch(true);
+await sleep(600);
+const thrState = await threadsSwitch(false);
+if (thrState.some(Boolean)) throw new NsmError('script', '"Threads에 공유" 스위치를 끄지 못함(중복 게시 위험)');
 if (!(await clickDialogButton(pg, '공유하기'))) throw new NsmError('script', '공유하기 버튼 없음');
-// 여기부터는 올라갔을 수 있으니 오류로 돌리지 않는다(재시도 = 중복 게시)
-const shared = await nsmUntil(async () => /공유되었습니다|게시물이 공유/.test(await pg.evaluate(() => document.body.innerText)), 60000, 1500);
-if (!shared) return { code: '', posted: 'unknown' };
-await pg.keyboard.press('Escape');
-const mine = await nsmUntil(() => findMine(pg, 2), 30000, 3000);
-return { code: mine ? mine.code : '', ratio: mine ? mine.ratio : null, posted: true };
+// 여기부터는 올라갔을 수 있으니 어떤 오류도 밖으로 내지 않는다(오류 → 재시도 → 중복 게시)
+try {
+  const shared = await nsmUntil(async () => /공유되었습니다|게시물이 공유/.test(await pg.evaluate(() => document.body.innerText)), 60000, 1500);
+  if (!shared) return { code: '', posted: 'unknown' };
+  await pg.keyboard.press('Escape');
+  // 글 하나를 여는 데 약 10초. 120초 강제 종료에 걸리지 않을 만큼 남았을 때만 주소를 찾는다.
+  const mine = nsmLeft() > 25000 ? await findMine(pg, 2) : null;
+  return { code: mine ? mine.code : '', ratio: mine ? mine.ratio : null, posted: true };
+} catch (e) {
+  return { code: '', posted: 'unknown', note: String((e && e.message) || e).slice(0, 200) };
+}
 """
 )
 
@@ -300,7 +327,7 @@ const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
 await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000);
 await sleep(1500);
-const comments = await pg.evaluate(() => document.querySelectorAll('main ul time, main li time').length);
+const comments = await pg.evaluate(() => document.querySelectorAll('main a[href*="/c/"] time').length);
 // 인사이트(프로 계정)는 "숫자 이름" 순서로 보인다: "0 조회수 … 0 좋아요 0 댓글 0 저장 0 공유"
 const k = 'i' + Math.random().toString(36).slice(2);
 const has = await pg.evaluate((k) => {
@@ -311,16 +338,25 @@ const has = await pg.evaluate((k) => {
 let t2 = '';
 if (has) {
   await pg.locator('[data-nsm-mark="' + k + '"]').click();
-  t2 = await nsmUntil(async () => { const t = await pg.evaluate(() => document.body.innerText.replace(/\s+/g, ' ')); return /[0-9]\s*조회수/.test(t) ? t : ''; }, 20000) || '';
+  // 인사이트 화면(대화상자면 그 안, 페이지면 main)의 글만 읽는다. 캡션·댓글 문장("저장해 두세요")과 섞이지 않게.
+  t2 = await nsmUntil(async () => {
+    const t = await pg.evaluate(() => {
+      const d = Array.from(document.querySelectorAll('[role="dialog"]')).find(x => /조회수/.test(x.innerText || ''));
+      const el = d || (location.pathname.startsWith('/insights/') ? document.querySelector('main') || document.body : null);
+      return el ? el.innerText.replace(/\s+/g, ' ') : '';
+    });
+    return /[0-9]\s*조회수/.test(t) ? t : '';
+  }, 20000) || '';
 }
 const num = (re) => { const m = t2.match(re); return m ? nsmNum(m[1]) : null; };
 return {
-  views: num(/([0-9.,]+\s*(?:천|만)?)\s*조회수/),
-  reach: num(/조회한 사람\s*([0-9.,]+\s*(?:천|만)?)/),
-  likes: num(/([0-9.,]+\s*(?:천|만)?)\s*좋아요/),
-  comments: num(/([0-9.,]+\s*(?:천|만)?)\s*댓글/) ?? comments,
-  saves: num(/([0-9.,]+\s*(?:천|만)?)\s*저장/),
-  shares: num(/([0-9.,]+\s*(?:천|만)?)\s*공유/),
+  // 숫자로 시작하고, 이름 바로 뒤가 공백·끝이어야 한다("공유하기", "댓글 달기" 제외)
+  views: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*조회수(?=\s|$)/),
+  reach: num(/조회한 사람\s*([0-9][0-9.,]*\s*(?:천|만)?)(?=\s|$)/),
+  likes: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*좋아요(?=\s|$)/),
+  comments: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*댓글(?=\s|$)/) ?? comments,
+  saves: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*저장(?=\s|$)/),
+  shares: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*공유(?=\s|$)/),
 };
 """
 )
@@ -411,6 +447,11 @@ class InstagramAdapter(AsideAdapterBase):
                 errors.append(e)
         if errors and not rows:
             raise errors[0]
+        if errors:
+            # 일부 글을 못 읽으면 그 글의 새 댓글을 다음 실행에서 놓칠 수 있다(since가 앞당겨짐)
+            log.warning(
+                "%s 댓글: 글 묶음 %d개를 읽지 못함: %s", self.platform, len(errors), errors[0]
+            )
         out: list[Comment] = []
         for r in rows:
             if norm_handle(r["handle"]) == self.handle or not r.get("text"):
