@@ -90,7 +90,6 @@ def _fonts() -> Check:
 
 def _aside() -> Check:
     from nsm.adapters.drivers import find_aside_cli
-    from nsm.config import paths
 
     exe = find_aside_cli()
     if exe is None:
@@ -99,12 +98,8 @@ def _aside() -> Check:
             "WARN",
             "없음. 기본 브라우저 드라이버(ADR 0017)에 필요: https://docs.aside.com/help/developers",
         )
-    # 실계정 게시 때 카드 PNG를 읽으려면 Aside의 읽기 허용 폴더에 NSM 폴더가 있어야 한다(1일차 검증)
-    return Check(
-        "Aside CLI",
-        "OK",
-        f"{exe} · Aside 설정 File permissions > Can view에 {paths.nsm_home()} 추가 필요",
-    )
+    # 카드 PNG는 일회용 로컬 서버로 넘기므로(ADR 0020) Aside 파일 권한 설정은 필요 없다
+    return Check("Aside CLI", "OK", f"{exe} · 게시할 계정으로 Aside 브라우저에 로그인돼 있어야 함")
 
 
 CHECKS = [_python, _duckdb, _config, _secrets, _chromium, _fonts, _aside]

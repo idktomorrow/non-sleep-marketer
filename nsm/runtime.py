@@ -66,10 +66,25 @@ def make_platform_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
             p: DryRunAdapter(p, paths.preview_dir(), clock, tz=cfg.settings.timezone)
             for p in cfg.settings.enabled_platforms
         }
-    log.warning(
-        "실계정 어댑터는 배치 G에서 구현됩니다. 지금은 config.yaml에서 dry_run: true로 쓰세요."
-    )
-    return {}
+    return make_live_adapters(cfg, clock)
+
+
+def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
+    """실계정 어댑터(배치 G). settings.accounts에 핸들이 없는 플랫폼은 만들지 않는다(게시 안 함)."""
+    from nsm.adapters.platforms.threads import ThreadsAdapter
+
+    live = {"threads": ThreadsAdapter}  # 인스타그램은 배치 G2
+    out = {}
+    for p in cfg.settings.enabled_platforms:
+        cls = live.get(p)
+        handle = cfg.settings.accounts.get(p)
+        if cls is None:
+            log.warning("%s 실계정 어댑터는 아직 없습니다. 이 플랫폼은 게시하지 않습니다.", p)
+        elif not handle:
+            log.warning("%s 게시 계정이 settings.accounts에 없어 실계정 게시를 하지 않습니다.", p)
+        else:
+            out[p] = cls(handle, clock, media_dir=paths.media_dir())
+    return out
 
 
 def build_context(
