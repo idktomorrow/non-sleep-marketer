@@ -7,6 +7,10 @@
 """
 
 VIRTUAL_PERSON_TEXT = "인공지능(AI)을 기반으로 생성된 가상인물이 포함된 게시물입니다"
+# 예전 문구(배치 B 전). 사람이 예전 게시글을 붙여 넣어도 표기가 두 줄로 겹치지 않게 걷어낸다.
+LEGACY_VIRTUAL_PERSON_TEXTS: tuple[str, ...] = (
+    "AI를 기반으로 생성된 가상인물이 포함된 게시물입니다",
+)
 VIRTUAL_PERSON_BADGE = "가상인물"
 AI_IMAGE_CAPTION = "AI 생성 이미지"
 AD_HASHTAG = "#광고"

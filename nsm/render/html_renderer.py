@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import atexit
 import colorsys
+import hashlib
 import logging
 import tempfile
 import threading
@@ -134,6 +135,16 @@ def _env() -> Environment:
     return env
 
 
+def template_version() -> str:
+    """카드 템플릿·CSS·폰트 파일 내용의 지문. 바뀌면 렌더 캐시를 버린다(publish.render_images)."""
+    h = hashlib.sha256()
+    for p in sorted(TEMPLATES_DIR.rglob("*")):
+        if p.is_file() and p.suffix in {".html", ".css", ".woff2"}:
+            h.update(p.relative_to(TEMPLATES_DIR).as_posix().encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
 def build_html(deck: CardDeck) -> str:
     """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 브랜드 색 그라디언트로 대체된다."""
     slides = []
@@ -178,6 +189,7 @@ class HtmlCardRenderer:
         self._pw = None
         self._browser = None
         self._lock = threading.Lock()
+        self.version = template_version()
 
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
         self.last_overflow = []  # 이전 덱의 값이 남지 않게

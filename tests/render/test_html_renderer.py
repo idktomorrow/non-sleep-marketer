@@ -248,3 +248,11 @@ def test_virtual_person_badge_sits_next_to_persona_name(template: str) -> None:
         r'\s*<span class="badge" data-label="virtual-person">가상인물</span>'
     )
     assert len(re.findall(pattern, html)) == len(deck.slides)
+
+
+def test_renderer_version_tracks_template_files() -> None:
+    from nsm.render.html_renderer import template_version
+
+    v = template_version()
+    assert v == template_version() and len(v) == 16
+    assert HtmlCardRenderer().version == v

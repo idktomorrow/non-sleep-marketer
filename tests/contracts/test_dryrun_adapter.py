@@ -9,6 +9,7 @@ import pytest
 
 from nsm.adapters.platforms import PLATFORM_CAPABILITIES
 from nsm.adapters.platforms.dryrun import DryRunAdapter
+from nsm.domain.labels import VIRTUAL_PERSON_TEXT
 from nsm.domain.models import RenderedPost
 from nsm.ports import CAPABILITIES, NotSupportedError, PlatformAdapter
 
@@ -19,7 +20,7 @@ def _post(tmp_path: Path, platform="threads") -> RenderedPost:
     return RenderedPost(
         content_id="c1",
         platform=platform,
-        text="AI를 기반으로 생성된 가상인물이 포함된 게시물입니다\n\n본문",
+        text=f"{VIRTUAL_PERSON_TEXT}\n\n본문",
         images=[img],
         title="제목 [가상인물 포함]" if platform == "naver_blog" else None,
     )

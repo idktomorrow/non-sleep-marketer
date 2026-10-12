@@ -43,8 +43,12 @@ def render_images(ctx: JobContext, content: Content) -> list[Path]:
     """콘텐츠당 한 번만 렌더하고 플랫폼끼리 같은 PNG를 쓴다."""
     out = ctx.media_dir / "cards" / content.id
     deck = labeled_deck(content)
-    # 덱 내용(문구·표기 포함)의 지문이 같을 때만 재사용한다. 고친 뒤 옛 이미지가 나가면 안 된다.
-    fingerprint = hashlib.sha256(deck.model_dump_json().encode("utf-8")).hexdigest()
+    # 덱 내용(문구·표기 포함)과 렌더러 버전(템플릿 파일)의 지문이 같을 때만 재사용한다.
+    # 문구나 템플릿(예: 표기 배지 위치)을 고친 뒤 옛 이미지가 나가면 안 된다.
+    version = str(getattr(ctx.renderer, "version", ""))
+    fingerprint = hashlib.sha256(
+        (deck.model_dump_json() + "|" + version).encode("utf-8")
+    ).hexdigest()
     stamp = out / "deck.sha256"
     overflow_mark = out / "overflow.txt"
     existing = sorted(out.glob("slide-*.png")) if out.exists() else []

@@ -101,7 +101,7 @@ uv run nsm doctor
 | `protect_count` | `20` | 보호 모드: 사람이 승인해야 하는 첫 콘텐츠 수 |
 | `classifier` | `auto` | MotherDuck 토큰이 있으면 jev, 없으면 Claude로 분류 |
 | `image_generation` | `auto` | OpenAI 키가 있으면 AI 배경, 없으면 템플릿 배경 |
-| `browser_driver` | `aside` | 수집·게시에 쓸 브라우저. Aside 드라이버가 나오기 전(배치 G)에는 Playwright로 대신 동작 |
+| `browser_driver` | `aside` | 수집·게시에 쓸 브라우저. Aside 드라이버가 나오기 전(배치 G)에는 Playwright로 대신 동작. 2026-10-13 전에 만든 config.yaml에는 `playwright`가 저장돼 있으니 Aside를 쓰려면 직접 `aside`로 바꾸세요 |
 | `accounts` | 비어 있음 | 게시할 계정 핸들(예: `threads: "@my.brand"`). 비어 있거나 로그인된 계정과 다르면 실계정 게시를 하지 않음 |
 
 

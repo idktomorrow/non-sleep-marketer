@@ -138,8 +138,15 @@ def apply_labels(text: str, is_ad: bool) -> str:
     while True:  # 이미 붙은 표기(공백·줄바꿈 변형 포함)를 모두 걷어낸다
         if body.startswith(L.AD_HASHTAG):
             body = body[len(L.AD_HASHTAG) :].lstrip()
-        elif body.startswith(L.VIRTUAL_PERSON_TEXT):
-            body = body[len(L.VIRTUAL_PERSON_TEXT) :].lstrip()
+        elif old := next(
+            (
+                x
+                for x in (L.VIRTUAL_PERSON_TEXT, *L.LEGACY_VIRTUAL_PERSON_TEXTS)
+                if body.startswith(x)
+            ),
+            None,
+        ):
+            body = body[len(old) :].lstrip()
         else:
             break
     head = f"{L.AD_HASHTAG} {L.VIRTUAL_PERSON_TEXT}" if is_ad else L.VIRTUAL_PERSON_TEXT
