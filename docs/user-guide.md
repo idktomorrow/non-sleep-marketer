@@ -114,7 +114,7 @@ uv run nsm run
 - 창에 `대시보드: http://127.0.0.1:8765`가 뜨면 브라우저로 엽니다. 이 주소는 내 PC에서만 열립니다.
 - 프로그램은 정해진 시각에 알아서 움직입니다: 상태 점검 30분마다, 수집은 활동 시간 창 시작 20분 뒤(하루 2회), 생성은 첫 활동 시간 창 시작 50분 뒤, 게시는 30분마다(쿼터·간격 안에서), 댓글 확인 10분마다, 지표는 새벽 3시. 모든 시각에는 몇 분씩 무작위 지연이 섞입니다.
 - 기다리지 않고 바로 보고 싶으면 대시보드 개요의 **지금 실행** 버튼(collect → generate → publish 순)을 누릅니다.
-- 드라이런 게시물은 `%USERPROFILE%\.nsm\preview\날짜\콘텐츠ID\플랫폼\`에 카드 PNG와 원고로 저장되고, 20분 간격으로 가짜 댓글이 달려 대댓글 흐름까지 확인할 수 있습니다.
+- 드라이런 게시물은 `%USERPROFILE%\.nsm\preview\날짜\콘텐츠ID\플랫폼\`에 카드 PNG(1080×1350, 브랜드 색과 Pretendard 글꼴)와 원고로 저장되고, 20분 간격으로 가짜 댓글이 달려 대댓글 흐름까지 확인할 수 있습니다.
 - 끄려면 창에서 `Ctrl+C`.
 
 한 번만 돌려 보고 싶을 때(디버그):
@@ -123,6 +123,12 @@ uv run nsm run
 uv run nsm run --once --job collect
 uv run nsm run --once --job generate
 uv run nsm run --once --job publish
+```
+
+카드 디자인만 확인하고 싶으면 덱 JSON 하나를 바로 그려 볼 수 있습니다(예시 덱: `tests/fixtures/decks/`).
+
+```powershell
+uv run nsm render-preview tests/fixtures/decks/info.json --out preview-cards
 ```
 
 `nsm run`이 켜져 있는 동안에는 `--once`를 쓸 수 없습니다(데이터 파일을 한 프로세스만 열 수 있음). 대시보드의 **지금 실행**을 쓰세요.

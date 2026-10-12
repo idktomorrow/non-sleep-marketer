@@ -1,0 +1,199 @@
+"""경계 3: 템플릿 렌더 테스트 (S3 #19, docs/contracts.md 5·10절).
+
+실제 Playwright 크로미움으로 그린다(기본 실행에 포함, CI에서 크로미움 설치).
+"""
+
+from __future__ import annotations
+
+import json
+import struct
+from html.parser import HTMLParser
+from pathlib import Path
+
+import pytest
+
+from nsm.domain.models import CardDeck
+from nsm.render.html_renderer import HtmlCardRenderer, build_html, palette
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "decks"
+
+
+def load(template: str) -> CardDeck:
+    return CardDeck.model_validate_json((FIXTURES / f"{template}.json").read_text("utf-8"))
+
+
+def png_size(path: Path) -> tuple[int, int]:
+    head = path.read_bytes()[:24]
+    assert head[:8] == b"\x89PNG\r\n\x1a\n"
+    return struct.unpack(">II", head[16:24])
+
+
+class Slots(HTMLParser):
+    """슬라이드(section)별로 표기 슬롯 속성을 모은다."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slides: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "section" and "slide" in (a.get("class") or ""):
+            self.slides.append(
+                {
+                    "kind": a.get("data-kind"),
+                    "labels": [],
+                    "page": 0,
+                    "sources": 0,
+                    "style": a.get("style") or "",
+                }
+            )
+            return
+        if not self.slides:
+            return
+        cur = self.slides[-1]
+        if "data-label" in a:
+            cur["labels"].append(a["data-label"])
+        if "data-page" in a:
+            cur["page"] += 1
+        if "data-sources" in a:
+            cur["sources"] += 1
+
+
+def slots(deck: CardDeck) -> list[dict]:
+    p = Slots()
+    p.feed(build_html(deck))
+    return p.slides
+
+
+@pytest.fixture(scope="module")
+def renderer() -> HtmlCardRenderer:
+    return HtmlCardRenderer()
+
+
+@pytest.mark.parametrize("template", ["info", "list", "compare"])
+def test_fixture_decks_render_1080x1350(renderer, template: str, tmp_path: Path) -> None:
+    deck = load(template)
+    paths = renderer.render(deck, tmp_path)
+    assert [p.name for p in paths] == [f"slide-{i:02d}.png" for i in range(1, len(deck.slides) + 1)]
+    assert all(png_size(p) == (1080, 1350) for p in paths)
+    assert renderer.last_overflow == []
+
+
+@pytest.mark.parametrize("template", ["info", "list", "compare"])
+def test_label_slots_present(template: str) -> None:
+    deck = load(template)
+    s = slots(deck)
+    assert len(s) == len(deck.slides)
+    assert all(x["labels"].count("virtual-person") == 1 for x in s)  # 모든 장에 가상인물 배지
+    assert all(x["page"] == 1 for x in s)
+    assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
+    ad = [x for x in s if "ad" in x["labels"]]
+    if deck.labels.ad:
+        assert len(ad) == 1 and ad[0]["kind"] == "cover"  # 광고 배지는 표지에
+    else:
+        assert ad == []
+
+
+def test_ad_false_has_no_ad_badge() -> None:
+    deck = load("list")
+    deck = deck.model_copy(update={"labels": deck.labels.model_copy(update={"ad": False})})
+    assert all("ad" not in x["labels"] for x in slots(deck))
+    assert 'data-label="ad"' not in build_html(deck)
+
+
+def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
+    bg = tmp_path / "bg.png"
+    bg.write_bytes(
+        bytes.fromhex(
+            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082"
+        )
+    )
+    deck = load("info")
+    slides = list(deck.slides)
+    slides[0] = slides[0].model_copy(update={"background": str(bg)})
+    deck = deck.model_copy(
+        update={
+            "slides": slides,
+            "labels": deck.labels.model_copy(update={"ai_generated_image": True}),
+        }
+    )
+    s = slots(deck)
+    assert "ai-generated" in s[0]["labels"] and bg.resolve().as_uri() in s[0]["style"]
+    assert all("ai-generated" not in x["labels"] for x in s[1:])
+
+
+def test_missing_background_falls_back_to_brand_gradient() -> None:
+    deck = load("info")
+    slides = list(deck.slides)
+    slides[0] = slides[0].model_copy(update={"background": "C:/nope/missing.png"})
+    deck = deck.model_copy(
+        update={
+            "slides": slides,
+            "labels": deck.labels.model_copy(update={"ai_generated_image": True}),
+        }
+    )
+    s = slots(deck)
+    assert s[0]["style"] == "" and "ai-generated" not in s[0]["labels"]
+
+
+def _extreme(template: str) -> CardDeck:
+    long = "아주 긴 문장이 들어와도 카드가 깨지지 않아야 합니다 그래서 일부러 길게 씁니다"
+    raw = json.loads((FIXTURES / f"{template}.json").read_text("utf-8"))
+    raw["slides"][0]["title"] = (
+        "두 줄을 훌쩍 넘기는 아주아주 긴 표지 제목이 들어왔을 때도 글자가 줄어들어 들어가야 한다"
+    )
+    raw["slides"][0]["subtitle"] = long
+    for s in raw["slides"][1:-1]:
+        if s["kind"] == "body":
+            s["heading"] = "소제목도 길게 들어오는 경우를 대비한 테스트 문구"
+            s["body"] = long * 2
+            s["bullets"] = [long] * 3
+        elif s["kind"] == "list":
+            s["heading"] = "소제목도 길게 들어오는 경우를 대비한 테스트"
+            s["bullets"] = [long] * 5
+        elif s["kind"] == "compare":
+            s["left"]["points"] = [long] * 4
+            s["right"]["points"] = [long] * 4
+            s["left"]["title"] = s["right"]["title"] = "꽤 긴 비교 대상 이름"
+    raw["slides"][-1]["cta"] = long
+    raw["slides"][-1]["sources"] = [
+        f"https://example.com/very/long/path/to/source/article-{i}?ref=abc" for i in range(6)
+    ]
+    raw["labels"]["ad"] = True
+    return CardDeck.model_validate(raw)
+
+
+@pytest.mark.parametrize("template", ["info", "list", "compare"])
+def test_extreme_inputs_do_not_overflow(renderer, template: str, tmp_path: Path) -> None:
+    deck = _extreme(template)
+    paths = renderer.render(deck, tmp_path)
+    assert len(paths) == len(deck.slides)
+    assert renderer.last_overflow == [], f"넘친 슬라이드: {renderer.last_overflow}"
+
+
+def test_render_works_while_playwright_runs_on_same_thread(renderer, tmp_path: Path) -> None:
+    """수집 드라이버(Playwright)가 같은 작업 스레드에 떠 있어도 렌더가 된다(전용 스레드에서 렌더)."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright():
+        paths = renderer.render(load("compare"), tmp_path)
+    assert len(paths) == 3
+
+
+def test_palette_contrast() -> None:
+    dark = palette("#1E3A5F", "#F2A541")
+    assert dark["on_primary"] == "#FFFFFF" and dark["on_accent"] == "#121419"
+    light = palette("#FFE680", "#FFFFFF")
+    assert light["on_primary"] == "#121419"
+    assert light["primary_ink"] != "#FFE680"  # 밝은 면 위에서는 어둡게 바꿔 읽히게
+
+
+def test_get_renderer_prefers_html_and_falls_back(monkeypatch) -> None:
+    import importlib.util
+
+    from nsm import render
+    from nsm.render.placeholder import PlaceholderRenderer
+
+    assert isinstance(render.get_renderer(), HtmlCardRenderer)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    assert isinstance(render.get_renderer(), PlaceholderRenderer)

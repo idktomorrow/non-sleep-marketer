@@ -26,3 +26,4 @@
 | [0012](0012-daily-target-and-topic-rotation.md) | 하루 목표·플랫폼 배정·주제 순환 | 제안 |
 | [0013](0013-autostart-startup-folder.md) | 자동 실행은 시작프로그램 폴더로 | 제안 |
 | [0014](0014-rule-based-weekly-report.md) | 주간 리포트는 규칙 계산, 기간은 현지 날짜 지난 7일 | 제안 |
+| [0015](0015-main-takes-s-alpha.md) | S-α(템플릿·렌더러)를 메인이 맡는다 | 제안 |

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="{{ css_uri }}">
+<style>
+:root {
+  --primary: {{ c.primary }}; --primary-deep: {{ c.primary_deep }}; --accent: {{ c.accent }};
+  --on-primary: {{ c.on_primary }}; --on-accent: {{ c.on_accent }};
+  --primary-ink: {{ c.primary_ink }}; --accent-ink: {{ c.accent_ink }};
+  --surface: {{ c.surface }}; --ink: {{ c.ink }};
+  --card: {{ c.card }}; --card-accent: {{ c.card_accent }};
+  --badge-bg: {{ c.badge_bg }}; --badge-fg: {{ c.badge_fg }};
+}
+</style>
+</head>
+<body>
+{%- import "cards/_parts.html" as parts -%}
+{%- set n = deck.slides | length -%}
+{%- for s in deck.slides %}
+{%- set i = loop.index %}
+{%- if s.kind == 'cover' %}{{ parts.cover(s, i, n, deck) }}
+{%- elif s.kind == 'outro' %}{{ parts.outro(s, i, n, deck) }}
+{%- else %}{% block middle scoped %}{% endblock %}
+{%- endif %}
+{%- endfor %}
+<script>
+/* 넘치는 슬라이드는 data-fit 글자를 조금씩 줄인다(최소 크기는 data-fit 값). 렌더러가 호출한다. */
+window.nsmFit = function () {
+  const overflowing = [];
+  document.querySelectorAll('.slide').forEach((slide, idx) => {
+    const box = slide.querySelector('.content');
+    const items = [...slide.querySelectorAll('[data-fit]')];
+    const over = () => box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1;
+    for (let step = 0; step < 60 && over(); step++) {
+      let shrunk = false;
+      for (const el of items) {
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        const min = parseFloat(el.dataset.fit);
+        if (size > min) { el.style.fontSize = Math.max(min, size * 0.94) + 'px'; shrunk = true; }
+      }
+      if (!shrunk) break;
+    }
+    if (over()) overflowing.push(idx + 1);
+  });
+  return overflowing;
+};
+</script>
+</body>
+</html>

@@ -118,12 +118,12 @@
 - 1일차 오전(M1 전)에는 CI와 픽스처 폴더·샘플 덱부터, M1이 머지되면 fakes를 포트에 맞춤.
 - 완료 기준: CI 초록, fakes가 모든 포트를 구현(`typing` 검사 통과).
 
-### S2. 카드뉴스 템플릿 3종(정보형·리스트형·비교형) `week:1`
+### S2. 카드뉴스 템플릿 3종(정보형·리스트형·비교형) `week:1` (→ 메인, 배치 S-α, ADR 0015)
 - `nsm/templates/cards/{info,list,compare}.html` + `base.css`, 브랜드 색 토큰(CSS 변수), Pretendard 동봉, 1080×1350, 슬라이드 `kind`별 레이아웃, 배경 없을 때 대체 그라디언트, **표기 슬롯**(`data-label`, `data-sources`, `data-page`) 전부.
 - 한글 줄바꿈·긴 제목·긴 bullets(5개)·출처 6개 같은 극단 입력에서 깨지지 않을 것.
 - 완료 기준: `tests/fixtures/decks/*.json` 세 덱이 S3 하네스로 렌더되고 메인이 시각 승인.
 
-### S3. 렌더러 + 미리보기 하네스 + 렌더 테스트 `week:1`
+### S3. 렌더러 + 미리보기 하네스 + 렌더 테스트 `week:1` (→ 메인, 배치 S-α, ADR 0015)
 - `nsm/render/`: `CardRenderer` 구현(Jinja2로 HTML 생성 → Playwright 크로미움 스크린샷 → PNG), `nsm render-preview` CLI 연결(`cli.py`의 서브 호출만 메인과 합의).
 - `tests/render/`: 템플릿별 PNG 존재·크기, 표기 슬롯 DOM 존재, `labels.ad=false`면 광고 배지 없음.
 - 완료 기준: 렌더 1덱(5장) 3초 내, 테스트 기본 실행 포함.

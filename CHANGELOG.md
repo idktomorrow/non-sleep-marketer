@@ -7,6 +7,7 @@
 ### Added
 - 배치 H: weekly_report 잡(참여율 상위·이유·추천 주제·협찬 성과·팔로워·비용), 대시보드 주간 리포트 화면 (#15)
 - 1주차 회고 초안 `docs/retro/week-1.md`
+- 배치 S-α: 카드뉴스 템플릿 3종(정보형·리스트형·비교형)과 HTML 렌더러(1080×1350, 표기 슬롯, Pretendard 동봉, 넘침 시 글자 맞춤), 렌더 테스트, CI 크로미움 설치 (#18 #19)
 - 배치 B 준비: 1일차 검증 마법사 `scripts/day1_wizard.sh`(키는 keyring에만, 결과는 `docs/day1-verification.md`), `nsm doctor --live`(실제 API 1회 호출) (#3)
 
 ## [v0.1-dryrun] - 2026-10-11

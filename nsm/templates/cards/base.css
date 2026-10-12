@@ -1,0 +1,101 @@
+/* 카드뉴스 공통 스타일. 슬라이드 한 장 = 1080×1350 (4:5).
+   색은 렌더러가 브랜드에서 계산해 :root 변수로 넣는다(--primary, --accent, --on-primary 등). */
+
+@font-face { font-family: "Pretendard"; font-weight: 400; src: url("../fonts/Pretendard-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Pretendard"; font-weight: 600; src: url("../fonts/Pretendard-SemiBold.woff2") format("woff2"); }
+@font-face { font-family: "Pretendard"; font-weight: 700; src: url("../fonts/Pretendard-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Pretendard"; font-weight: 800; src: url("../fonts/Pretendard-ExtraBold.woff2") format("woff2"); }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #888; }
+body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiased; }
+
+.slide {
+  position: relative; width: 1080px; height: 1350px; overflow: hidden;
+  display: flex; flex-direction: column; padding: 96px 88px 120px;
+  color: var(--ink); background: var(--surface);
+  word-break: keep-all; overflow-wrap: anywhere; line-height: 1.38; letter-spacing: -0.02em;
+}
+/* 브랜드 색 면(표지·마무리): 배경 이미지가 없으면 그라디언트 */
+.slide.brand {
+  color: var(--on-primary);
+  background:
+    radial-gradient(circle 310px at 1010px 1280px, color-mix(in srgb, var(--on-primary) 7%, transparent) 99%, transparent 100%),
+    linear-gradient(160deg, var(--primary) 0%, var(--primary-deep) 100%);
+}
+.slide.has-bg { color: #fff; background-size: cover; background-position: center; }
+.slide.has-bg::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.12) 0%, rgba(0,0,0,.35) 45%, rgba(0,0,0,.72) 100%);
+}
+.slide > * { position: relative; z-index: 1; }
+
+/* 위·아래 띠: 핸들, 페이지, 표기 배지 */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 64px; }
+.who { font-size: 30px; font-weight: 600; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who .logo { height: 48px; vertical-align: middle; margin-right: 12px; }
+.badges { display: flex; gap: 12px; flex-shrink: 0; align-items: center; }
+.badge {
+  font-size: 26px; font-weight: 700; line-height: 1.2; padding: 10px 20px; border-radius: 999px;
+  background: var(--badge-bg); color: var(--badge-fg); letter-spacing: 0; white-space: nowrap;
+}
+.badge.ad { font-size: 34px; padding: 10px 24px; background: var(--accent); color: var(--on-accent); }
+.bottombar {
+  position: absolute; left: 88px; right: 88px; bottom: 48px; z-index: 1;
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; font-size: 26px; opacity: .8;
+}
+.ai-caption { font-size: 22px; }
+.page { font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0; margin-left: auto; }
+
+/* 본문 영역: 넘치면 렌더러가 글자 크기를 줄인다(data-fit) */
+.content { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 40px; overflow: hidden; }
+
+/* 표지 */
+.cover .content { justify-content: flex-end; padding-bottom: 40px; }
+.cover .kicker { width: 120px; height: 12px; background: var(--accent); border-radius: 6px; }
+.cover h1 { font-size: 112px; font-weight: 800; line-height: 1.16; letter-spacing: -0.035em; white-space: pre-line; }
+.cover .subtitle { font-size: 46px; font-weight: 600; opacity: .9; }
+
+/* 정보형 본문 */
+.body h2, .list h2, .compare h2 { font-size: 72px; font-weight: 800; line-height: 1.2; color: var(--primary-ink); }
+.body h2::after, .list h2::after, .compare h2::after {
+  content: ""; display: block; width: 96px; height: 10px; margin-top: 28px; border-radius: 5px; background: var(--accent);
+}
+.body .text { font-size: 50px; font-weight: 600; line-height: 1.5; }
+.body ul { list-style: none; display: flex; flex-direction: column; gap: 20px; }
+.body li { font-size: 40px; padding-left: 44px; position: relative; }
+.body li::before { content: ""; position: absolute; left: 4px; top: .55em; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); }
+
+/* 리스트형 */
+.list ol { list-style: none; display: flex; flex-direction: column; gap: 22px; counter-reset: n; }
+.list li {
+  counter-increment: n; display: flex; gap: 28px; align-items: center;
+  font-size: 42px; font-weight: 600; padding: 26px 32px; border-radius: 24px; background: var(--card);
+}
+.list li::before {
+  content: counter(n); flex-shrink: 0; width: 64px; height: 64px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 34px; font-weight: 800; background: var(--primary); color: var(--on-primary);
+}
+
+/* 비교형 */
+.compare .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.compare .col { border-radius: 28px; padding: 40px 36px; background: var(--card); display: flex; flex-direction: column; gap: 24px; }
+.compare .col.right { background: var(--card-accent); }
+.compare h3 { font-size: 48px; font-weight: 800; color: var(--primary-ink); }
+.compare .col.right h3 { color: var(--accent-ink); }
+.compare ul { list-style: none; display: flex; flex-direction: column; gap: 18px; }
+.compare li { font-size: 36px; font-weight: 600; padding-left: 36px; position: relative; }
+.compare li::before { content: "–"; position: absolute; left: 0; opacity: .6; }
+
+/* 마무리 */
+.outro .content { justify-content: center; }
+.outro .cta { font-size: 84px; font-weight: 800; line-height: 1.22; }
+.outro .sources { margin-top: 24px; font-size: 26px; opacity: .85; display: flex; flex-direction: column; gap: 8px; }
+.outro .sources b { font-size: 28px; }
+.outro .sources li { list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 배경별 대비: 표기 배지는 어떤 배경에서도 읽혀야 한다(ADR 0007) */
+.slide.brand .badge:not(.ad) { background: var(--on-primary); color: var(--primary); }
+.slide.has-bg .badge:not(.ad) { background: #fff; color: #111; }
+.slide.has-bg h2, .slide.has-bg h3 { color: inherit; }
+.slide.has-bg.list li, .slide.has-bg .col { background: rgba(255,255,255,.14); }
