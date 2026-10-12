@@ -1,6 +1,6 @@
 # 0020. 실계정 어댑터는 `aside repl` 고정 스크립트로 돌리고, 이미지는 일회용 로컬 서버로 넘긴다
 
-- 상태: 제안 (배치 G1) · 날짜: 2026-10-13 · 관련: [0017](0017-aside-default-driver-after-day1.md), 이슈 #14, [day1-verification](../day1-verification.md)
+- 상태: 채택(2026-10-13, 선웅제 확정) · 날짜: 2026-10-13 · 관련: [0017](0017-aside-default-driver-after-day1.md), 이슈 #14, [day1-verification](../day1-verification.md)
 
 ## 배경
 

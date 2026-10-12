@@ -1,6 +1,6 @@
 # 0018. 플랫폼 capability: 스레드는 댓글 숨기기 지원, 인스타그램은 미지원
 
-- 상태: 제안 (배치 B 반영) · 날짜: 2026-10-13 · 관련: [day1-verification](../day1-verification.md), [contracts.md](../contracts.md) 4절, 이슈 #14
+- 상태: 채택(2026-10-13, 선웅제 확정) · 날짜: 2026-10-13 · 관련: [day1-verification](../day1-verification.md), [contracts.md](../contracts.md) 4절, 이슈 #14
 
 ## 배경
 
