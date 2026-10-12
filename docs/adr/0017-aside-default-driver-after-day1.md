@@ -1,6 +1,6 @@
 # 0017. 1일차 검증 후 브라우저 드라이버 기본값을 Aside로 되돌린다
 
-- 상태: 제안 (배치 B 반영, Claude가 검증 결과로 결정) · 날짜: 2026-10-13 · 관련: [0002](0002-aside-default-driver-split.md), [0010](0010-collect-driver-default-playwright.md)(대체), [day1-verification](../day1-verification.md), 이슈 #3 #14
+- 상태: 채택(2026-10-13, 선웅제 확정) · 날짜: 2026-10-13 · 관련: [0002](0002-aside-default-driver-split.md), [0010](0010-collect-driver-default-playwright.md)(대체), [day1-verification](../day1-verification.md), 이슈 #3 #14
 
 ## 배경
 

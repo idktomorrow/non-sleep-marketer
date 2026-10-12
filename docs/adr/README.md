@@ -28,7 +28,8 @@
 | [0014](0014-rule-based-weekly-report.md) | 주간 리포트는 규칙 계산, 기간은 현지 날짜 지난 7일 | 채택 |
 | [0015](0015-main-takes-s-alpha.md) | S-α(템플릿·렌더러)를 메인이 맡는다 | 채택 |
 | [0016](0016-drop-naver-blog-publishing.md) | 네이버 블로그 게시를 MVP 범위에서 뺀다 | 채택 |
-| [0017](0017-aside-default-driver-after-day1.md) | 1일차 검증 후 브라우저 드라이버 기본값을 Aside로 | 제안 |
-| [0018](0018-platform-capabilities-from-day1.md) | 플랫폼 capability: 스레드 숨기기 지원, 인스타그램 미지원 | 제안 |
-| [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆 | 제안 |
-| [0020](0020-aside-repl-execution.md) | 실계정 어댑터는 `aside repl` 고정 스크립트, 이미지는 일회용 로컬 서버 | 제안 |
+| [0017](0017-aside-default-driver-after-day1.md) | 1일차 검증 후 브라우저 드라이버 기본값을 Aside로 | 채택 |
+| [0018](0018-platform-capabilities-from-day1.md) | 플랫폼 capability: 스레드 숨기기 지원, 인스타그램 미지원 | 채택 |
+| [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆 | 채택 |
+| [0020](0020-aside-repl-execution.md) | 실계정 어댑터는 `aside repl` 고정 스크립트, 이미지는 일회용 로컬 서버 | 채택 |
+| [0021](0021-collect-driver-stays-playwright.md) | 자료 수집은 Playwright 수집 전용 프로필 유지(게시·댓글만 Aside) | 채택 |

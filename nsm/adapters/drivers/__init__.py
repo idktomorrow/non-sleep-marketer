@@ -28,9 +28,8 @@ def find_aside_cli() -> Path | None:
 
 def make_driver(kind: str, profile_dir: Path, headless: bool) -> BrowserDriver:
     if kind == "aside":
-        # ADR 0017: 기본값은 Aside(1일차 검증에서 무인 게시 확인). 드라이버 구현은 배치 G.
-        # 그 전까지는 Playwright로 대신해 수집이 멈추지 않게 한다.
-        log.info("Aside 드라이버는 배치 G에서 구현됩니다. 지금은 Playwright로 대신합니다.")
+        # ADR 0021: 수집은 Playwright 수집 전용 프로필을 쓴다(Aside 브라우저에 검색 탭이 열리는 불편,
+        # 수집은 로그인 불필요). browser_driver=aside는 실계정 게시·댓글(Aside repl)을 뜻한다.
         kind = "playwright"
     if kind == "playwright":
         from nsm.adapters.drivers.playwright_driver import PlaywrightDriver
