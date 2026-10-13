@@ -1,16 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>성과</h1>
-<h2>게시물별 (최신 지표)</h2>
-<table><tr><th>게시</th><th>플랫폼</th><th>주제</th><th>조회</th><th>도달</th><th>노출</th><th>좋아요</th><th>댓글</th><th>저장</th><th>공유</th></tr>
-{% for p in posts %}<tr><td>{{ p.published_at|kst }}</td><td>{{ p.platform }}{% if p.is_ad %} <span class="warn">광고</span>{% endif %}</td><td>{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
-{% for k in ['views','reach','impressions','likes','comments','saves','shares'] %}<td>{{ p[k] if p[k] is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}
-</table>
+<h2 style="margin-top:0">게시물별 (최신 지표)</h2>
+{% if posts %}
+<div class="table-wrap"><table><tr><th>게시</th><th>플랫폼</th><th>주제</th><th class="num">조회</th><th class="num">도달</th><th class="num">노출</th><th class="num">좋아요</th><th class="num">댓글</th><th class="num">저장</th><th class="num">공유</th></tr>
+{% for p in posts %}<tr><td class="small">{{ p.published_at|kst }}</td><td>{{ p.platform|ko_platform }}{% if p.is_ad %} <span class="badge warn">광고</span>{% endif %}</td>
+<td style="min-width:180px">{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
+{% for k in ['views','reach','impressions','likes','comments','saves','shares'] %}<td class="num">{{ p[k] if p[k] is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}
+</table></div>
+<p class="muted small">"-"는 그 플랫폼이 알려 주지 않는 지표입니다.</p>
+{% else %}<p class="muted">아직 게시물이 없습니다.</p>{% endif %}
+
 <h2>팔로워</h2>
-<table><tr><th>날짜</th><th>플랫폼</th><th>팔로워</th></tr>{% for f in followers %}<tr><td>{{ f.day }}</td><td>{{ f.platform }}</td><td>{{ f.followers }}</td></tr>{% endfor %}</table>
+{% if followers %}
+<div class="table-wrap"><table><tr><th>날짜</th><th>플랫폼</th><th class="num">팔로워</th></tr>{% for f in followers %}<tr><td>{{ f.day }}</td><td>{{ f.platform|ko_platform }}</td><td class="num">{{ f.followers }}</td></tr>{% endfor %}</table></div>
+{% else %}<p class="muted">아직 기록이 없습니다.</p>{% endif %}
+
 <h2>댓글 처리 (최근 30일)</h2>
-<p>{% for st, n in comment_stats.by_status.items() %}{{ st }} {{ n }} · {% endfor %}평균 자동 응답 {{ comment_stats.avg_response_minutes if comment_stats.avg_response_minutes is not none else '-' }}분</p>
-<table><tr><th>분류</th><th>건수</th></tr>{% for r in comment_stats.by_category %}<tr><td>{{ r.category }}</td><td>{{ r.n }}</td></tr>{% endfor %}</table>
+<div class="panel">
+<div class="actions">{% for st, n in comment_stats.by_status.items() %}<span class="badge gray">{{ st|ko_comment }} {{ n }}</span>{% endfor %}</div>
+<p class="small" style="margin-bottom:0">평균 자동 응답 {{ comment_stats.avg_response_minutes if comment_stats.avg_response_minutes is not none else '-' }}분</p>
+{% if comment_stats.by_category %}<div class="actions small" style="margin-top:8px">{% for r in comment_stats.by_category %}<span>{{ r.category|ko_category }} {{ r.n }}</span>{% if not loop.last %}<span class="muted">·</span>{% endif %}{% endfor %}</div>{% endif %}
+</div>
+
 <h2>비용 (최근 14일)</h2>
-<table><tr><th>날짜</th><th>종류</th><th>달러</th></tr>{% for r in costs %}<tr><td>{{ r.day }}</td><td>{{ r.kind }}</td><td>{{ r.usd }}</td></tr>{% endfor %}</table>
+{% if costs %}
+<div class="table-wrap"><table><tr><th>날짜</th><th>종류</th><th class="num">비용</th></tr>{% for r in costs %}<tr><td>{{ r.day }}</td><td>{{ r.kind|ko_cost }}</td><td class="num">${{ '%.3f'|format(r.usd) }}</td></tr>{% endfor %}</table></div>
+<p class="muted small">하루 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}. 상한에 닿으면 그날은 원고 생성을 멈춥니다.</p>
+{% else %}<p class="muted">아직 비용 기록이 없습니다.</p>{% endif %}
 {% endblock %}

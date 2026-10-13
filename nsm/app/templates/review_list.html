@@ -1,12 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>검토 대기열</h1>
-{% if not items %}<p class="muted">검토할 콘텐츠가 없습니다.</p>{% endif %}
-<table><tr><th>만든 시각</th><th>주제</th><th>템플릿</th><th>사유</th><th></th></tr>
-{% for c in items %}<tr>
-<td>{{ c.created_at|kst }}</td><td><a href="/review/{{ c.id }}">{{ c.generated.topic }}</a>{% if c.is_ad %} <span class="warn">[광고]</span>{% endif %}</td>
-<td>{{ c.generated.template }}</td><td class="warn">{{ c.review_reason or '' }}</td>
-<td><form class="inline" method="post" action="/review/{{ c.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>승인</button></form>
-<form class="inline" method="post" action="/review/{{ c.id }}/discard"><input type="hidden" name="csrf" value="{{ csrf }}"><button>폐기</button></form></td>
-</tr>{% endfor %}</table>
+<h1>검토할 원고</h1>
+{% if not items %}<div class="panel"><b class="ok">검토할 원고가 없습니다.</b> <span class="muted">새 원고가 만들어지면 여기에 나옵니다.</span></div>{% endif %}
+<div class="review-list">
+{% for c in items %}
+<article class="panel review-item">
+  <a href="/review/{{ c.id }}">{% if thumbs and thumbs.get(c.id) %}<img src="{{ thumbs[c.id] }}" alt="표지 카드">{% else %}<span class="thumb" aria-hidden="true"></span>{% endif %}</a>
+  <div>
+    <h3><a href="/review/{{ c.id }}">{{ c.generated.topic }}</a></h3>
+    <div class="actions small"><span class="badge">{{ c.generated.template|ko_template }}</span>{% if c.is_ad %}<span class="badge warn">광고</span>{% endif %}<span class="muted">{{ c.created_at|kst }} 생성</span></div>
+    {% if c.review_reason %}<p class="warn small" style="margin:6px 0 0">검토 사유: {{ c.review_reason }}</p>{% endif %}
+  </div>
+  <div class="actions">
+    <a class="btn btn-primary btn-sm" href="/review/{{ c.id }}">열어 보기</a>
+    <form class="inline" method="post" action="/review/{{ c.id }}/discard" onsubmit="return confirm('이 원고를 폐기할까요? 되돌릴 수 없습니다.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost btn-danger">폐기</button></form>
+  </div>
+</article>
+{% endfor %}
+</div>
+{% if items %}<p class="muted small">승인은 원고를 열어 카드와 글을 확인한 뒤에 합니다.</p>{% endif %}
 {% endblock %}

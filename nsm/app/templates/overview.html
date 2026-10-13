@@ -1,27 +1,91 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>개요</h1>
-<section class="cards">
-  <div class="card">페르소나<b class="{{ 'ok' if cfg.persona.enabled else 'muted' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</b>
-    <form class="inline" method="post" action="/persona/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ '끄기' if cfg.persona.enabled else '켜기' }}</button></form></div>
-  <div class="card">자동 게시<b class="{{ 'ok' if auto_publish else 'muted' }}">{{ '켜짐' if auto_publish else '꺼짐' }}</b>
-    <span class="muted">사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건{% if auto_publish and human_approved < cfg.settings.protect_count %} · 보호 모드{% endif %}</span>
-    <form class="inline" method="post" action="/auto-publish/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ '끄기' if auto_publish else '켜기' }}</button></form></div>
-  <div class="card">검토 대기<b class="{{ 'warn' if ov.pending_review else '' }}">{{ ov.pending_review }}</b><a href="/review">보기</a></div>
-  <div class="card">확인할 댓글<b class="{{ 'warn' if ov.escalated_comments else '' }}">{{ ov.escalated_comments }}</b><a href="/comments">보기</a></div>
-  <div class="card">게시 대기(승인됨)<b>{{ ov.approved_waiting }}</b></div>
-  <div class="card">오늘 게시<b>{{ ov.published_today.values()|sum }}</b>
-    <span class="muted">{% for p, n in ov.published_today.items() %}{{ p }} {{ n }} {% endfor %}</span></div>
-  <div class="card">오늘 비용<b>${{ '%.2f'|format(ov.cost_today) }}</b><span class="muted">상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></div>
-  <div class="card">쓸 수 있는 자료<b>{{ ov.sources_unused }}</b></div>
+<h1>오늘 해야 할 일</h1>
+
+{% if first_run %}
+<section class="panel">
+  <h2 style="margin-top:0">처음이시군요. 이 순서로 시작하세요</h2>
+  <ol class="steps">
+    <li><b>자료 모으기</b> <span class="muted">관심 주제로 네이버·구글 트렌드에서 자료를 모읍니다. 브랜드 자료가 있으면 uploads 폴더에 넣어 두세요.</span>
+      <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-primary">자료 모으기 실행</button></form></div></li>
+    <li><b>원고 만들기</b> <span class="muted">모은 자료로 카드뉴스와 글을 만듭니다. 원고 1건에 약 6센트(Claude)가 듭니다.</span>
+      <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/generate/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>원고 만들기 실행</button></form></div></li>
+    <li><b>검토하고 승인하기</b> <span class="muted">처음 {{ cfg.settings.protect_count }}건은 보호 모드라 사람이 확인해야 올라갑니다. 검토 화면에서 카드와 글을 보고 승인하세요.</span></li>
+    <li><b>자동 게시 켜기</b> <span class="muted">{{ cfg.settings.protect_count }}건을 승인하면 기준을 통과한 원고는 자동으로 올라갑니다. 아래 "자동 게시"를 켜세요.</span></li>
+  </ol>
+  {% if cfg.settings.dry_run %}<p class="notice info small">지금은 <b>드라이런</b>입니다. 승인해도 실제 계정에 올라가지 않고 미리보기 폴더에 저장됩니다. 실제 게시는 사용설명서 5절을 보세요.</p>{% endif %}
 </section>
-{% if paused %}<p class="bad">로그인이 필요해 멈춘 플랫폼: {{ paused|join(', ') }}</p>{% endif %}
+{% endif %}
+
+<div class="today">
+  <section class="panel todo">
+    {% set todo = (ov.pending_review or 0) + (ov.escalated_comments or 0) + (failed_pubs|length) + (paused|length) %}
+    <ul class="todo-list">
+      {% if ov.pending_review %}
+      <li><a class="todo-item warn" href="{{ '/review/' ~ first_pending if first_pending else '/review' }}">
+        <span class="todo-num">{{ ov.pending_review }}</span>
+        <span class="todo-text"><b>검토할 원고</b><span>카드와 글을 보고 고치거나 승인하세요. 가장 오래 기다린 원고부터 엽니다</span></span>
+        <span class="todo-go btn btn-primary btn-sm">검토하기</span></a></li>
+      {% endif %}
+      {% if ov.escalated_comments %}
+      <li><a class="todo-item warn" href="/comments">
+        <span class="todo-num">{{ ov.escalated_comments }}</span>
+        <span class="todo-text"><b>사람이 답할 댓글</b><span>불만·환불·법적 문제·스팸 추정은 자동으로 답하지 않습니다</span></span>
+        <span class="todo-go btn btn-sm">답하기</span></a></li>
+      {% endif %}
+      {% if failed_pubs %}
+      <li><a class="todo-item bad" href="/review/{{ failed_pubs[0].content_id }}">
+        <span class="todo-num">{{ failed_pubs|length }}</span>
+        <span class="todo-text"><b>게시 실패(다시 시도 예정)</b><span>{{ failed_pubs[0].last_error or (failed_pubs[0].platform|ko_platform ~ ': 원인 미상') }}{% if failed_pubs|length > 1 %} 외 {{ failed_pubs|length - 1 }}건{% endif %}</span></span>
+        <span class="todo-go btn btn-sm">보기</span></a></li>
+      {% endif %}
+      {% if paused %}
+      <li><div class="todo-item bad">
+        <span class="todo-num">!</span>
+        <span class="todo-text"><b>로그인이 필요해 멈춘 플랫폼</b><span>{% for p in paused %}{{ p|ko_platform }}{% if not loop.last %}, {% endif %}{% endfor %} · Aside 브라우저에서 다시 로그인하면 30분 안에 다시 시작합니다</span></span></div></li>
+      {% endif %}
+      {% if not todo and not first_run %}
+      <li class="all-done"><b class="ok">오늘 할 일이 없습니다.</b> <span class="muted">새 원고나 확인할 댓글이 생기면 여기에 나옵니다.</span></li>
+      {% endif %}
+      {% if not todo and first_run %}
+      <li class="all-done muted">아직 할 일이 없습니다. 위 순서대로 시작해 보세요.</li>
+      {% endif %}
+    </ul>
+  </section>
+
+  <section>
+    <div class="stats">
+      <div class="stat"><span class="label">오늘 게시</span><b>{{ ov.published_today.values()|sum }}</b>
+        <span class="muted small">{% for p, n in ov.published_today.items() %}{{ p|ko_platform }} {{ n }}{% if not loop.last %} · {% endif %}{% else %}아직 없음{% endfor %}</span></div>
+      <div class="stat"><span class="label">게시 대기(승인됨)</span><b>{{ ov.approved_waiting }}</b><span class="muted small">활동 시간에 올라갑니다</span></div>
+      <div class="stat" style="grid-column: 1 / -1"><span class="label">오늘 비용</span>
+        <b>${{ '%.2f'|format(ov.cost_today) }} <span class="muted small" style="font-weight:600">/ 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></b>
+        <div class="progress {{ 'bad' if cost_ratio >= 0.9 else ('warn' if cost_ratio >= 0.6 else '') }}"><i style="width: {{ (cost_ratio * 100)|round(1) }}%"></i></div>
+        <span class="muted small">상한에 닿으면 그날은 원고 생성을 멈춥니다</span></div>
+      <div class="stat" style="grid-column: 1 / -1"><span class="label">쓸 수 있는 자료</span><b>{{ ov.sources_unused }}</b><span class="muted small">원고를 만들 때 씁니다</span></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <div class="switch-row"><span><b>페르소나</b> <span class="badge {{ 'ok' if cfg.persona.enabled else 'gray' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</span><br><span class="muted small">끄면 수집·생성·게시·답글이 모두 멈춥니다</span></span>
+        <form class="inline" method="post" action="/persona/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if cfg.persona.enabled else '켜기' }}</button></form></div>
+      <div class="switch-row"><span><b>자동 게시</b> <span class="badge {{ 'ok' if auto_publish else 'gray' }}">{{ '켜짐' if auto_publish else '꺼짐' }}</span><br>
+        <span class="muted small">사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건{% if auto_publish and human_approved < cfg.settings.protect_count %} · 보호 모드(아직 모두 검토로){% endif %}</span></span>
+        <form class="inline" method="post" action="/auto-publish/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if auto_publish else '켜기' }}</button></form></div>
+    </div>
+  </section>
+</div>
+
 <h2>지금 실행</h2>
-<p>{% for j in ['collect','generate','publish','reply','metrics','health','weekly_report'] %}
-<form class="inline" method="post" action="/jobs/{{ j }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>{{ j }}</button></form>
-{% endfor %}</p>
+<p class="muted small">평소에는 정해진 시간에 저절로 돕니다. 바로 해 보고 싶을 때만 누르세요.</p>
+<div class="jobs">{% for j, (label, desc) in JOBS.items() %}
+<form method="post" action="/jobs/{{ j }}/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="job" title="{{ j }}"><b>{{ label }}</b><span>{{ desc }}</span></button></form>
+{% endfor %}</div>
+
 <h2>최근 실행</h2>
-<table><tr><th>잡</th><th>시작</th><th>결과</th><th>요약</th></tr>
-{% for r in runs %}<tr><td>{{ r.job }}</td><td>{{ r.started_at|kst }}</td><td class="{{ 'ok' if r.ok else 'bad' }}">{{ '성공' if r.ok else ('실행 중' if r.ok is none else '실패') }}</td><td>{{ r.message or '' }}</td></tr>{% endfor %}
-</table>
+{% if runs %}
+<div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>결과</th><th>요약</th></tr>
+{% for r in runs %}<tr><td>{{ r.job|ko_job }}</td><td>{{ r.started_at|kst }}</td>
+<td>{% if r.ok %}<span class="badge ok">성공</span>{% elif r.ok is none %}<span class="badge gray">실행 중</span>{% else %}<span class="badge bad">실패</span>{% endif %}</td>
+<td class="small">{{ r.message or '' }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">아직 실행 기록이 없습니다.</p>{% endif %}
 {% endblock %}

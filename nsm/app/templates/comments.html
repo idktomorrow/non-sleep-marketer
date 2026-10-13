@@ -1,17 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>사람이 확인할 댓글</h1>
-{% if not escalated %}<p class="muted">확인할 댓글이 없습니다.</p>{% endif %}
-<table><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>분류·사유</th><th>처리</th></tr>
-{% for s in escalated %}<tr>
-<td>{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform }}</td><td>{{ s.comment.author_name }}</td><td>{{ s.comment.text }}</td>
-<td>{{ s.category or '' }}<br><span class="warn">{{ s.reason or '' }}</span>{% if s.reply_text %}<br><span class="muted">초안: {{ s.reply_text }}</span>{% endif %}</td>
-<td><form method="post" action="/comments/{{ s.id }}/reply"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="text" name="text" placeholder="직접 답글" value="{{ s.reply_text or '' }}"><button>답글 보내기</button></form>
-<form method="post" action="/comments/{{ s.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><button>처리 완료</button></form></td>
-</tr>{% endfor %}</table>
-{% if replying %}<p class="muted">답글 보내는 중: {% for s in replying %}{{ s.comment.author_name }} {% endfor %}</p>{% endif %}
+<h1>사람이 답할 댓글</h1>
+<p class="muted small">불만·가격·환불·법적 문제·스팸 추정 댓글은 자동으로 답하지 않고 여기로 옵니다. 직접 답하거나, 답할 필요가 없으면 "처리 완료"를 누르세요.</p>
+{% if not escalated %}<div class="panel"><b class="ok">답할 댓글이 없습니다.</b></div>{% endif %}
+{% for s in escalated %}
+<article class="panel comment-card">
+  <div class="meta">
+    <span class="badge {{ 'bad' if s.category in ('legal', 'complaint') else 'warn' }}">{{ s.category|ko_category or '분류 안 됨' }}</span>
+    <b style="color:var(--fg)">{{ s.comment.author_name }}</b>
+    <span>{{ s.comment.platform|ko_platform }} · {{ s.comment.created_at|kst }}</span>
+  </div>
+  <div class="text">{{ s.comment.text }}</div>
+  {% if s.reason %}<div class="warn small">넘어온 이유: {{ s.reason }}</div>{% endif %}
+  {% if s.reply_text %}<div class="muted small">답글 초안: {{ s.reply_text }}</div>{% endif %}
+  <form class="reply" method="post" action="/comments/{{ s.id }}/reply"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="text" name="text" placeholder="직접 답글 쓰기" value="{{ s.reply_text or '' }}" aria-label="답글">
+    <button class="btn-primary">답글 보내기</button></form>
+  <form method="post" action="/comments/{{ s.id }}/resolve" style="margin-top:8px" onsubmit="return confirm('답하지 않고 처리 완료로 둘까요?')"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn-sm btn-ghost">답하지 않고 처리 완료</button></form>
+</article>
+{% endfor %}
+{% if replying %}<p class="muted small">답글 보내는 중: {% for s in replying %}{{ s.comment.author_name }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+
 <h2>최근 댓글</h2>
-<table><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>상태</th><th>답글</th></tr>
-{% for s in recent %}<tr><td>{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform }}</td><td>{{ s.comment.author_name }}</td><td>{{ s.comment.text }}</td><td>{{ s.status }}</td><td>{{ s.reply_text or '' }}</td></tr>{% endfor %}
-</table>
+{% if recent %}
+<div class="table-wrap"><table><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>처리</th><th>답글</th></tr>
+{% for s in recent %}<tr><td class="small">{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform|ko_platform }}</td><td>{{ s.comment.author_name }}</td>
+<td style="min-width:220px">{{ s.comment.text }}</td>
+<td><span class="badge {{ 'warn' if s.status == 'escalated' else ('ok' if s.status in ('auto_replied', 'resolved') else 'gray') }}">{{ s.status|ko_comment }}</span></td>
+<td class="small" style="min-width:160px">{{ s.reply_text or '' }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">아직 댓글이 없습니다.</p>{% endif %}
 {% endblock %}
