@@ -110,6 +110,43 @@ def test_naver_source_respects_limit_and_survives_failure(clock) -> None:
     assert items[0].url.startswith("https://n.news.naver.com")
 
 
+# 2026-10 실제 네이버 뉴스 탭 모양: 제목 링크는 언론사 주소, 네이버뉴스 링크는 글자가 "네이버뉴스"뿐
+NEWS_TAB_LINKS = [
+    Link("Keep에 바로가기새 창 열림", "https://keep.naver.com/", "Keep"),
+    Link("뉴스1\n새 창 열림", "https://media.naver.com/press/421", "언론사"),
+    Link("네이버뉴스 새 창 열림", "https://n.news.naver.com/mnews/article/016/0002708157", ""),
+    Link(
+        "'극장판 치이카와' 131만 돌파…CGV 팝콘통 3차 판매 새 창 열림",
+        "https://www.topstarnews.net/news/articleView.html?idxno=16245517",
+        "영화 '극장판 치이카와: 인어 섬의 비밀'이 흥행 중인 가운데...",
+    ),
+    Link(
+        "영화 '극장판 치이카와: 인어 섬의 비밀'이 흥행 중인 가운데, 먼작귀 팝콘통이",
+        "https://www.topstarnews.net/news/articleView.html?idxno=16245517",
+        "같은 기사 요약 링크(중복)",
+    ),
+    Link("기사 공유하기 옵션 메뉴 열기", "javascript:;", "옵션"),
+    Link("네이버 쇼핑에서 더 보기 링크", "https://search.shopping.naver.com/search/all?q=x", ""),
+]
+
+
+def test_naver_news_tab_takes_publisher_title_links(clock) -> None:
+    driver = FakeDriver({"https://search.naver.com": NEWS_TAB_LINKS})
+    src = NaverSearchSource(driver, clock, _pacer()[0], tabs=("news",))
+    items = src.collect(["치이카와"], 10)
+    assert [i.url for i in items] == [
+        "https://www.topstarnews.net/news/articleView.html?idxno=16245517"
+    ]
+    assert items[0].title.startswith("'극장판 치이카와' 131만 돌파")
+
+
+def test_per_source_limit_default_gives_several_per_query() -> None:
+    from nsm.config.schema import CollectSettings
+
+    # 주제 3개 × 탭 2개여도 검색마다 여러 건(예전 기본값 10은 검색마다 1건뿐이었다)
+    assert CollectSettings().per_source_limit // (3 * 2) >= 5
+
+
 def test_community_source_keeps_same_host_links(clock) -> None:
     links = [
         Link("홈카페 드리퍼 추천 부탁드려요", "https://cafe.example.com/board/10234", "질문글"),

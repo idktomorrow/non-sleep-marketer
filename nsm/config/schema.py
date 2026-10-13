@@ -23,7 +23,7 @@ class CollectSettings(_Model):
     community: bool = False
     community_urls: list[str] = Field(default_factory=list)  # {query} 자리표시자 포함 검색 URL
     upload_dir: str | None = None  # 기본: <NSM_HOME>/uploads
-    per_source_limit: int = 10
+    per_source_limit: int = 30  # 소스마다 한 번에 모을 최대 건수(주제×탭으로 나눔)
     min_delay_seconds: float = 3.0
     max_delay_seconds: float = 9.0
 
