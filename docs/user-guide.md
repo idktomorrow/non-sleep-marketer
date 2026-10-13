@@ -100,7 +100,8 @@ uv run nsm doctor
 | `daily_cost_cap_usd` | `3.0` | 하루 API 비용 상한(달러). 넘으면 생성을 멈추고 알림 |
 | `protect_count` | `20` | 보호 모드: 사람이 승인해야 하는 첫 콘텐츠 수 |
 | `classifier` | `auto` | MotherDuck 토큰이 있으면 jev, 없으면 Claude로 분류 |
-| `image_generation` | `auto` | OpenAI 키가 있으면 AI 배경, 없으면 템플릿 배경 |
+| `image_generation` | `auto` | OpenAI 키가 있으면 AI 배경, 없으면 템플릿 배경. `off`면 키가 있어도 만들지 않음(사진은 검토 화면에서 직접 올림) |
+| `enabled_platforms` | 인스타그램·스레드 | 게시할 플랫폼. 여기에 `naver_blog`가 없으면 블로그 원고를 만들지 않음(원고 1건당 Claude 출력 비용 절약) |
 | `browser_driver` | `aside` | 실계정 게시·댓글에 쓸 브라우저(Aside). 자료 수집은 이 값과 상관없이 별도 수집 전용 브라우저(Playwright)로 함. 2026-10-13 전에 만든 config.yaml에는 `playwright`가 저장돼 있으니 Aside를 쓰려면 직접 `aside`로 바꾸세요 |
 | `accounts` | 비어 있음 | 게시할 계정 핸들(예: `threads: "@my.brand"`). 비어 있거나 로그인된 계정과 다르면 실계정 게시를 하지 않음 |
 

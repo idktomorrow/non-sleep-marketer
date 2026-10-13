@@ -220,3 +220,33 @@ def test_outro_falls_back_to_brief_sources(app_config) -> None:
         app_config.brand,
     )
     assert out.deck.slides[-1].sources == [items[0].url, items[1].url]
+
+
+def test_blog_draft_is_skipped_when_blog_is_not_published(app_config) -> None:
+    items = load_source_items()[:1]
+    payload = {
+        k: v for k, v in llm_output("info", [items[0].id]).items() if not k.startswith("blog_")
+    }
+    client, msgs = _client(payload)
+    out = ClaudeTextGenerator(client, "claude-sonnet-5-5", include_blog=False).generate_content(
+        ContentBrief(topic="t", template="info", sources=items),
+        app_config.persona,
+        app_config.brand,
+    )
+    assert out.blog_title == "" and out.blog_markdown == ""
+    req = msgs.requests[0]
+    schema = req["output_config"]["format"]["schema"]
+    assert "blog_markdown" not in schema["properties"] and "blog_markdown" not in schema["required"]
+    assert "blog_markdown" not in req["system"]
+
+
+def test_factory_requests_blog_only_when_naver_blog_is_enabled(app_config) -> None:
+    from nsm.adapters.generator import make_text_generator
+    from nsm.config.secrets import MemorySecretStore
+
+    secrets = MemorySecretStore({"anthropic_api_key": "k"})
+    gen = make_text_generator(app_config, secrets, FakeCostSink())
+    assert gen.include_blog is ("naver_blog" in app_config.settings.enabled_platforms)
+    on = app_config.model_copy(deep=True)
+    on.settings.enabled_platforms = ["instagram", "threads", "naver_blog"]
+    assert make_text_generator(on, secrets, FakeCostSink()).include_blog is True

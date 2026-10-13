@@ -102,6 +102,18 @@ _LLM_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+_BLOG_FIELDS = ("blog_title", "blog_markdown")
+
+
+def llm_schema(include_blog: bool) -> dict[str, Any]:
+    """블로그를 게시하지 않으면(ADR 0016) 블로그 원고 칸을 요청하지 않는다(출력 비용 절약, #43)."""
+    if include_blog:
+        return _LLM_SCHEMA
+    props = {k: v for k, v in _LLM_SCHEMA["properties"].items() if k not in _BLOG_FIELDS}
+    required = [k for k in _LLM_SCHEMA["required"] if k not in _BLOG_FIELDS]
+    return {**_LLM_SCHEMA, "properties": props, "required": required}
+
+
 _TEMPLATE_GUIDE = {
     "info": "정보형: slides 2~5장. 각 장은 heading(15자 이내)과 body(90자 이내). bullets는 0~3개. left/right 필드는 빈 값.",
     "list": "리스트형: slides 1~3장. 각 장은 heading과 bullets 3~5개(각 25자 이내). body와 left/right 필드는 빈 값.",
@@ -127,7 +139,12 @@ def _style_rules(persona: Persona) -> str:
     )
 
 
-def _system(persona: Persona, brand: Brand) -> str:
+def _system(persona: Persona, brand: Brand, include_blog: bool = True) -> str:
+    blog = (
+        "- blog_title: 40자 이내. blog_markdown: 1500~2500자 마크다운, ## 소제목 3개 이상, 끝에 '참고 자료' 목록.\n"
+        if include_blog
+        else ""
+    )
     return f"""당신은 한국어 SNS 콘텐츠를 쓰는 AI 가상 인플루언서 '{persona.name}'({persona.handle})입니다.
 인물상: {persona.character}
 말투: {persona.tone}
@@ -141,8 +158,7 @@ def _system(persona: Persona, brand: Brand) -> str:
 - "AI 가상인물", "광고" 같은 표기 문구는 시스템이 자동으로 붙이므로 직접 쓰지 않습니다.
 - instagram_caption: 300~800자, 줄바꿈으로 읽기 쉽게, 해시태그 3~5개를 끝에.
 - threads_text: 400자 이내의 짧은 글(앞에 표기 문구, 끝에 출처 줄이 붙어 500자 상한을 넘지 않게).
-- blog_title: 40자 이내. blog_markdown: 1500~2500자 마크다운, ## 소제목 3개 이상, 끝에 '참고 자료' 목록.
-- cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내.
+{blog}- cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내.
 {_style_rules(persona)}"""
 
 
@@ -220,11 +236,13 @@ class ClaudeTextGenerator:
         model: str,
         cost_sink: CostSink | None = None,
         use_fallbacks: bool = True,
+        include_blog: bool = True,
     ) -> None:
         self.client = client
         self.model = model
         self.cost_sink = cost_sink
         self.use_fallbacks = use_fallbacks
+        self.include_blog = include_blog
 
     def _call(self, ref: str, **kwargs: Any) -> str:
         if self.use_fallbacks:
@@ -254,10 +272,10 @@ class ClaudeTextGenerator:
         raw = self._call(
             f"generate:{brief.template}",
             max_tokens=16000,
-            system=_system(persona, brand),
+            system=_system(persona, brand, self.include_blog),
             output_config={
                 "effort": "medium",
-                "format": {"type": "json_schema", "schema": _LLM_SCHEMA},
+                "format": {"type": "json_schema", "schema": llm_schema(self.include_blog)},
             },
             messages=[{"role": "user", "content": _user(brief)}],
         )
@@ -269,8 +287,8 @@ class ClaudeTextGenerator:
             deck=deck,
             instagram_caption=out["instagram_caption"].strip(),
             threads_text=out["threads_text"].strip(),
-            blog_title=out["blog_title"].strip(),
-            blog_markdown=out["blog_markdown"].strip(),
+            blog_title=out.get("blog_title", "").strip(),
+            blog_markdown=out.get("blog_markdown", "").strip(),
             claims=[
                 Claim(text=c["text"], source_item_id=c["source_item_id"]) for c in out["claims"]
             ],
