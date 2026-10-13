@@ -36,9 +36,22 @@ def _to_classification(r: Any, labels: list[str]) -> Classification:
     label = r.get("choice")
     if label not in labels:
         raise AdapterError(f"prompt_jev가 허용되지 않은 라벨을 돌려줬습니다: {label!r}")
-    return Classification(
-        label=label, confidence=min(1.0, max(0.0, float(r.get("confidence") or 0)))
-    )
+    return Classification(label=label, confidence=min(1.0, max(0.0, _choice_probability(r))))
+
+
+def _choice_probability(r: dict[str, Any]) -> float:
+    """고른 라벨의 확률. jev의 `confidence`는 확률이 아니라 1등과 2등 확률의 차이다
+    (relevant 0.70 / irrelevant 0.30 → confidence 0.40). 다른 분류기와 같은 뜻("이 라벨일 확률")으로
+    맞추려고 probabilities에서 고른 라벨의 값을 쓴다. 없으면 두 라벨일 때의 환산 (1 + 차이) / 2.
+    """
+    for p in r.get("probabilities") or []:
+        if (
+            isinstance(p, dict)
+            and p.get("value") == r.get("choice")
+            and p.get("probability") is not None
+        ):
+            return float(p["probability"])
+    return (1.0 + float(r.get("confidence") or 0)) / 2
 
 
 class JevClassifier:
