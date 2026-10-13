@@ -67,10 +67,10 @@
     <h2>올릴 글</h2>
     <label>인스타그램 캡션<textarea name="instagram_caption" rows="8">{{ g.instagram_caption }}</textarea></label>
     <label>스레드 글<textarea name="threads_text" rows="5">{{ g.threads_text }}</textarea></label>
-    <details><summary>블로그 원고(지금은 게시하지 않음)</summary>
+    {% if g.blog_title or g.blog_markdown %}<details><summary>블로그 원고(지금은 게시하지 않음)</summary>
     <label>블로그 제목<input type="text" name="blog_title" value="{{ g.blog_title }}"></label>
     <label>블로그 본문<textarea name="blog_markdown" style="min-height:240px">{{ g.blog_markdown }}</textarea></label>
-    </details>
+    </details>{% endif %}
     <p class="muted small">저장하면 이미 그린 카드와 미리보기는 지워지고 게시 때 다시 그립니다. 글 끝의 가상인물 문구와 출처 줄은 게시할 때 자동으로 붙습니다.</p>
     <button class="btn-primary">저장</button>
     </form>
