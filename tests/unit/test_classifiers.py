@@ -83,7 +83,14 @@ def test_jev_sql_escapes_literals() -> None:
 def test_jev_classifier_parses_choice_struct() -> None:
     md = FakeMD(
         [
-            {"choice": "spam", "confidence": 0.93, "probabilities": []},
+            {
+                "choice": "spam",
+                "confidence": 0.9,
+                "probabilities": [
+                    {"value": "spam", "probability": 0.93},
+                    {"value": "question", "probability": 0.03},
+                ],
+            },
             {"choice": "question", "confidence": 0.7},
         ]
     )
@@ -149,3 +156,21 @@ def test_jev_scrubs_token_from_errors() -> None:
     with pytest.raises(AdapterError) as e:
         c.classify_many(["a"], ["x", "y"], "q")
     assert "SECRET-TOKEN" not in str(e.value)
+
+
+def test_jev_confidence_is_choice_probability_not_margin() -> None:
+    # 2026-10-13 실제 응답: 치이카와 흥행 기사. confidence(0.40)는 1등-2등 차이라 그대로 쓰면
+    # 관련 자료 기준 0.8에 못 미쳐 모두 떨어졌다. 고른 라벨의 확률(0.70)을 써야 한다.
+    real = {
+        "choice": "relevant",
+        "probabilities": [
+            {"value": "irrelevant", "probability": 0.3},
+            {"value": "relevant", "probability": 0.7},
+        ],
+        "confidence": 0.4,
+    }
+    md = FakeMD([real, {"choice": "irrelevant", "confidence": 0.5}])
+    c = JevClassifier("tok", connect=lambda t: md)
+    hit, no_probs = c.classify_many(["a", "b"], ["relevant", "irrelevant"], "q")
+    assert hit.confidence == pytest.approx(0.7)
+    assert no_probs.confidence == pytest.approx(0.75)  # 확률이 없으면 (1 + 차이) / 2
