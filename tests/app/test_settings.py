@@ -130,3 +130,13 @@ def test_reply_interval_is_editable_with_a_floor(env) -> None:  # noqa: F811
     assert env["holder"]["cfg"].settings.reply_interval_minutes == 7
     r = _post(env, "/settings", **_form(cfg, reply_interval_minutes="1"))
     assert r.status_code == 400 and "댓글 확인 간격" in r.text
+
+
+def test_recent_period_is_editable(env) -> None:  # noqa: F811
+    cfg = env["holder"]["cfg"]
+    html = env["client"].get("/settings").text
+    assert 'name="recent_period"' in html and "최근 1주" in html
+    _post(env, "/settings", **_form(cfg, recent_period="1d"))
+    assert env["holder"]["cfg"].settings.collect.recent_period == "1d"
+    r = _post(env, "/settings", **_form(cfg, recent_period="10y"))
+    assert r.status_code == 400 and "자료 검색 기간" in r.text

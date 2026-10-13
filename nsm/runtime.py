@@ -51,7 +51,7 @@ def _web_sources(cfg: AppConfig, clock: SystemClock, stack: ExitStack) -> list:
     pacer = Pacer(c.min_delay_seconds, c.max_delay_seconds)
     out: list = []
     if c.naver:
-        out.append(NaverSearchSource(driver, clock, pacer))
+        out.append(NaverSearchSource(driver, clock, pacer, recent=c.recent_period))
     if c.community:
         out += [CommunitySource(u, driver, clock, pacer) for u in c.community_urls]
     return out

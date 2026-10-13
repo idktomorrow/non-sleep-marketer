@@ -250,3 +250,25 @@ def test_factory_requests_blog_only_when_naver_blog_is_enabled(app_config) -> No
     on = app_config.model_copy(deep=True)
     on.settings.enabled_platforms = ["instagram", "threads", "naver_blog"]
     assert make_text_generator(on, secrets, FakeCostSink()).include_blog is True
+
+
+def test_prompt_has_today_and_source_dates(app_config) -> None:
+    from datetime import UTC, datetime
+
+    item = load_source_items()[0].model_copy(
+        update={
+            "collected_at": datetime(2026, 10, 13, 3, 0, tzinfo=UTC),
+            "published_at": datetime(2026, 9, 20, tzinfo=UTC),
+        }
+    )
+    client, msgs = _client(llm_output("info", [item.id]))
+    ClaudeTextGenerator(client, "claude-sonnet-5-5", tz="Asia/Seoul").generate_content(
+        ContentBrief(topic="t", template="info", sources=[item]),
+        app_config.persona,
+        app_config.brand,
+    )
+    req = msgs.requests[0]
+    user = req["messages"][0]["content"]
+    assert user.startswith("오늘 날짜: 20")
+    assert 'collected="2026-10-13"' in user and 'published="2026-09-20"' in user
+    assert "소문" in req["system"] and "지난 일로" in req["system"]

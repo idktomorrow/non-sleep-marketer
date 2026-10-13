@@ -217,3 +217,20 @@ def test_trends_day_uses_local_timezone(fixtures_dir: Path) -> None:
     a = parse_trends_rss(xml, FixedClock(datetime(2026, 10, 10, 23, 30, tzinfo=UTC)), 1)
     b = parse_trends_rss(xml, FixedClock(datetime(2026, 10, 11, 1, 0, tzinfo=UTC)), 1)
     assert a[0].url_hash == b[0].url_hash
+
+
+@pytest.mark.parametrize(
+    ("recent", "part"),
+    [("1w", "nso=so%3Add%2Cp%3A1w"), ("1d", "p%3A1d"), ("1m", "p%3A1m")],
+)
+def test_naver_search_is_recent_first(clock, recent: str, part: str) -> None:
+    # 정확도순 기본 검색은 몇 주 전 "출시 예정" 글을 먼저 보여 줬다(ADR 0032)
+    driver = FakeDriver({"https://search.naver.com": NAVER_LINKS})
+    NaverSearchSource(driver, clock, _pacer()[0], recent=recent).collect(["치이카와"], 10)
+    assert driver.visited and all(part in u and "sort=1" in u for u in driver.visited)
+
+
+def test_naver_search_all_period_keeps_default(clock) -> None:
+    driver = FakeDriver({"https://search.naver.com": NAVER_LINKS})
+    NaverSearchSource(driver, clock, _pacer()[0], recent="all").collect(["치이카와"], 10)
+    assert all("nso=" not in u for u in driver.visited)

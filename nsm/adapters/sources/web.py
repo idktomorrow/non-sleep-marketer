@@ -24,18 +24,28 @@ BODY_MIN = 200  # 이보다 짧으면 본문을 못 찾은 것으로 보고 요�
 
 NAVER_TABS = {
     "blog": (
-        "https://search.naver.com/search.naver?where=blog&query={q}",
+        "https://search.naver.com/search.naver?where=blog&query={q}{recent}",
         re.compile(r"^https?://(m\.)?blog\.naver\.com/[\w-]+/\d+"),
     ),
     # 2026-10 네이버 뉴스 탭: 기사 제목 링크는 언론사 주소이고, n.news.naver.com 링크의 글자는
     # "네이버뉴스"뿐이라(8자 미만) 걸러졌다. 그래서 네이버가 아닌 주소의 제목 링크도 받는다.
     "news": (
-        "https://search.naver.com/search.naver?where=news&query={q}",
+        "https://search.naver.com/search.naver?where=news&query={q}{recent}",
         re.compile(
             r"^https?://(?:n\.news\.naver\.com/.+/article/"
             r"|(?![\w.-]*naver(?:corp)?\.(?:com|me)\b)[\w.-]+\.[a-z]{2,}(?::\d+)?/.+)"
         ),
     ),
+}
+
+
+# 최신순(so:dd) + 최근 기간(p:1d/1w/1m). 기본 정확도순은 몇 주 전 글(예: 개봉 전 "출시 예정" 글)이
+# 위에 와서 이미 지난 일을 앞으로의 일처럼 쓰는 원고가 나왔다(2026-10-13, ADR 0032).
+RECENT_PARAMS = {
+    "1d": "&sm=tab_opt&sort=1&nso=so%3Add%2Cp%3A1d",
+    "1w": "&sm=tab_opt&sort=1&nso=so%3Add%2Cp%3A1w",
+    "1m": "&sm=tab_opt&sort=1&nso=so%3Add%2Cp%3A1m",
+    "all": "",
 }
 
 
@@ -104,11 +114,13 @@ class NaverSearchSource:
         clock: Clock,
         pacer: Pacer,
         tabs: tuple[str, ...] = ("blog", "news"),
+        recent: str = "1w",
     ) -> None:
         self.driver = driver
         self.clock = clock
         self.pacer = pacer
         self.tabs = tabs
+        self.recent = RECENT_PARAMS.get(recent, RECENT_PARAMS["1w"])
 
     def collect(self, topics: list[str], limit: int) -> list[SourceItem]:
         items: list[SourceItem] = []
@@ -121,7 +133,7 @@ class NaverSearchSource:
                 url_t, pattern = NAVER_TABS[tab]
                 self.pacer.wait()
                 try:
-                    self.driver.goto(url_t.format(q=quote(topic)))
+                    self.driver.goto(url_t.format(q=quote(topic), recent=self.recent))
                     links = self.driver.links()
                 except Exception as e:  # noqa: BLE001
                     log.warning("네이버 %s 검색 실패(%s): %s", tab, topic, e)
