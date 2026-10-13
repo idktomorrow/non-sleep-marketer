@@ -1,6 +1,7 @@
 """로컬 대시보드 (FastAPI + Jinja2, 127.0.0.1에서만).
 
-- 화면은 "동작 확인용 최소" HTML이다. 디자인은 배치 I(UI/UX 패스)에서 바꾼다. 라우트·폼 이름은 유지.
+- 화면 디자인은 배치 I(ADR 0025): 밝은 관리 화면, Pretendard, 브랜드 주 색을 강조색으로.
+  라우트·폼 이름·데이터 계약은 그대로 두고(tests/app이 지킴), 내부 값은 화면에서만 한국어로 바꾼다(ko.py).
 - 모든 POST는 CSRF 토큰을 검사한다. 다른 웹사이트가 사용자의 브라우저로 localhost에 몰래 요청을 보내
   콘텐츠를 승인하는 일을 막기 위해서다.
 - 플랫폼 동작(직접 답글)은 `submit`으로 잡 스레드에서 실행한다(Playwright 스레드 제약).
@@ -32,6 +33,8 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
+from nsm.app.ko import FILTERS as KO_FILTERS
+from nsm.app.ko import JOBS as JOB_LABELS
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -68,6 +71,12 @@ def create_app(state: AppState) -> FastAPI:
     )
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    # 카드 렌더러와 같은 Pretendard를 대시보드도 쓴다(nsm/templates/fonts)
+    app.mount(
+        "/fonts", StaticFiles(directory=str(HERE.parent / "templates" / "fonts")), name="fonts"
+    )
+    templates.env.filters.update(KO_FILTERS)
+    templates.env.globals["JOBS"] = JOB_LABELS
 
     def tz() -> str:
         return state.get_config().settings.timezone
@@ -85,6 +94,29 @@ def create_app(state: AppState) -> FastAPI:
 
     templates.env.filters["safe_url"] = safe_url
 
+    def theme(cfg: AppConfig) -> dict[str, str]:
+        """브랜드 주 색을 강조색으로. 밝은 바탕에서 읽히도록 어둡게 맞춘 색(primary_ink)을 쓴다."""
+        try:
+            from nsm.render.html_renderer import palette
+
+            c = palette(cfg.brand.primary_color, cfg.brand.accent_color)
+            return {"accent": c["primary_ink"], "accent_soft": c["card"]}
+        except Exception:  # noqa: BLE001  색 값이 이상해도 화면은 떠야 한다
+            return {"accent": "#1E3A5F", "accent_soft": "#F0F3F7"}
+
+    def pending_count() -> int:
+        return int(
+            state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'pending_review'")[
+                0
+            ][0]
+        )
+
+    def oldest_pending() -> str | None:
+        rows = state.repo.db.execute(
+            "SELECT id FROM contents WHERE status = 'pending_review' ORDER BY created_at, rowid LIMIT 1"
+        )
+        return rows[0][0] if rows else None
+
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
         cfg = state.get_config()
         return templates.TemplateResponse(
@@ -93,6 +125,8 @@ def create_app(state: AppState) -> FastAPI:
             {
                 "csrf": state.csrf_token,
                 "cfg": cfg,
+                "theme": theme(cfg),
+                "pending_count": pending_count(),
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
                 "has_reports": state.reports_dir is not None,
@@ -114,12 +148,25 @@ def create_app(state: AppState) -> FastAPI:
     def home(request: Request) -> HTMLResponse:
         now = state.clock.now()
         start, end = local_day_bounds(now, tz())
+        ov = queries.overview(state.repo.db, start, end)
+        runs = state.repo.recent_runs(15)
+        # 곧 다시 시도할 것부터(대표로 보이는 오류가 매번 바뀌지 않게)
+        failed = sorted(
+            state.repo.publications_in_status("failed"),
+            key=lambda p: (p.next_attempt_at is None, p.next_attempt_at, p.id),
+        )
+        cap = state.get_config().settings.daily_cost_cap_usd
         return page(
             request,
             "overview.html",
-            ov=queries.overview(state.repo.db, start, end),
+            ov=ov,
             human_approved=state.repo.count_human_approved(),
-            runs=state.repo.recent_runs(15),
+            runs=runs,
+            # 오늘 할 일: 가장 오래 기다린 원고부터 바로 연다
+            first_pending=oldest_pending(),
+            failed_pubs=failed,
+            first_run=not runs and state.repo.count_contents() == 0,
+            cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
         )
 
     @app.post("/persona/toggle", dependencies=[Depends(check_csrf)])
@@ -148,7 +195,14 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/review", response_class=HTMLResponse)
     def review_list(request: Request) -> HTMLResponse:
-        return page(request, "review_list.html", items=state.repo.list_contents("pending_review"))
+        items = state.repo.list_contents("pending_review")
+        thumbs = {}
+        for c in items:  # 표지 썸네일: 미리보기가 있으면 그것, 없으면 게시용으로 그린 카드
+            for sub, route in (("previews", "/previews/"), ("cards", "/cards/")):
+                if (state.media_dir / sub / c.id / "slide-01.png").is_file():
+                    thumbs[c.id] = f"{route}{c.id}/slide-01.png"
+                    break
+        return page(request, "review_list.html", items=items, thumbs=thumbs)
 
     def _content_or_404(cid: str):
         c = state.repo.get_content(cid)

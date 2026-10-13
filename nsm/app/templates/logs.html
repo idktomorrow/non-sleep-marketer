@@ -1,8 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>실행 로그</h1>
-<table><tr><th>잡</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
-{% for r in runs %}<tr><td>{{ r.job }}</td><td>{{ r.started_at|kst }}</td><td>{{ r.finished_at|kst }}</td>
-<td class="{{ 'ok' if r.ok else 'bad' }}">{{ '성공' if r.ok else ('실행 중' if r.ok is none else '실패') }}</td><td><pre>{{ r.message or '' }}</pre></td></tr>{% endfor %}
-</table>
+<h1>실행 기록</h1>
+<p class="muted small">자동 작업이 언제 돌았고 무엇을 했는지 보여 줍니다. 실패가 이어지면 요약의 내용을 사용설명서 7절(문제 해결)에서 찾아보세요.</p>
+{% if runs %}
+<div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
+{% for r in runs %}<tr><td><b>{{ r.job|ko_job }}</b><br><span class="muted small">{{ r.job }}</span></td><td class="small">{{ r.started_at|kst }}</td><td class="small">{{ r.finished_at|kst }}</td>
+<td>{% if r.ok %}<span class="badge ok">성공</span>{% elif r.ok is none %}<span class="badge gray">실행 중</span>{% else %}<span class="badge bad">실패</span>{% endif %}</td>
+<td style="min-width:240px"><pre>{{ r.message or '' }}</pre></td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">아직 실행 기록이 없습니다.</p>{% endif %}
 {% endblock %}

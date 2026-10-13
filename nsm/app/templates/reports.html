@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>주간 리포트</h1>
-{% if not names %}<p class="muted">아직 리포트가 없습니다. 매주 월요일 오전 8시에 만들어지며, 개요의 지금 실행에서 weekly_report로 바로 만들 수 있습니다.</p>{% endif %}
-<p>{% for n in names %}<a href="/reports?name={{ n }}">{{ n[7:17] }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
-{% if body %}<pre>{{ body }}</pre>{% endif %}
+{% if not names %}<div class="panel muted">아직 리포트가 없습니다. 매주 월요일 오전 8시에 만들어지며, "오늘" 화면의 지금 실행에서 "주간 리포트"로 바로 만들 수 있습니다.</div>{% endif %}
+{% if names %}<div class="actions" style="margin-bottom:12px">{% for n in names %}<a class="btn btn-sm {{ 'btn-primary' if n == chosen else '' }}" href="/reports?name={{ n }}">{{ n[7:17] }}</a>{% endfor %}</div>{% endif %}
+{% if body %}<div class="panel"><pre style="background:none;padding:0;font-size:14px;font-family:inherit">{{ body }}</pre></div>{% endif %}
 {% endblock %}

@@ -4,18 +4,34 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}논슬립 마케터{% endblock %}</title>
 <link rel="stylesheet" href="/static/app.css">
+<style>:root { --accent: {{ theme.accent }}; --accent-soft: {{ theme.accent_soft }}; }</style>
 <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<nav>
-  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>개요</a>
-  <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토 대기열</a>
-  <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
-  <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
-  {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
-  <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 로그</a>
-  <span class="muted">{{ cfg.persona.name }} {{ cfg.persona.handle }}{% if cfg.settings.dry_run %} · 드라이런{% endif %}</span>
-</nav>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/"><span class="brand-dot"></span>논슬립 마케터</a>
+    {% if cfg.settings.dry_run %}<span class="mode dry" title="실제로 올리지 않고 미리보기 폴더에 저장합니다">드라이런</span>
+    {% else %}<span class="mode live" title="실제 계정에 게시합니다">실계정</span>{% endif %}
+    <span class="who">{{ cfg.persona.name }} {{ cfg.persona.handle }} · {{ cfg.brand.name }}</span>
+  </div>
+  <nav class="menu">
+    <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>오늘</a>
+    <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}</a>
+    <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
+    <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
+    {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
+    <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>
+  </nav>
+</header>
 <main>{% block content %}{% endblock %}</main>
+<script>
+// 고정 막대가 머리줄 아래에 붙도록 머리줄 높이를 CSS 변수로(휴대폰에서는 머리줄이 여러 줄)
+(function () {
+  var h = document.querySelector('.topbar');
+  function set() { document.documentElement.style.setProperty('--topbar-h', h.offsetHeight + 'px'); }
+  set(); window.addEventListener('resize', set);
+})();
+</script>
 </body>
 </html>
