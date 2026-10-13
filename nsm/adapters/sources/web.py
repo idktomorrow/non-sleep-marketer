@@ -27,9 +27,14 @@ NAVER_TABS = {
         "https://search.naver.com/search.naver?where=blog&query={q}",
         re.compile(r"^https?://(m\.)?blog\.naver\.com/[\w-]+/\d+"),
     ),
+    # 2026-10 네이버 뉴스 탭: 기사 제목 링크는 언론사 주소이고, n.news.naver.com 링크의 글자는
+    # "네이버뉴스"뿐이라(8자 미만) 걸러졌다. 그래서 네이버가 아닌 주소의 제목 링크도 받는다.
     "news": (
         "https://search.naver.com/search.naver?where=news&query={q}",
-        re.compile(r"^https?://n\.news\.naver\.com/.+/article/"),
+        re.compile(
+            r"^https?://(?:n\.news\.naver\.com/.+/article/"
+            r"|(?![\w.-]*naver(?:corp)?\.(?:com|me)\b)[\w.-]+\.[a-z]{2,}(?::\d+)?/.+)"
+        ),
     ),
 }
 
