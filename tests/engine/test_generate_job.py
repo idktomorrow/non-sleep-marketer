@@ -242,3 +242,32 @@ def test_manual_run_makes_one_more_after_daily_target(ctx: JobContext) -> None:
     pubs = {p.platform for p in ctx.repo.publications_for_content(extra.id)}
     assert pubs == set(ctx.config.settings.enabled_platforms)
     assert run_job("generate", ctx).skipped == "오늘 생성 목표 달성"  # 자동은 그대로
+
+
+def test_network_errors_are_explained_in_korean() -> None:
+    import anthropic
+    import httpx
+
+    from nsm.engine.generate import network_error_text
+
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    assert "연결이 끊겼습니다" in network_error_text(anthropic.APITimeoutError(request=req))
+    assert "연결이 끊겼습니다" in network_error_text(anthropic.APIConnectionError(request=req))
+    busy = anthropic.RateLimitError("rate", response=httpx.Response(429, request=req), body=None)
+    assert "바쁩니다" in network_error_text(busy)
+    assert network_error_text(ValueError("x")) == "ValueError: x"
+
+
+def test_network_failure_keeps_material_for_next_run(ctx: JobContext) -> None:
+    import anthropic
+    import httpx
+
+    class Down(FakeTextGenerator):
+        def generate_content(self, *a, **k):
+            raise anthropic.APITimeoutError(request=httpx.Request("POST", "https://x"))
+
+    before = len(ctx.repo.unused_relevant_items(0.0))
+    ctx.text_generator = Down()
+    r = run_generate(ctx)
+    assert r.counts["created"] == 0 and "연결이 끊겼습니다" in r.errors[0]
+    assert len(ctx.repo.unused_relevant_items(0.0)) == before  # 자료는 그대로

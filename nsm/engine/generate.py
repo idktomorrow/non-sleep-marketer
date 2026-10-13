@@ -33,6 +33,20 @@ SOURCES_PER_CONTENT = 3
 AUTO_PUBLISH_KEY = "auto_publish_enabled"
 GENERATION_FAILED = "generation_failed"  # source_items.used_in_content_id 표시값
 _RETRY_LATER = "__retry_later__"
+
+
+def network_error_text(e: Exception) -> str:
+    """API·네트워크 장애를 사람이 알아들을 말로. 자료는 그대로 두고 다음에 다시 만든다."""
+    name = type(e).__name__
+    if "Timeout" in name or "Connection" in name:
+        return "Claude API 연결이 끊겼습니다(인터넷 연결이 잠깐 불안정했을 수 있음). 자료는 그대로이니 잠시 뒤 다시 시도하세요"
+    if "RateLimit" in name or "Overloaded" in name or getattr(e, "status_code", None) in (429, 529):
+        return "Claude API가 바쁩니다(요청 한도·과부하). 잠시 뒤 다시 시도하세요"
+    if getattr(e, "status_code", None) in (401, 403):
+        return "Claude API 키가 맞지 않거나 권한이 없습니다(`nsm init`으로 키 확인)"
+    return f"{name}: {e}"
+
+
 _SKIP_MATERIAL = "__skip_material__"
 
 
@@ -218,7 +232,7 @@ def _make_one(
         return _SKIP_MATERIAL
     except Exception as e:  # noqa: BLE001  네트워크·API 장애
         log.warning("콘텐츠 생성 실패(다음에 재시도): %s", e)
-        result.errors.append(f"생성 실패: {e}")
+        result.errors.append(f"생성 실패: {network_error_text(e)}")
         return _RETRY_LATER
     gen, violations = _check_rules(ctx, brief, normalize_bullets(gen), result)
     gen = _add_background(ctx, gen, result)
