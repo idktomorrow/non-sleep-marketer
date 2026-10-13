@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>설정</h1>
+<p class="muted small">저장하면 다음 작업부터 바로 반영됩니다(프로그램을 다시 켤 필요 없음). 이미 만든 원고는 그대로입니다.</p>
+{% if saved %}<div class="notice info">저장했습니다.</div>{% endif %}
+{% if error %}<div class="notice bad">저장하지 못했습니다. {{ error }}</div>{% endif %}
+
+<form method="post" action="/settings" class="settings-form" id="settings-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+
+<h2>페르소나</h2>
+<div class="panel">
+  <div class="field-row">
+    <label>이름<input type="text" name="persona_name" value="{{ v.persona_name }}" required></label>
+    <label>계정<input type="text" value="{{ cfg.persona.handle }}" disabled></label>
+  </div>
+  <p class="muted small">계정은 실제 게시 계정과 맞아야 해서 여기서 바꾸지 않습니다(<code>uv run nsm init</code>).</p>
+  <label>인물상 <span class="hint">원고를 쓸 때 이 사람이 된다고 생각하고 씁니다</span><textarea name="character" rows="2" required>{{ v.character }}</textarea></label>
+  <label>말투 <span class="hint">"이모지는 한 개까지"처럼 쓰면 개수도 검사합니다</span><input type="text" name="tone" value="{{ v.tone }}" required></label>
+  <div class="field-row">
+    <label>관심 주제(한 줄에 하나, 1~10개) <span class="hint">이 낱말로 자료를 모으고 원고 주제를 고릅니다</span><textarea name="topics" rows="4" required>{{ v.topics }}</textarea></label>
+    <label>금칙어(한 줄에 하나) <span class="hint">들어가면 자동 게시하지 않습니다</span><textarea name="banned_words" rows="4">{{ v.banned_words }}</textarea></label>
+  </div>
+  <details><summary>고급: 금칙 패턴(정규식, 한 줄에 하나)</summary>
+    <textarea name="banned_patterns" rows="5" aria-label="금칙 패턴">{{ v.banned_patterns }}</textarea>
+    <p class="muted small">가상인물의 체험 표현("써봤는데" 등)을 막는 기본 패턴입니다. 지우기 전에 한 번 더 생각해 주세요.</p>
+  </details>
+</div>
+
+<h2>브랜드</h2>
+<div class="panel">
+  <div class="field-row">
+    <label>브랜드 이름<input type="text" name="brand_name" value="{{ v.brand_name }}" required></label>
+    <label>업종<input type="text" name="industry" value="{{ v.industry }}" required></label>
+  </div>
+  <p class="muted small">브랜드 없이 개인 계정으로 운영하면 브랜드 이름에 계정 이름(예: 루나의 커피노트), 업종에 다루는 분야(예: 커피 정보)를 넣으세요. 자료를 고를 때 "이 브랜드의 소재로 쓸 수 있나"를 이 값으로 판단합니다.</p>
+  <div class="field-row">
+    <label>제품(한 줄에 하나, 없으면 비움)<textarea name="products" rows="3">{{ v.products }}</textarea></label>
+    <label>핵심 메시지(한 줄에 하나)<textarea name="key_messages" rows="3">{{ v.key_messages }}</textarea></label>
+  </div>
+  <div class="field-row">
+    <label>주 색(카드 바탕·화면 강조색)<span class="color-input"><input type="color" value="{{ v.primary_color if v.primary_color|length == 7 else '#1E3A5F' }}" data-for="primary_color"><input type="text" name="primary_color" value="{{ v.primary_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
+    <label>보조 색(카드 강조)<span class="color-input"><input type="color" value="{{ v.accent_color if v.accent_color|length == 7 else '#F2A541' }}" data-for="accent_color"><input type="text" name="accent_color" value="{{ v.accent_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
+  </div>
+</div>
+
+<h2>운영</h2>
+<div class="panel">
+  <div class="field-row">
+    <label>활동 시간 <span class="hint">자료 수집·원고·댓글 답글. 예: 00:00-23:59</span><input type="text" name="active_hours" value="{{ v.active_hours }}" required></label>
+    <label>게시 시간 <span class="hint">글은 이 시간에만 올립니다. 비우면 활동 시간과 같음</span><input type="text" name="posting_hours" value="{{ v.posting_hours }}" placeholder="08:00-23:00"></label>
+  </div>
+  <div class="field-row">
+    <label>인스타그램 하루 게시 수<input type="number" name="quota_instagram" value="{{ v.quota_instagram }}" min="0" max="10" step="1" required></label>
+    <label>스레드 하루 게시 수<input type="number" name="quota_threads" value="{{ v.quota_threads }}" min="0" max="10" step="1" required></label>
+  </div>
+  <div class="field-row">
+    <label>하루 비용 상한(달러) <span class="hint">닿으면 그날은 원고를 만들지 않습니다</span><input type="number" name="daily_cost_cap_usd" value="{{ v.daily_cost_cap_usd }}" min="0.1" max="100" step="0.1" required></label>
+    <label>같은 플랫폼 게시 간격(시간)<input type="number" name="min_hours_between_posts" value="{{ v.min_hours_between_posts }}" min="0" max="24" step="0.5" required></label>
+  </div>
+  <label class="check"><input type="checkbox" name="ad_label" {% if v.ad_label == 'on' %}checked{% endif %}> 모든 게시물에 "광고" 표기 <span class="hint">협찬·광고 계정일 때만 켜세요. 원고마다 광고로 표시된 것은 이 설정과 상관없이 표기됩니다</span></label>
+</div>
+
+<div class="actionbar settings-bar"><span class="muted small grow">시간 형식: 09:00-12:00, 18:00-23:00 (쉼표로 여러 구간)</span><button class="btn-primary">저장</button></div>
+</form>
+
+<h2>여기서 바꾸지 않는 것</h2>
+<div class="panel small">
+  <p style="margin-top:0">아래는 안전을 위해 PowerShell에서 <code>uv run nsm init</code>으로만 바꿉니다.</p>
+  <ul style="margin-bottom:0">
+    <li>모드: <b>{{ '드라이런(실제로 올리지 않음)' if cfg.settings.dry_run else '실계정' }}</b></li>
+    <li>게시 계정: {% for p, h in cfg.settings.accounts.items() %}{{ p|ko_platform }} {{ h }}{% if not loop.last %}, {% endif %}{% else %}없음{% endfor %}</li>
+    <li>API 키(Claude, MotherDuck, OpenAI): Windows 자격 증명 관리자에 저장</li>
+  </ul>
+</div>
+
+<script>
+// 색 고르개 ↔ 글자 칸을 서로 맞춘다
+document.querySelectorAll('input[type=color][data-for]').forEach(function (picker) {
+  var text = document.querySelector('input[name="' + picker.dataset.for + '"]');
+  picker.addEventListener('input', function () { text.value = picker.value.toUpperCase(); });
+  text.addEventListener('input', function () { if (/^#[0-9a-f]{6}$/i.test(text.value)) picker.value = text.value; });
+});
+// 저장하지 않고 떠나면 알린다
+(function () {
+  var f = document.getElementById('settings-form'), dirty = false;
+  f.addEventListener('input', function () { dirty = true; });
+  f.addEventListener('submit', function () { dirty = false; });
+  window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+})();
+</script>
+{% endblock %}

@@ -22,6 +22,7 @@
     <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
     {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
     <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>
+    <a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>설정</a>
   </nav>
 </header>
 <main>{% block content %}{% endblock %}</main>

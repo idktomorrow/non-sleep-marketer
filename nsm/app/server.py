@@ -35,6 +35,7 @@ from nsm.app.card_editor import (
 )
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
+from nsm.app.settings_form import SettingsError, apply_settings_form, form_values
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -181,6 +182,37 @@ def create_app(state: AppState) -> FastAPI:
         cur = bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False))
         state.repo.set_setting(AUTO_PUBLISH_KEY, not cur)
         return back("/")
+
+    # ------------------------------------------------------------------ 설정 (M17)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request, saved: int = 0) -> HTMLResponse:
+        return page(
+            request,
+            "settings.html",
+            v=form_values(state.get_config()),
+            error=None,
+            saved=bool(saved),
+        )
+
+    @app.post("/settings", dependencies=[Depends(check_csrf)], response_model=None)
+    async def save_settings(request: Request) -> HTMLResponse | RedirectResponse:
+        form = {k: str(v) for k, v in (await request.form()).items()}
+        try:
+            new = apply_settings_form(state.get_config(), form)
+        except SettingsError as e:
+            # 넣은 값을 그대로 다시 보여 주고 무엇이 틀렸는지 알린다(아무것도 저장하지 않음)
+            resp = page(
+                request,
+                "settings.html",
+                v={**form_values(state.get_config()), **form},
+                error=str(e),
+                saved=False,
+            )
+            resp.status_code = 400
+            return resp
+        state.set_config(new)
+        return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.post("/jobs/{name}/run", dependencies=[Depends(check_csrf)])
     def run_now(name: str) -> RedirectResponse:
