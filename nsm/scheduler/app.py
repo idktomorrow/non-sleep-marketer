@@ -76,6 +76,14 @@ class JobScheduler:
             installed.append(job_id)
         return installed
 
+    def reschedule(self, cfg: AppConfig) -> list[str]:
+        """활동 시간이 바뀌면 수집·생성 시각도 바뀐다. 예약을 새 설정으로 다시 건다(설정 화면, M17)."""
+        new_ids = set(job_triggers(cfg))
+        for job in self.scheduler.get_jobs():
+            if job.id.startswith("collect#") and job.id not in new_ids:
+                self.scheduler.remove_job(job.id)
+        return self.install(cfg)
+
     def start(self) -> None:
         self.scheduler.start()
 

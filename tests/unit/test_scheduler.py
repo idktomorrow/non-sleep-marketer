@@ -56,3 +56,20 @@ def test_autostart_script(tmp_path: Path, nsm_home) -> None:
     assert "run nsm run" in text and text.endswith("\r\n")
     assert "삭제" not in uninstall(target_dir=tmp_path) and not path.exists()
     assert "없습니다" in uninstall(target_dir=tmp_path)
+
+
+def test_reschedule_follows_new_active_hours(app_config) -> None:
+    from nsm.config.store import parse_windows
+
+    s = JobScheduler(lambda: None, {"collect", "generate"})
+    s.install(app_config)
+    s.scheduler.start(paused=True)  # 실행 중인 스케줄러에서 바꾸는 상황(작업은 돌지 않게)
+    try:
+        one = app_config.model_copy(deep=True)
+        one.persona.active_hours = parse_windows("00:00-23:59")
+        s.reschedule(one)
+        ids = {j.id for j in s.scheduler.get_jobs()}
+        assert ids == {"collect#0", "generate"}  # 창이 하나라 하루 1회 수집
+        assert "hour='0'" in str(s.scheduler.get_job("collect#0").trigger)
+    finally:
+        s.shutdown()

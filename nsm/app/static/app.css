@@ -131,6 +131,17 @@ details > summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
 .comment-card .reply { display: flex; gap: 8px; margin-top: 8px; }
 .comment-card .reply input { flex: 1; }
 
+/* ---------------------------------------------------------------- 설정 */
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+label .hint { display: block; font-weight: 400; font-size: 12px; margin-top: 2px; }
+input[type=number] { width: 100%; font: inherit; color: var(--fg); padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+input[type=text]:disabled { background: #f3f4f6; color: var(--muted); }
+.color-input { display: flex; gap: 8px; align-items: center; }
+.color-input input[type=color] { width: 44px; height: 40px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: #fff; flex: 0 0 auto; }
+label.check { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; color: var(--fg); margin-top: 14px; }
+label.check .hint { flex-basis: 100%; color: var(--muted); }
+.settings-bar { position: sticky; top: auto; bottom: 0; margin-top: 16px; }
+
 /* ---------------------------------------------------------------- 좁은 화면 */
 @media (max-width: 860px) {
   .today { grid-template-columns: 1fr; }
@@ -150,4 +161,5 @@ details > summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
   .comment-card .reply { flex-direction: column; }
   .todo-num { font-size: 26px; min-width: 40px; }
   .stats { grid-template-columns: 1fr 1fr; }
+  .field-row { grid-template-columns: 1fr; }
 }
