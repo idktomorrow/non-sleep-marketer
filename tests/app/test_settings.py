@@ -121,3 +121,12 @@ def test_apply_settings_form_is_pure(app_config) -> None:
     assert new.persona.tone == "짧게" and app_config.persona.tone != "짧게"
     with pytest.raises(SettingsError):
         apply_settings_form(app_config, _form(app_config, quota_instagram="-1"))
+
+
+def test_reply_interval_is_editable_with_a_floor(env) -> None:  # noqa: F811
+    cfg = env["holder"]["cfg"]
+    assert 'name="reply_interval_minutes"' in env["client"].get("/settings").text
+    _post(env, "/settings", **_form(cfg, reply_interval_minutes="7"))
+    assert env["holder"]["cfg"].settings.reply_interval_minutes == 7
+    r = _post(env, "/settings", **_form(cfg, reply_interval_minutes="1"))
+    assert r.status_code == 400 and "댓글 확인 간격" in r.text

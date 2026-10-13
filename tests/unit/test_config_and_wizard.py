@@ -171,3 +171,13 @@ def test_wizard_recovers_from_broken_config(nsm_home: Path) -> None:
     cfg = wizard(ScriptedIO(NEW_ANSWERS, NEW_CONFIRMS), MemorySecretStore())
     assert cfg.brand.name == "달빛로스터리"
     assert (nsm_home / "config.yaml.broken").exists()
+
+
+def test_reply_interval_has_a_floor(app_config) -> None:
+    import pydantic
+
+    from nsm.config.schema import Settings
+
+    assert Settings().reply_interval_minutes == 5
+    with pytest.raises(pydantic.ValidationError):
+        Settings(reply_interval_minutes=1)

@@ -204,7 +204,10 @@ def run_forever() -> None:
         def set_config(new: AppConfig) -> None:
             save_config(new)
             old, ctx.config = ctx.config, new
-            if new.persona.active_hours != old.persona.active_hours:
+            if (new.persona.active_hours, new.settings.reply_interval_minutes) != (
+                old.persona.active_hours,
+                old.settings.reply_interval_minutes,
+            ):
                 log.info(
                     "활동 시간이 바뀌어 예약을 다시 겁니다: %s",
                     ", ".join(scheduler.reschedule(new)),

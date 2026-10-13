@@ -58,6 +58,8 @@ class Settings(_Model):
     reply_daily_limit_per_author: int = 3
     topic_cooldown_days: int = 14
     comment_lookback_days: int = 14
+    # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
+    reply_interval_minutes: int = Field(default=5, ge=3, le=60)
     # auto: MotherDuck 토큰이 있으면 jev, 없으면 claude (ADR 0003)
     classifier: Literal["auto", "jev", "claude"] = "auto"
     # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경만
