@@ -15,13 +15,14 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # 버전 n-1 -> n 으로 올리는 SQL. schema.sql은 항상 최신 형태(새 설치용)이고,
 # 기존 사용자 DB는 여기 단계를 차례로 적용해 따라잡는다.
 # 예: MIGRATIONS = {2: ["ALTER TABLE contents ADD COLUMN foo VARCHAR"]}
 MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE contents ADD COLUMN persona_topic VARCHAR"],
+    3: [],  # notifications 테이블: schema.sql의 CREATE TABLE IF NOT EXISTS가 만든다(N2)
 }
 
 

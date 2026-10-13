@@ -760,3 +760,63 @@ class Repository:
             }
             for r in rows
         ]
+
+    # ------------------------------------------------------------ notifications (알림함, N2)
+
+    def add_notification(self, title: str, body: str, level: str, link: str | None) -> str:
+        nid = new_id()
+        self.db.execute(
+            "INSERT INTO notifications (id, created_at, title, body, level, link) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [nid, self._now(), title[:200], body[:1000], level, link],
+        )
+        return nid
+
+    def list_notifications(self, limit: int = 30) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            "SELECT id, created_at, title, body, level, link, read_at FROM notifications "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            [limit],
+        )
+        return [
+            {
+                "id": r[0],
+                "created_at": from_db(r[1]),
+                "title": r[2],
+                "body": r[3],
+                "level": r[4],
+                "link": r[5],
+                "read": r[6] is not None,
+            }
+            for r in rows
+        ]
+
+    def unread_notification_count(self) -> int:
+        rows = self.db.execute("SELECT count(*) FROM notifications WHERE read_at IS NULL")
+        return int(rows[0][0])
+
+    def mark_notification_read(self, nid: str) -> str | None:
+        """읽음 처리하고 그 알림의 링크를 돌려준다. 없는 알림이면 None."""
+        rows = self.db.execute("SELECT link FROM notifications WHERE id = ?", [nid])
+        if not rows:
+            return None
+        self.db.execute(
+            "UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL",
+            [self._now(), nid],
+        )
+        return rows[0][0] or "/"
+
+    def mark_all_notifications_read(self) -> int:
+        return self._count(
+            self.db.execute(
+                "UPDATE notifications SET read_at = ? WHERE read_at IS NULL", [self._now()]
+            )
+        )
+
+    def prune_notifications(self, keep: int = 200) -> None:
+        """오래된 알림은 지운다(최근 keep개만)."""
+        self.db.execute(
+            "DELETE FROM notifications WHERE id NOT IN "
+            "(SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?)",
+            [keep],
+        )

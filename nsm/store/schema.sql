@@ -125,3 +125,14 @@ CREATE TABLE IF NOT EXISTS settings_kv (
     key VARCHAR PRIMARY KEY,
     value VARCHAR NOT NULL              -- JSON
 );
+
+-- 대시보드 알림함(종 모양, N2). 데스크톱 알림을 끄거나 놓쳐도 여기 남는다.
+CREATE TABLE IF NOT EXISTS notifications (
+    id VARCHAR PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL,
+    title VARCHAR NOT NULL,
+    body VARCHAR NOT NULL,
+    level VARCHAR NOT NULL,             -- info / warn / error
+    link VARCHAR,                       -- 누르면 갈 대시보드 경로
+    read_at TIMESTAMP
+);

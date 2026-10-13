@@ -1,0 +1,1 @@
+<span id="bell-badge" hx-get="/notifications/badge" hx-trigger="every 30s" hx-swap="outerHTML">{% if bell.unread %}<span class="bell-count">{{ bell.unread if bell.unread < 100 else "99+" }}</span>{% endif %}</span>

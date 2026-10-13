@@ -5,6 +5,7 @@
   {% if r.state == "running" %}
     <span class="spinner" aria-hidden="true"></span><div><b>{{ r.label }}</b> 실행 중… <span class="muted small">{{ r.elapsed }}</span></div>
   {% else %}
+    <form class="close" hx-post="/jobs/status/{{ r.id }}/dismiss" hx-target="#jobstatus" hx-swap="outerHTML"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" aria-label="닫기" title="닫기">×</button></form>
     <span class="mark" aria-hidden="true">{{ "✓" if r.state == "ok" else "!" }}</span>
     <div><b>{{ r.label }} {{ "완료" if r.state == "ok" else "실패" }}</b> <span class="muted small">{{ r.elapsed }}</span>
       <div class="small">{{ r.text }}</div>

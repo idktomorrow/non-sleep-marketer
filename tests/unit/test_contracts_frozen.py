@@ -191,5 +191,9 @@ def test_v1_database_gains_persona_topic(tmp_path: Path) -> None:
             "SELECT column_name FROM information_schema.columns WHERE table_name='contents'"
         )
     }
-    assert "persona_topic" in cols and d.schema_version == 2
+    from nsm.store.db import SCHEMA_VERSION
+
+    assert "persona_topic" in cols and d.schema_version == SCHEMA_VERSION
+    tables = {r[0] for r in d.execute("SELECT table_name FROM information_schema.tables")}
+    assert "notifications" in tables  # v3: 알림함(N2)
     d.close()

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>게시 대기</h1>
+<p class="muted small">승인돼 올라가기를 기다리는 원고입니다. 게시 시간({% if cfg.settings.posting_hours %}{% for w in cfg.settings.posting_hours %}{{ w.start.strftime("%H:%M") }}~{{ w.end.strftime("%H:%M") }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}활동 시간{% endif %}) 안에서 하루 인스타그램 {{ cfg.settings.quotas.get("instagram", 0) }}개·스레드 {{ cfg.settings.quotas.get("threads", 0) }}개, 같은 플랫폼은 {{ "%g"|format(cfg.settings.min_hours_between_posts) }}시간 간격으로 오래된 것부터 올라갑니다. 고치려면 <b>검토로 되돌리기</b>를 누르세요(되돌리는 즉시 게시가 멈춥니다).</p>
+{% if not waiting %}<div class="panel"><b class="ok">게시를 기다리는 원고가 없습니다.</b> <span class="muted">검토에서 승인하거나 자동 게시를 켜면 여기에 쌓입니다.</span></div>{% endif %}
+<div class="review-list">
+{% for c, pubs in waiting %}
+<article class="panel review-item">
+  <a href="/review/{{ c.id }}">{% if thumbs.get(c.id) %}<img src="{{ thumbs[c.id] }}" alt="표지 카드">{% else %}<span class="thumb" aria-hidden="true"></span>{% endif %}</a>
+  <div>
+    <h3><a href="/review/{{ c.id }}">{{ c.generated.topic }}</a></h3>
+    <div class="actions small"><span class="badge">{{ c.generated.template|ko_template }}</span>{% if c.is_ad %}<span class="badge warn">광고</span>{% endif %}<span class="muted">{{ c.created_at|kst }} 생성</span></div>
+    <div class="actions small" style="margin-top:6px">{% for p in pubs %}<span class="badge {{ 'ok' if p.status == 'published' else ('bad' if p.status in ('failed', 'abandoned') else 'gray') }}">{{ p.platform|ko_platform }} · {{ p.status|ko_pub }}{% if p.status == 'failed' and p.next_attempt_at %} ({{ p.next_attempt_at|kst }} 재시도){% endif %}</span>{% if p.url %}<a class="small" href="{{ p.url|safe_url }}" rel="noopener noreferrer" target="_blank">열기</a>{% endif %}{% endfor %}</div>
+    {% if pubs|selectattr("status", "equalto", "published")|list %}<p class="muted small" style="margin:6px 0 0">일부 플랫폼에는 이미 올라갔습니다. 폐기해도 올라간 글은 지워지지 않으니 플랫폼에서 직접 지우세요.</p>{% endif %}
+  </div>
+  <div class="actions">
+    <a class="btn btn-sm" href="/review/{{ c.id }}">열어 보기</a>
+    <form class="inline" method="post" action="/queue/{{ c.id }}/unapprove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">검토로 되돌리기</button></form>
+    <form class="inline" method="post" action="/review/{{ c.id }}/discard" onsubmit="return confirm('이 원고를 폐기할까요? 게시가 취소되고 되돌릴 수 없습니다.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost btn-danger">폐기</button></form>
+  </div>
+</article>
+{% endfor %}
+</div>
+
+<h2>최근 7일 게시</h2>
+{% if done %}
+<div class="table-wrap"><table><tr><th>게시</th><th>주제</th><th>플랫폼</th></tr>
+{% for c, pubs, last in done %}<tr><td class="small">{{ last|kst }}</td><td><a href="/review/{{ c.id }}">{{ c.generated.topic }}</a></td>
+<td class="small">{% for p in pubs if p.status == 'published' %}{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer" target="_blank">{{ p.platform|ko_platform }}</a>{% else %}{{ p.platform|ko_platform }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">최근 7일 동안 게시한 원고가 없습니다.</p>{% endif %}
+{% endblock %}

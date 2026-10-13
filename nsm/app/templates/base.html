@@ -14,10 +14,26 @@
     {% if cfg.settings.dry_run %}<span class="mode dry" title="실제로 올리지 않고 미리보기 폴더에 저장합니다">드라이런</span>
     {% else %}<span class="mode live" title="실제 계정에 게시합니다">실계정</span>{% endif %}
     <span class="who">{{ cfg.persona.name }} {{ cfg.persona.handle }} · {{ cfg.brand.name }}</span>
+    <details class="bell" id="bell">
+      <summary aria-label="알림{% if bell.unread %} {{ bell.unread }}개 안 읽음{% endif %}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>{% include "_bell_badge.html" %}</summary>
+      <div class="bell-panel">
+        <div class="bell-head"><b>알림</b>
+          {% if bell.unread %}<form method="post" action="/notifications/read-all"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost">전체 읽음</button></form>{% endif %}
+        </div>
+        {% for n in bell["items"] %}
+        <form method="post" action="/notifications/{{ n.id }}/read" class="bell-item{% if not n.read %} unread{% endif %} lvl-{{ n.level }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit"><b>{{ n.title }}</b><span>{{ n.body }}</span><time>{{ n.created_at|kst }}</time></button>
+        </form>
+        {% else %}<p class="muted small" style="padding:12px 14px;margin:0">알림이 없습니다.</p>{% endfor %}
+        <a class="bell-all small" href="/notifications">알림 모두 보기</a>
+      </div>
+    </details>
   </div>
   <nav class="menu">
     <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>오늘</a>
     <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}</a>
+    <a href="/queue" {% if request.url.path.startswith('/queue') %}class="active"{% endif %}>게시 대기{% if queue_count %}<span class="count soft">{{ queue_count }}</span>{% endif %}</a>
     <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
     <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
     {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
@@ -28,6 +44,13 @@
 <main>{% block content %}{% endblock %}</main>
 {% include "_jobstatus.html" %}
 <script>
+// 알림 창: 바깥을 누르거나 Esc를 누르면 닫는다
+(function () {
+  var b = document.getElementById('bell');
+  if (!b) return;
+  document.addEventListener('click', function (e) { if (b.open && !b.contains(e.target)) b.open = false; });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') b.open = false; });
+})();
 // 고정 막대가 머리줄 아래에 붙도록 머리줄 높이를 CSS 변수로(휴대폰에서는 머리줄이 여러 줄)
 (function () {
   var h = document.querySelector('.topbar');

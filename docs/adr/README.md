@@ -42,3 +42,4 @@
 | [0028](0028-dashboard-settings.md) | 대시보드 설정 화면: 페르소나·브랜드·운영은 화면에서, 계정·드라이런·키는 `nsm init`에서만 | 채택 |
 | [0029](0029-reply-interval.md) | 댓글 확인 간격은 설정값(기본 5분, 3~60분) | 채택 |
 | [0030](0030-notifications-and-manual-runs.md) | 알림 앱 ID 등록·켜기/끄기, 지금 실행 진행 표시, 원고 만들기는 누를 때마다 1건 더 | 채택 |
+| [0031](0031-notification-inbox-and-publish-queue.md) | 알림함(종 모양, DB 보관), 진행 표시 닫기, 게시 대기 화면(검토로 되돌리기·폐기) | 채택 |

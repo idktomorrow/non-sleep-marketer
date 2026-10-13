@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>알림</h1>
+<div class="actions" style="margin-bottom:12px">
+  <span class="muted small">최근 200개까지 보관합니다. 누르면 읽음으로 바뀌고 관련 화면으로 갑니다.</span>
+  <span class="grow"></span>
+  {% if bell.unread %}<form method="post" action="/notifications/read-all"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">전체 읽음</button></form>{% endif %}
+</div>
+<div class="panel notif-list">
+{% for n in items %}
+  <form method="post" action="/notifications/{{ n.id }}/read" class="bell-item{% if not n.read %} unread{% endif %} lvl-{{ n.level }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit"><b>{{ n.title }}</b><span>{{ n.body }}</span><time>{{ n.created_at|kst }}</time></button>
+  </form>
+{% else %}<p class="muted" style="margin:0">알림이 없습니다.</p>{% endfor %}
+</div>
+{% endblock %}
