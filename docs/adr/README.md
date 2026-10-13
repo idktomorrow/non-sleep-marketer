@@ -33,8 +33,9 @@
 | [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆 | 채택 |
 | [0020](0020-aside-repl-execution.md) | 실계정 어댑터는 `aside repl` 고정 스크립트, 이미지는 일회용 로컬 서버 | 채택 |
 | [0021](0021-collect-driver-stays-playwright.md) | 자료 수집은 Playwright 수집 전용 프로필 유지(게시·댓글만 Aside) | 채택 |
-| [0022](0022-fetch-article-body-for-relevant-items.md) | 관련 자료로 판정된 글만 원문 본문(상한 3,000자) | 제안 |
-| [0023](0023-code-checked-content-rules.md) | 코드로 검사할 수 있는 원고 규칙은 생성 후 검사, 출처 줄은 게시 때 | 제안 |
-| [0024](0024-card-editor-scope.md) | 카드 편집 화면: 문구·배경·미리보기, 스타일 선택은 S8 뒤로 | 제안 |
+| [0022](0022-fetch-article-body-for-relevant-items.md) | 관련 자료로 판정된 글만 원문 본문(상한 3,000자) | 채택 |
+| [0023](0023-code-checked-content-rules.md) | 코드로 검사할 수 있는 원고 규칙은 생성 후 검사, 출처 줄은 게시 때 | 채택 |
+| [0024](0024-card-editor-scope.md) | 카드 편집 화면: 문구·배경·미리보기·출처, 스타일 선택은 S8 뒤로 | 채택 |
 | [0025](0025-dashboard-design.md) | 대시보드 디자인: 오늘 할 일 중심, 밝은 관리 화면(취향 선택 3가지 모두 A안) | 채택 |
 | [0026](0026-skip-blog-draft.md) | 블로그를 게시하지 않으면 블로그 원고를 만들지 않음(필드는 빈 값으로 유지) | 채택 |
+| [0027](0027-posting-hours.md) | 일은 24시간, 게시는 게시 시간(`posting_hours`)에만 | 채택 |

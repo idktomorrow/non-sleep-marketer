@@ -12,7 +12,14 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from nsm.domain import labels as L
-from nsm.domain.models import CommentAction, CommentCategory, Persona, Platform, TemplateKind
+from nsm.domain.models import (
+    ActiveWindow,
+    CommentAction,
+    CommentCategory,
+    Persona,
+    Platform,
+    TemplateKind,
+)
 
 
 def local(now: datetime, tz: str) -> datetime:
@@ -25,9 +32,13 @@ def _in_window(t: time, start: time, end: time) -> bool:
     return t >= start or t < end  # 자정을 넘는 구간 (예: 22:00-02:00)
 
 
-def in_active_hours(now: datetime, persona: Persona, tz: str) -> bool:
+def in_windows(now: datetime, windows: Iterable[ActiveWindow], tz: str) -> bool:
     t = local(now, tz).time()
-    return any(_in_window(t, w.start, w.end) for w in persona.active_hours)
+    return any(_in_window(t, w.start, w.end) for w in windows)
+
+
+def in_active_hours(now: datetime, persona: Persona, tz: str) -> bool:
+    return in_windows(now, persona.active_hours, tz)
 
 
 def should_act(now: datetime, persona: Persona, tz: str) -> tuple[bool, str]:
@@ -37,6 +48,16 @@ def should_act(now: datetime, persona: Persona, tz: str) -> tuple[bool, str]:
     if not in_active_hours(now, persona, tz):
         return False, "활동 시간 밖"
     return True, ""
+
+
+def should_post(
+    now: datetime, persona: Persona, tz: str, posting_hours: Iterable[ActiveWindow] | None
+) -> tuple[bool, str]:
+    """게시 잡만: 활동 시간 안이면서 게시 시간 안(설정이 없으면 활동 시간과 같음, ADR 0027)."""
+    ok, why = should_act(now, persona, tz)
+    if ok and posting_hours is not None and not in_windows(now, posting_hours, tz):
+        return False, "게시 시간 밖"
+    return ok, why
 
 
 def local_day_bounds(now: datetime, tz: str) -> tuple[datetime, datetime]:

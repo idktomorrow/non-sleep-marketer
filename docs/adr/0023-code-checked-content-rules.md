@@ -1,6 +1,6 @@
 # 0023. 코드로 검사할 수 있는 원고 규칙은 생성 후 검사하고, 출처 줄은 게시할 때 붙인다
 
-- 상태: 제안 (배치 Q1) · 날짜: 2026-10-13 · 관련: [0008](0008-autopublish-guardrails.md), [0019](0019-label-wording-and-placement.md), 이슈 #42
+- 상태: 채택 (배치 Q1)·채택 2026-10-13(선웅제) · 날짜: 2026-10-13 · 관련: [0008](0008-autopublish-guardrails.md), [0019](0019-label-wording-and-placement.md), 이슈 #42
 
 ## 배경
 
