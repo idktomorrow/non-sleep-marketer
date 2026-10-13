@@ -185,6 +185,53 @@ _SITE_NAMES = {
     "m.news.naver.com": "네이버 뉴스",
     "cafe.naver.com": "네이버 카페",
     "trends.google.com": "구글 트렌드",
+    # 주요 언론사(하위 도메인도 같은 이름: ent.sbs.co.kr → SBS)
+    "yna.co.kr": "연합뉴스",
+    "yonhapnewstv.co.kr": "연합뉴스TV",
+    "news1.kr": "뉴스1",
+    "newsis.com": "뉴시스",
+    "chosun.com": "조선일보",
+    "joongang.co.kr": "중앙일보",
+    "donga.com": "동아일보",
+    "hani.co.kr": "한겨레",
+    "khan.co.kr": "경향신문",
+    "hankookilbo.com": "한국일보",
+    "kmib.co.kr": "국민일보",
+    "seoul.co.kr": "서울신문",
+    "munhwa.com": "문화일보",
+    "segye.com": "세계일보",
+    "mk.co.kr": "매일경제",
+    "hankyung.com": "한국경제",
+    "sedaily.com": "서울경제",
+    "edaily.co.kr": "이데일리",
+    "mt.co.kr": "머니투데이",
+    "heraldcorp.com": "헤럴드경제",
+    "asiae.co.kr": "아시아경제",
+    "fnnews.com": "파이낸셜뉴스",
+    "inews24.com": "아이뉴스24",
+    "etnews.com": "전자신문",
+    "zdnet.co.kr": "지디넷코리아",
+    "sbs.co.kr": "SBS",
+    "kbs.co.kr": "KBS",
+    "imbc.com": "MBC",
+    "jtbc.co.kr": "JTBC",
+    "ytn.co.kr": "YTN",
+    "dailian.co.kr": "데일리안",
+    "tvreport.co.kr": "TV리포트",
+    "topstarnews.net": "톱스타뉴스",
+    "isplus.com": "일간스포츠",
+    "sportschosun.com": "스포츠조선",
+    "osen.co.kr": "OSEN",
+    "xportsnews.com": "엑스포츠뉴스",
+    "mydaily.co.kr": "마이데일리",
+    "newsen.com": "뉴스엔",
+    "ize.co.kr": "아이즈",
+    "joynews24.com": "조이뉴스24",
+    "tf.co.kr": "더팩트",
+    "kukinews.com": "쿠키뉴스",
+    "mediapen.com": "미디어펜",
+    "ggilbo.com": "금강일보",
+    "slist.kr": "스포츠W",
 }
 
 
@@ -192,9 +239,23 @@ def site_label(source: str) -> str:
     """출처 표시: 알려진 사이트는 이름, 그 밖의 URL은 짧은 주소(호스트), URL이 아니면 그대로."""
     if not source.startswith(("http://", "https://")):
         return source.strip()
-    host = urlsplit(source).netloc.lower()
+    host = urlsplit(source).netloc.lower().split(":")[0]
     host = host[4:] if host.startswith("www.") else host
-    return _SITE_NAMES.get(host, host)
+    if host in _SITE_NAMES:
+        return _SITE_NAMES[host]
+    # 하위 도메인: ent.sbs.co.kr → sbs.co.kr, news.jtbc.co.kr → jtbc.co.kr
+    parts = host.split(".")
+    for i in range(1, len(parts) - 1):
+        parent = ".".join(parts[i:])
+        if parent in _SITE_NAMES:
+            return _SITE_NAMES[parent]
+    return host
+
+
+def card_sources(sources: list[str], n: int = 6) -> list[str]:
+    """카드 마무리 장에 보일 출처: 긴 주소 대신 사이트 이름(같은 이름은 한 번), 최대 n개.
+    원문 주소는 원고 데이터와 대시보드 "사실 주장과 출처"에 그대로 남는다(ADR 0023 보충)."""
+    return list(dict.fromkeys(site_label(s) for s in sources if s and s.strip()))[:n]
 
 
 def sources_line(sources: list[str], n: int = 2) -> str:
