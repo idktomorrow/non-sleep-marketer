@@ -164,6 +164,7 @@ def _system(persona: Persona, brand: Brand, include_blog: bool = True) -> str:
 - instagram_caption: 300~800자, 줄바꿈으로 읽기 쉽게, 해시태그 3~5개를 끝에.
 - threads_text: 400자 이내의 짧은 글(앞에 표기 문구, 끝에 출처 줄이 붙어 500자 상한을 넘지 않게).
 {blog}- cover_title: 두 줄 이내(줄당 14자 내외, 줄바꿈은 \\n). cta: 20자 이내.
+- cta는 카드 마지막 장의 마무리 한마디입니다. 이 글의 주제와 이어지는 짧은 질문이나 말 걸기로 씁니다(예: "여러분은 보셨나요?", "어떤 캐릭터가 제일 좋아요?", "다음 팝업도 같이 가요"). 카드 이미지는 누를 수 없으니 링크·출처·URL·"프로필 확인"을 말하지 않고, "저장하세요"처럼 주제와 상관없는 지시만 하지 않습니다.
 {_style_rules(persona)}"""
 
 
@@ -235,7 +236,7 @@ def build_deck(
         slides=[
             CoverSlide(title=out["cover_title"].strip(), subtitle=out["cover_subtitle"].strip()),
             *middle,
-            OutroSlide(cta=out["cta"].strip() or "저장하고 다시 보기", sources=sources[:6]),
+            OutroSlide(cta=out["cta"].strip() or "여러분 생각은 어때요?", sources=sources[:6]),
         ],
     )
 
