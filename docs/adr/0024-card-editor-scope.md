@@ -1,6 +1,6 @@
 # 0024. 카드 편집 화면: 슬라이드 문구·배경·미리보기만, 스타일 선택은 S8 뒤로
 
-- 상태: 제안 (배치 M16) · 날짜: 2026-10-13 · 관련: 이슈 #35, #34(S8), [0019](0019-label-wording-and-placement.md), [0023](0023-code-checked-content-rules.md)
+- 상태: 채택 (배치 M16)·채택 2026-10-13(선웅제) · 날짜: 2026-10-13 · 관련: 이슈 #35, #34(S8), [0019](0019-label-wording-and-placement.md), [0023](0023-code-checked-content-rules.md)
 
 ## 배경
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from nsm.domain.labels import DEFAULT_BANNED_PATTERNS
 from nsm.domain.policy import (
@@ -90,3 +91,18 @@ def test_invalid_banned_pattern_rejected_at_config(app_config) -> None:
         app_config.persona.model_validate(
             {**app_config.persona.model_dump(), "banned_patterns": ["(unclosed"]}
         )
+
+
+def test_should_post_uses_posting_hours_only_when_set(app_config) -> None:
+    from nsm.config.store import parse_windows
+    from nsm.domain.policy import should_post
+
+    p = app_config.persona.model_copy(update={"active_hours": parse_windows("00:00-23:59")})
+    tz = "Asia/Seoul"
+    night = datetime(2026, 10, 11, 3, 0, tzinfo=ZoneInfo(tz))
+    assert should_post(night, p, tz, None) == (True, "")
+    assert should_post(night, p, tz, parse_windows("08:00-23:00")) == (False, "게시 시간 밖")
+    late = parse_windows("22:00-02:00")  # 자정을 넘는 게시 시간
+    assert should_post(night.replace(hour=1), p, tz, late) == (True, "")
+    off = p.model_copy(update={"enabled": False})
+    assert should_post(night, off, tz, None) == (False, "페르소나가 꺼져 있음")

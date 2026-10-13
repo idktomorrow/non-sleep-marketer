@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from nsm.domain.models import Brand, Persona, Platform
+from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
 
 class _Model(BaseModel):
@@ -52,6 +52,8 @@ class Settings(_Model):
     protect_count: int = 20
     retry_delays_minutes: list[int] = Field(default_factory=lambda: [15, 60, 240])
     min_hours_between_posts: float = 3.0  # 같은 플랫폼 게시 사이 최소 간격
+    # 게시만 이 시간에(ADR 0027). 비우면 페르소나 활동 시간과 같다. 수집·생성·답글은 활동 시간을 따른다.
+    posting_hours: list[ActiveWindow] | None = None
     relevance_threshold: float = 0.8
     reply_daily_limit_per_author: int = 3
     topic_cooldown_days: int = 14

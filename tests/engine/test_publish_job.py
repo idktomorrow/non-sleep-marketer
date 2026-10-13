@@ -256,3 +256,21 @@ def test_template_change_invalidates_render_cache(ctx: JobContext) -> None:
     ctx.renderer.version = "v2"
     render_images(ctx, c)
     assert len(ctx.renderer.rendered) == 2
+
+
+def test_posting_hours_limit_only_publishing(ctx: JobContext) -> None:
+    always = parse_windows("00:00-23:59")
+    ctx.config = ctx.config.model_copy(
+        update={
+            "persona": ctx.config.persona.model_copy(update={"active_hours": always}),
+            "settings": ctx.config.settings.model_copy(
+                update={"posting_hours": parse_windows("08:00-23:00")}
+            ),
+        }
+    )
+    ctx.clock.set(datetime(2026, 10, 11, 3, 0, tzinfo=KST))  # 활동 시간 안, 게시 시간 밖
+    assert run_publish(ctx).skipped == "게시 시간 밖"
+    assert all(not _published(ctx, p) for p in PLATFORMS)
+    ctx.clock.set(datetime(2026, 10, 11, 9, 0, tzinfo=KST))
+    assert run_publish(ctx).skipped == ""
+    assert _published(ctx, "threads")

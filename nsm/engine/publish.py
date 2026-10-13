@@ -19,7 +19,7 @@ from nsm.domain.policy import (
     fit_with_tail,
     labeled_blog_title,
     local_day_bounds,
-    should_act,
+    should_post,
 )
 from nsm.domain.quality import sources_line
 from nsm.engine.context import JobContext, JobResult
@@ -151,11 +151,11 @@ def _record_failure(
 def run_publish(ctx: JobContext) -> JobResult:
     result = JobResult("publish")
     now = ctx.clock.now()
-    ok, why = should_act(now, ctx.config.persona, ctx.tz)
+    s = ctx.config.settings
+    ok, why = should_post(now, ctx.config.persona, ctx.tz, s.posting_hours)
     if not ok:
         result.skipped = why
         return result
-    s = ctx.config.settings
     if not ctx.adapters:
         result.errors.append(
             "연결된 플랫폼 어댑터가 없습니다(dry_run: false인데 실계정 어댑터 미구현, 배치 G)"
