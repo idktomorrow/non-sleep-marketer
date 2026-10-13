@@ -62,6 +62,7 @@ class ManualRun:
     finished: datetime | None = None
     ok: bool = True
     text: str = ""
+    dismissed: bool = False  # 사람이 x를 눌러 닫음
 
 
 def _local_path(referer: str | None) -> str | None:
@@ -147,6 +148,11 @@ def create_app(state: AppState) -> FastAPI:
         )
         return rows[0][0] if rows else None
 
+    def queue_count() -> int:
+        return int(
+            state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'approved'")[0][0]
+        )
+
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
         cfg = state.get_config()
         return templates.TemplateResponse(
@@ -161,6 +167,11 @@ def create_app(state: AppState) -> FastAPI:
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
                 "has_reports": state.reports_dir is not None,
                 "js": job_status(),
+                "queue_count": queue_count(),
+                "bell": {
+                    "unread": state.repo.unread_notification_count(),
+                    "items": state.repo.list_notifications(15),
+                },
                 **ctx,
             },
         )
@@ -274,7 +285,7 @@ def create_app(state: AppState) -> FastAPI:
         now = state.clock.now()
         items = []
         for r in state.manual_runs:
-            if r.finished is not None and now - r.finished > timedelta(minutes=3):
+            if r.dismissed or (r.finished is not None and now - r.finished > timedelta(minutes=3)):
                 continue
             secs = int(((r.finished or now) - r.started).total_seconds())
             items.append(
@@ -290,7 +301,42 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/jobs/status", response_class=HTMLResponse)
     def jobs_status(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(request, "_jobstatus.html", {"js": job_status()})
+        return templates.TemplateResponse(
+            request, "_jobstatus.html", {"js": job_status(), "csrf": state.csrf_token}
+        )
+
+    @app.post("/jobs/status/{rid}/dismiss", dependencies=[Depends(check_csrf)])
+    def dismiss_job_status(request: Request, rid: str) -> HTMLResponse:
+        for r in state.manual_runs:
+            if r.id == rid and r.finished is not None:
+                r.dismissed = True
+        return templates.TemplateResponse(
+            request, "_jobstatus.html", {"js": job_status(), "csrf": state.csrf_token}
+        )
+
+    # ------------------------------------------------------------------ 알림함 (N2)
+
+    @app.get("/notifications", response_class=HTMLResponse)
+    def notifications_page(request: Request) -> HTMLResponse:
+        return page(request, "notifications.html", items=state.repo.list_notifications(200))
+
+    @app.get("/notifications/badge", response_class=HTMLResponse)
+    def notifications_badge(request: Request) -> HTMLResponse:
+        n = state.repo.unread_notification_count()
+        return templates.TemplateResponse(request, "_bell_badge.html", {"bell": {"unread": n}})
+
+    @app.post("/notifications/{nid}/read", dependencies=[Depends(check_csrf)])
+    def notification_read(nid: str) -> RedirectResponse:
+        link = state.repo.mark_notification_read(nid)
+        if link is None:
+            raise HTTPException(404, "알림이 없습니다")
+        # 저장된 링크는 우리가 정한 경로뿐이지만, 한 번 더 내부 경로인지 확인한다
+        return back(link if link.startswith("/") and not link.startswith("//") else "/")
+
+    @app.post("/notifications/read-all", dependencies=[Depends(check_csrf)])
+    def notifications_read_all(request: Request) -> RedirectResponse:
+        state.repo.mark_all_notifications_read()
+        return back(_local_path(request.headers.get("referer")) or "/")
 
     @app.post("/notify/test", dependencies=[Depends(check_csrf)])
     def notify_test() -> RedirectResponse:
@@ -309,13 +355,55 @@ def create_app(state: AppState) -> FastAPI:
     @app.get("/review", response_class=HTMLResponse)
     def review_list(request: Request) -> HTMLResponse:
         items = state.repo.list_contents("pending_review")
+        return page(request, "review_list.html", items=items, thumbs=_thumbs(items))
+
+    def _thumbs(items) -> dict[str, str]:
         thumbs = {}
         for c in items:  # 표지 썸네일: 미리보기가 있으면 그것, 없으면 게시용으로 그린 카드
             for sub, route in (("previews", "/previews/"), ("cards", "/cards/")):
                 if (state.media_dir / sub / c.id / "slide-01.png").is_file():
                     thumbs[c.id] = f"{route}{c.id}/slide-01.png"
                     break
-        return page(request, "review_list.html", items=items, thumbs=thumbs)
+        return thumbs
+
+    # ------------------------------------------------------------------ 게시 대기 (N2)
+
+    @app.get("/queue", response_class=HTMLResponse)
+    def queue(request: Request) -> HTMLResponse:
+        """승인돼 올라가기를 기다리는 원고와 최근 7일 게시한 원고."""
+        waiting = sorted(state.repo.list_contents("approved"), key=lambda c: c.created_at)
+        since = state.clock.now() - timedelta(days=7)
+        done = []
+        for c in state.repo.list_contents("published", limit=50):
+            pubs = state.repo.publications_for_content(c.id)
+            last = max((p.published_at for p in pubs if p.published_at), default=None)
+            if last and last >= since:
+                done.append((c, pubs, last))
+        done.sort(key=lambda x: x[2], reverse=True)
+        return page(
+            request,
+            "queue.html",
+            waiting=[(c, state.repo.publications_for_content(c.id)) for c in waiting],
+            done=done,
+            thumbs=_thumbs(waiting + [d[0] for d in done]),
+        )
+
+    @app.post("/queue/{cid}/unapprove", dependencies=[Depends(check_csrf)])
+    def unapprove(cid: str) -> RedirectResponse:
+        """게시 대기 → 검토 대기(고치려고). 게시 작업은 승인된 원고만 올리므로 바로 멈춘다."""
+        c = _content_or_404(cid)
+        pubs = state.repo.publications_for_content(cid)
+        if any(p.status == "publishing" for p in pubs):
+            raise HTTPException(409, "지금 올리는 중입니다. 잠시 뒤 다시 시도하세요")
+        if c.status != "approved":
+            raise HTTPException(409, "게시 대기 중인 원고만 되돌릴 수 있습니다")
+        try:
+            state.repo.transition_content(
+                cid, "pending_review", reason="사람이 게시 대기에서 되돌림"
+            )
+        except InvalidTransitionError as e:
+            raise HTTPException(409, str(e)) from e
+        return back(f"/review/{cid}")
 
     def _content_or_404(cid: str):
         c = state.repo.get_content(cid)
@@ -399,13 +487,16 @@ def create_app(state: AppState) -> FastAPI:
         return back("/review")
 
     @app.post("/review/{cid}/discard", dependencies=[Depends(check_csrf)])
-    def discard(cid: str) -> RedirectResponse:
-        _content_or_404(cid)
+    def discard(cid: str, request: Request) -> RedirectResponse:
+        c = _content_or_404(cid)
+        if any(p.status == "publishing" for p in state.repo.publications_for_content(cid)):
+            raise HTTPException(409, "지금 올리는 중입니다. 잠시 뒤 다시 시도하세요")
+        was_queued = c.status == "approved"
         try:
             state.repo.transition_content(cid, "discarded", reason="사람이 폐기")
         except InvalidTransitionError as e:
             raise HTTPException(409, str(e)) from e
-        return back("/review")
+        return back("/queue" if was_queued else "/review")
 
     def _editable(cid: str):
         c = _content_or_404(cid)

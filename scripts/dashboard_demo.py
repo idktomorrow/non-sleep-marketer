@@ -188,6 +188,12 @@ def seed(repo: Repository, cfg: AppConfig, media: Path, reports: Path, renderer)
     ):
         rid = repo.start_run(job)
         repo.finish_run(rid, ok, msg)
+    for title, body, level, link in (
+        ("검토 대기 콘텐츠", "새 콘텐츠 2건이 검토를 기다립니다", "info", "/review"),
+        ("댓글 확인 필요", "사람이 확인해야 할 댓글이 4건 있습니다", "warn", "/comments"),
+        ("로그인 필요", "threads: Aside 브라우저에서 다시 로그인하세요", "error", "/"),
+    ):
+        repo.add_notification(title, body, level, link)
     reports.mkdir(parents=True, exist_ok=True)
     day = now.strftime("%Y-%m-%d")
     (reports / f"weekly-{day}.md").write_text(

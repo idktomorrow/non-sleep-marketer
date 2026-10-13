@@ -2,7 +2,7 @@
 {% block content %}
 {% set g = c.generated %}
 {% set editable = c.status == 'pending_review' %}
-<p class="small"><a href="/review">← 검토할 원고</a></p>
+<p class="small">{% if c.status == 'approved' %}<a href="/queue">← 게시 대기</a>{% else %}<a href="/review">← 검토할 원고</a>{% endif %}</p>
 <h1 style="margin-bottom:6px">{{ g.topic }}</h1>
 <div class="actions small" style="margin-bottom:12px">
   <span class="badge {{ 'warn' if editable else 'gray' }}">{{ c.status|ko_status }}</span>
@@ -18,6 +18,15 @@
   <span class="grow"></span>
   <form class="inline" id="approve-form" method="post" action="/review/{{ c.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-primary">승인</button></form>
   <form class="inline" method="post" action="/review/{{ c.id }}/discard" onsubmit="return confirm('이 원고를 폐기할까요? 되돌릴 수 없습니다.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-ghost btn-danger">폐기</button></form>
+</div>
+{% endif %}
+
+{% if c.status == 'approved' %}
+<div class="actionbar">
+  <span class="muted small">승인돼 게시를 기다리는 원고입니다. 고치려면 검토로 되돌리세요(되돌리는 즉시 게시가 멈춥니다).</span>
+  <span class="grow"></span>
+  <form class="inline" method="post" action="/queue/{{ c.id }}/unapprove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-primary">검토로 되돌려 고치기</button></form>
+  <form class="inline" method="post" action="/review/{{ c.id }}/discard" onsubmit="return confirm('이 원고를 폐기할까요? 게시가 취소되고 되돌릴 수 없습니다.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-ghost btn-danger">폐기</button></form>
 </div>
 {% endif %}
 

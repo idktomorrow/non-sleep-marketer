@@ -197,6 +197,10 @@ def run_forever() -> None:
         notifier = DesktopNotifier(url)
         ctx = build_context(cfg, db, drivers, notifier=notifier)
         notifier.enabled = lambda: ctx.config.settings.desktop_notifications
+        # 모든 알림을 대시보드 알림함(종 모양)에도 남긴다(데스크톱 알림을 꺼도 남음, N2)
+        from nsm.adapters.notify.recording import RecordingNotifier
+
+        ctx.notifier = RecordingNotifier(ctx.repo, notifier)
         recover_interrupted(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
