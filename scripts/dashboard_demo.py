@@ -13,7 +13,8 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
-from concurrent.futures import Future
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 
@@ -27,10 +28,23 @@ from nsm.app.server import AppState, create_app  # noqa: E402
 from nsm.config.schema import AppConfig  # noqa: E402
 from nsm.domain.clock import SystemClock  # noqa: E402
 from nsm.domain.models import AccountMetrics, Content, ContentBrief, PostMetrics  # noqa: E402
+from nsm.engine.context import JobResult  # noqa: E402
 from nsm.engine.publish import labeled_deck  # noqa: E402
 from nsm.store.db import Database  # noqa: E402
 from nsm.store.repo import Repository  # noqa: E402
 from tests.fakes import FakeTextGenerator, load_comment_cases, load_source_items  # noqa: E402
+
+_DEMO_POOL = ThreadPoolExecutor(max_workers=1)
+
+
+def _demo_job(name: str) -> Future:
+    """지금 실행 흉내: 3초 뒤 그럴듯한 결과(진행 표시·완료 표시 확인용, API 호출 없음)."""
+
+    def work() -> JobResult:
+        time.sleep(3)
+        return JobResult(name, counts={"new": 12, "relevant": 4, "created": 1, "pending_review": 1})
+
+    return _DEMO_POOL.submit(work)
 
 
 def _now(fn) -> Future:
@@ -214,7 +228,7 @@ def main() -> None:
         adapters={},
         media_dir=home / "media",
         reports_dir=home / "reports",
-        run_job_now=lambda name: _now(lambda: name),
+        run_job_now=_demo_job,
         job_names=frozenset(
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),

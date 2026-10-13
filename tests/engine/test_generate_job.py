@@ -221,3 +221,24 @@ def test_save_is_atomic(ctx: JobContext, monkeypatch) -> None:
         run_generate(ctx)
     assert ctx.repo.count_contents() == 0
     assert len(ctx.repo.unused_relevant_items(0.8)) == 4
+
+
+def test_manual_run_makes_one_more_after_daily_target(ctx: JobContext) -> None:
+    from nsm.engine.runner import run_job
+
+    run_generate(ctx)  # 자동: 하루 목표 2건
+    assert run_generate(ctx).skipped == "오늘 생성 목표 달성"
+    # 새 자료가 들어온 뒤(쓸 자료가 있어야 만든다)
+    fresh = [
+        i.model_copy(update={"id": f"{i.id}-b", "url": f"{i.url}?b", "url_hash": f"{i.url_hash}b"})
+        for i in load_source_items()
+    ]
+    ctx.sources = [FakeSource("naver", fresh)]
+    run_collect(ctx)
+    r = run_job("generate", ctx, manual=True)  # 사람이 "지금 실행": 1건 더
+    assert r.counts["created"] == 1 and r.skipped == "", r.summary()
+    extra = ctx.repo.list_contents()[0]
+    # 쿼터를 넘긴 원고도 모든 플랫폼에 배정(쿼터가 남는 날 올라감)
+    pubs = {p.platform for p in ctx.repo.publications_for_content(extra.id)}
+    assert pubs == set(ctx.config.settings.enabled_platforms)
+    assert run_job("generate", ctx).skipped == "오늘 생성 목표 달성"  # 자동은 그대로

@@ -133,7 +133,9 @@ def _check_rules(
     return (again, v2) if len(v2) <= len(violations) else (gen, violations)
 
 
-def run_generate(ctx: JobContext) -> JobResult:
+def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
+    """자동 실행은 하루 목표(플랫폼 쿼터 중 최대)까지 만든다. 사람이 "지금 실행"으로 부르면(manual)
+    목표와 상관없이 1건을 더 만든다(비용 상한·쓸 자료는 그대로 지킨다, ADR 0030)."""
     result = JobResult("generate")
     now = ctx.clock.now()
     ok, why = should_act(now, ctx.config.persona, ctx.tz)
@@ -147,6 +149,8 @@ def run_generate(ctx: JobContext) -> JobResult:
 
     start, end = local_day_bounds(now, ctx.tz)
     target = daily_content_target(s.enabled_platforms, s.quotas)
+    if manual:
+        target = ctx.repo.count_contents_between(start, end) + 1
     created: list[str] = []
     while True:
         made_today = ctx.repo.count_contents_between(start, end)
@@ -164,7 +168,7 @@ def run_generate(ctx: JobContext) -> JobResult:
         if material is None:
             result.skipped = "" if created else "쓸 자료 없음(관련 자료 수집 필요)"
             break
-        cid = _make_one(ctx, material, made_today, now, result)
+        cid = _make_one(ctx, material, made_today, now, result, manual=manual)
         if cid == _RETRY_LATER:
             break  # 네트워크·API 장애: 자료는 그대로 두고 다음 실행에 다시
         if cid == _SKIP_MATERIAL:
@@ -191,6 +195,7 @@ def _make_one(
     index_today: int,
     now: datetime,
     result: JobResult,
+    manual: bool = False,
 ) -> str:
     s = ctx.config.settings
     persona, brand = ctx.config.persona, ctx.config.brand
@@ -255,7 +260,9 @@ def _make_one(
         persona_topic=persona_topic,
         approved_by_policy=approved,
         item_ids=[i.id for i in items],
-        platforms=assign_platforms(index_today, s.enabled_platforms, s.quotas),
+        # 하루 쿼터를 넘겨 사람이 더 만든 원고는 모든 플랫폼에 배정한다(쿼터가 남는 날 차례로 올라감)
+        platforms=assign_platforms(index_today, s.enabled_platforms, s.quotas)
+        or (list(s.enabled_platforms) if manual else []),
     )
     result.counts.setdefault("templates", []).append(template)
     return content.id

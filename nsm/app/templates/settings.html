@@ -3,6 +3,8 @@
 <h1>설정</h1>
 <p class="muted small">저장하면 다음 작업부터 바로 반영됩니다(프로그램을 다시 켤 필요 없음). 이미 만든 원고는 그대로입니다.</p>
 {% if saved %}<div class="notice info">저장했습니다.</div>{% endif %}
+{% if request.query_params.get('notified') == 'off' %}<div class="notice warn">알림이 꺼져 있어 보내지 않았습니다. 아래 "Windows 알림 받기"를 켜고 저장하세요.</div>
+{% elif request.query_params.get('notified') %}<div class="notice info">테스트 알림을 보냈습니다. 화면 오른쪽 아래에 "논슬립 마케터 알림 테스트"가 보이지 않으면 Windows 설정 → 시스템 → 알림에서 알림과 "방해 금지"를 확인하세요.</div>{% endif %}
 {% if error %}<div class="notice bad">저장하지 못했습니다. {{ error }}</div>{% endif %}
 
 <form method="post" action="/settings" class="settings-form" id="settings-form"><input type="hidden" name="csrf" value="{{ csrf }}">
@@ -63,8 +65,17 @@
   <label class="check"><input type="checkbox" name="ad_label" {% if v.ad_label == 'on' %}checked{% endif %}> 모든 게시물에 "광고" 표기 <span class="hint">협찬·광고 계정일 때만 켜세요. 원고마다 광고로 표시된 것은 이 설정과 상관없이 표기됩니다</span></label>
 </div>
 
+<h2>알림</h2>
+<div class="panel">
+  <label class="check"><input type="checkbox" name="desktop_notifications" {% if v.desktop_notifications == 'on' %}checked{% endif %}> Windows 알림 받기 <span class="hint">검토할 원고, 사람이 확인할 댓글, 로그인 필요, 게시 실패, 비용 상한, "지금 실행" 완료 때 화면 오른쪽 아래에 알림을 띄웁니다. 꺼도 대시보드의 할 일 목록과 진행 표시는 그대로입니다</span></label>
+  <p class="small" style="margin-bottom:0"><button class="btn-sm" type="submit" form="notify-test-form">테스트 알림 보내기</button> <span class="muted">저장한 설정 기준으로 보냅니다</span></p>
+</div>
+
 <div class="actionbar settings-bar"><span class="muted small grow">시간 형식: 09:00-12:00, 18:00-23:00 (쉼표로 여러 구간)</span><button class="btn-primary">저장</button></div>
 </form>
+
+
+<form id="notify-test-form" method="post" action="/notify/test"><input type="hidden" name="csrf" value="{{ csrf }}"></form>
 
 <h2>여기서 바꾸지 않는 것</h2>
 <div class="panel small">
