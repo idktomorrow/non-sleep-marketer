@@ -183,3 +183,11 @@ def test_nav_count_and_oldest_link_are_not_capped(make) -> None:
     html = build()[0].get("/").text
     assert '<span class="count">105</span>' in html
     assert 'href="/review/c104"' in html  # 가장 오래된 원고
+
+
+def test_job_cards_wrap_their_description(make) -> None:
+    css = make[0]()[0].get("/static/app.css").text
+    job = css[css.index(".job {") :]
+    job = job[: job.index("}")]
+    # 설명이 잘리지 않고 같은 줄의 카드 높이가 같다
+    assert "white-space: normal" in job and "height: 100%" in job
