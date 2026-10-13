@@ -63,7 +63,7 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 - 시간대: 설정 `timezone`(기본 `Asia/Seoul`), DB는 UTC.
 - ID: ULID 문자열. 커밋: Conventional Commits, 제목 영어, 본문 한국어 허용.
 - 의존성 고정: `uv.lock` 커밋, CI는 `uv sync --frozen`.
-- 릴리스 태그: `v0.1-dryrun`(F), `v0.2-live`(H), `v0.3-mvp`(I). 태그마다 CHANGELOG 정리.
+- 릴리스 태그: `v0.1-dryrun`(F), `v0.2-live`(H), `v0.3-mvp`(I), `v0.4-quality`(S-β·S-γ·S8 머지 후). 태그마다 CHANGELOG 정리.
 - 온보딩 첫 명령은 `nsm doctor`.
 
 ## 4. 기록 체계
