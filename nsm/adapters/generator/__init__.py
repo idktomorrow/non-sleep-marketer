@@ -22,7 +22,7 @@ def make_text_generator(
     from nsm.adapters.generator.claude_text import ClaudeTextGenerator
 
     return ClaudeTextGenerator(
-        anthropic.Anthropic(api_key=key),
+        anthropic.Anthropic(max_retries=5, api_key=key),
         cfg.settings.models.generation,
         cost_sink,
         include_blog="naver_blog" in cfg.settings.enabled_platforms,

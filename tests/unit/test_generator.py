@@ -272,3 +272,13 @@ def test_prompt_has_today_and_source_dates(app_config) -> None:
     assert user.startswith("오늘 날짜: 20")
     assert 'collected="2026-10-13"' in user and 'published="2026-09-20"' in user
     assert "소문" in req["system"] and "지난 일로" in req["system"]
+
+
+def test_factory_retries_more_than_sdk_default(app_config) -> None:
+    from nsm.adapters.generator import make_text_generator
+    from nsm.config.secrets import MemorySecretStore
+
+    gen = make_text_generator(
+        app_config, MemorySecretStore({"anthropic_api_key": "k"}), FakeCostSink()
+    )
+    assert gen.client.max_retries == 5  # 순간 끊김(수십 초)을 버티게

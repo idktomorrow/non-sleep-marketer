@@ -41,7 +41,9 @@ def make_classifiers(cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink) 
         from nsm.adapters.classifier.claude import ClaudeClassifier
 
         c = ClaudeClassifier(
-            anthropic.Anthropic(api_key=anthropic_key), cfg.settings.models.classifier, cost_sink
+            anthropic.Anthropic(max_retries=5, api_key=anthropic_key),
+            cfg.settings.models.classifier,
+            cost_sink,
         )
         return ClassifierSet("claude", c, c, c)
 
