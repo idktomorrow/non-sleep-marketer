@@ -194,7 +194,9 @@ def run_forever() -> None:
     drivers = ExitStack()  # 브라우저는 작업 스레드에서 열리므로 닫기도 작업 스레드에서
     scheduler = None
     try:
-        ctx = build_context(cfg, db, drivers, notifier=DesktopNotifier(url))
+        notifier = DesktopNotifier(url)
+        ctx = build_context(cfg, db, drivers, notifier=notifier)
+        notifier.enabled = lambda: ctx.config.settings.desktop_notifications
         recover_interrupted(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
@@ -225,6 +227,7 @@ def run_forever() -> None:
             run_job_now=scheduler.run_now,
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
+            notify=ctx.notifier.notify,
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")

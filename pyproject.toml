@@ -22,7 +22,6 @@ dependencies = [
     "pypdf>=5.0",
     "openpyxl>=3.1",
     "tzdata>=2024.1",
-    "winotify>=1.1; sys_platform == 'win32'",
 ]
 
 [project.scripts]

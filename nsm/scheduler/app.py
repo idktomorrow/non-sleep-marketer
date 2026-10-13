@@ -20,7 +20,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from nsm.config.schema import AppConfig
-from nsm.engine.context import JobContext
+from nsm.engine.context import JobContext, JobResult
 from nsm.engine.runner import run_job
 
 log = logging.getLogger(__name__)
@@ -62,9 +62,10 @@ class JobScheduler:
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 900},
         )
 
-    def _run(self, name: str) -> None:
-        result = run_job(name, self._ctx())
+    def _run(self, name: str, manual: bool = False) -> JobResult:
+        result = run_job(name, self._ctx(), manual=manual)
         log.info(result.summary())
+        return result
 
     def install(self, cfg: AppConfig) -> list[str]:
         installed = []
@@ -106,4 +107,5 @@ class JobScheduler:
         return fut
 
     def run_now(self, name: str) -> Future:
-        return self.submit(lambda: self._run(name))
+        """대시보드 "지금 실행": 사람이 부른 실행(manual). Future 결과는 JobResult."""
+        return self.submit(lambda: self._run(name, manual=True))

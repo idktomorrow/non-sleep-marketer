@@ -26,12 +26,19 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 }
 
 
-def run_job(name: str, ctx: JobContext) -> JobResult:
+# 사람이 "지금 실행"으로 부를 때 다르게 동작하는 잡(예: 원고 만들기는 하루 목표와 상관없이 1건 더)
+MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
+    "generate": lambda ctx: run_generate(ctx, manual=True),
+}
+
+
+def run_job(name: str, ctx: JobContext, manual: bool = False) -> JobResult:
     if name not in JOBS:
         raise KeyError(f"알 수 없는 잡: {name} (가능: {', '.join(JOBS)})")
     run_id = ctx.repo.start_run(name)
+    fn = MANUAL_JOBS.get(name, JOBS[name]) if manual else JOBS[name]
     try:
-        result = JOBS[name](ctx)
+        result = fn(ctx)
     except Exception as e:
         log.exception("잡 %s 실패", name)
         ctx.repo.finish_run(run_id, False, f"{type(e).__name__}: {e}")

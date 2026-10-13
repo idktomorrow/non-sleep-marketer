@@ -102,6 +102,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         },
         daily_cost_cap_usd=_number(form, "daily_cost_cap_usd", "하루 비용 상한", 0.1, COST_CAP_MAX),
         min_hours_between_posts=_number(form, "min_hours_between_posts", "게시 간격", 0, 24),
+        desktop_notifications=form.get("desktop_notifications") == "on",
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
@@ -148,4 +149,5 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "daily_cost_cap_usd": f"{s.daily_cost_cap_usd:g}",
         "min_hours_between_posts": f"{s.min_hours_between_posts:g}",
         "reply_interval_minutes": str(s.reply_interval_minutes),
+        "desktop_notifications": "on" if s.desktop_notifications else "",
     }

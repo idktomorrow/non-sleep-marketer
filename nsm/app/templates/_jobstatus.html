@@ -1,0 +1,15 @@
+{#- "지금 실행" 진행 표시(오른쪽 아래). 실행 중이면 2초마다 다시 읽고, 다 끝나면 읽기를 멈춘다. -#}
+<div id="jobstatus" class="jobstatus" aria-live="polite"{% if js.running %} hx-get="/jobs/status" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+{% for r in js["items"] %}
+  <div class="jobtoast is-{{ r.state }}">
+  {% if r.state == "running" %}
+    <span class="spinner" aria-hidden="true"></span><div><b>{{ r.label }}</b> 실행 중… <span class="muted small">{{ r.elapsed }}</span></div>
+  {% else %}
+    <span class="mark" aria-hidden="true">{{ "✓" if r.state == "ok" else "!" }}</span>
+    <div><b>{{ r.label }} {{ "완료" if r.state == "ok" else "실패" }}</b> <span class="muted small">{{ r.elapsed }}</span>
+      <div class="small">{{ r.text }}</div>
+      <div class="small"><a href="#" onclick="location.reload(); return false">화면 새로고침</a> · <a href="/logs">실행 기록</a></div></div>
+  {% endif %}
+  </div>
+{% endfor %}
+</div>

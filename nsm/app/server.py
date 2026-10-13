@@ -14,9 +14,10 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -35,6 +36,7 @@ from nsm.app.card_editor import (
 )
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
+from nsm.app.ko import result_text
 from nsm.app.settings_form import SettingsError, apply_settings_form, form_values
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
@@ -46,6 +48,31 @@ from nsm.store import queries
 from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
+MAX_MANUAL_RUNS = 10
+
+
+@dataclass
+class ManualRun:
+    """대시보드 "지금 실행"으로 부른 작업 하나(진행 표시와 끝난 뒤 알림용, ADR 0030)."""
+
+    id: str
+    name: str
+    started: datetime
+    future: Future | None = None
+    finished: datetime | None = None
+    ok: bool = True
+    text: str = ""
+
+
+def _local_path(referer: str | None) -> str | None:
+    """같은 대시보드(127.0.0.1·localhost)에서 온 요청이면 그 경로. 다른 곳이면 None(열린 리다이렉트 방지)."""
+    if not referer:
+        return None
+    parts = urlsplit(referer)
+    if parts.hostname not in ("127.0.0.1", "localhost", "testserver"):
+        return None
+    path = parts.path or "/"
+    return path if path.startswith("/") and not path.startswith("//") else None
 
 
 @dataclass
@@ -62,6 +89,8 @@ class AppState:
     run_job_now: Callable[[str], Future] | None = None
     job_names: frozenset[str] = frozenset()
     renderer: CardRenderer | None = None  # 카드 미리보기(M16). 없으면 미리보기 버튼이 안내만 한다
+    notify: Callable[[str, str, str], None] | None = None  # 데스크톱 알림(제목, 내용, 수준)
+    manual_runs: list[ManualRun] = field(default_factory=list)
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -131,6 +160,7 @@ def create_app(state: AppState) -> FastAPI:
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
                 "has_reports": state.reports_dir is not None,
+                "js": job_status(),
                 **ctx,
             },
         )
@@ -215,13 +245,64 @@ def create_app(state: AppState) -> FastAPI:
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.post("/jobs/{name}/run", dependencies=[Depends(check_csrf)])
-    def run_now(name: str) -> RedirectResponse:
+    def run_now(name: str, request: Request) -> RedirectResponse:
         if state.run_job_now is None:
             raise HTTPException(503, "스케줄러가 없습니다")
         if name not in state.job_names:
             raise HTTPException(404, f"알 수 없는 잡: {name}")
-        state.run_job_now(name)
-        return back("/logs")
+        run = ManualRun(id=secrets.token_hex(4), name=name, started=state.clock.now())
+        run.future = state.run_job_now(name)
+        state.manual_runs.append(run)
+        del state.manual_runs[:-MAX_MANUAL_RUNS]
+        run.future.add_done_callback(lambda f, r=run: _manual_done(r, f))
+        # 누른 화면에 그대로 머물며 진행 상황을 본다(실행 기록으로 보내지 않음)
+        return back(_local_path(request.headers.get("referer")) or "/")
+
+    def _manual_done(run: ManualRun, fut: Future) -> None:
+        run.finished = state.clock.now()
+        label = JOB_LABELS.get(run.name, (run.name, ""))[0]
+        err = fut.exception()
+        run.ok = err is None and bool(getattr(fut.result(), "ok", True))
+        run.text = f"{type(err).__name__}: {err}"[:300] if err else result_text(fut.result())
+        if state.notify:
+            state.notify(
+                f"{label} {'완료' if run.ok else '실패'}", run.text, "info" if run.ok else "warn"
+            )
+
+    def job_status() -> dict[str, Any]:
+        """지금 실행 중이거나 최근 3분 안에 끝난 "지금 실행" 작업(화면 오른쪽 아래 알림)."""
+        now = state.clock.now()
+        items = []
+        for r in state.manual_runs:
+            if r.finished is not None and now - r.finished > timedelta(minutes=3):
+                continue
+            secs = int(((r.finished or now) - r.started).total_seconds())
+            items.append(
+                {
+                    "id": r.id,
+                    "label": JOB_LABELS.get(r.name, (r.name, ""))[0],
+                    "state": "running" if r.finished is None else ("ok" if r.ok else "bad"),
+                    "elapsed": f"{secs // 60}분 {secs % 60}초" if secs >= 60 else f"{secs}초",
+                    "text": r.text,
+                }
+            )
+        return {"items": items, "running": any(i["state"] == "running" for i in items)}
+
+    @app.get("/jobs/status", response_class=HTMLResponse)
+    def jobs_status(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "_jobstatus.html", {"js": job_status()})
+
+    @app.post("/notify/test", dependencies=[Depends(check_csrf)])
+    def notify_test() -> RedirectResponse:
+        if not state.get_config().settings.desktop_notifications:
+            return back("/settings?notified=off")
+        if state.notify:
+            state.notify(
+                "논슬립 마케터 알림 테스트",
+                "이 알림이 보이면 데스크톱 알림이 켜져 있습니다",
+                "info",
+            )
+        return back("/settings?notified=1")
 
     # ------------------------------------------------------------------ 검토 대기열
 
