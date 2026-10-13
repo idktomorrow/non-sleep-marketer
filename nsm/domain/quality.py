@@ -130,6 +130,19 @@ def sns_texts(gen: GeneratedContent) -> dict[str, str]:
     return out
 
 
+# 확인되지 않은 소문·추측을 SNS 글에 옮긴 흔적(ADR 0032). 실제 고객 후기 인용("고객 후기에 따르면")과는 다르다.
+UNCONFIRMED_PHRASES = (
+    "소문",
+    "루머",
+    "카더라",
+    "이야기가 돌",
+    "얘기가 돌",
+    "예상 가격",
+    "아직 공지",
+    "아직 공개되지",
+)
+
+
 def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
     """프롬프트에만 있던 규칙을 생성 결과에 대고 검사한다. 빈 목록이면 통과."""
     out: list[str] = []
@@ -144,6 +157,10 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
         hit = next((p for p in STIFF_PHRASES if p in texts[name]), None)
         if hit:
             out.append(f'{name}에 딱딱한 표현 "{hit}"')
+    for name, text in texts.items():
+        hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
+        if hit:
+            out.append(f'{name}에 확인되지 않은 내용 "{hit}"')
     return out
 
 

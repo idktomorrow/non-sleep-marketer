@@ -43,3 +43,4 @@
 | [0029](0029-reply-interval.md) | 댓글 확인 간격은 설정값(기본 5분, 3~60분) | 채택 |
 | [0030](0030-notifications-and-manual-runs.md) | 알림 앱 ID 등록·켜기/끄기, 지금 실행 진행 표시, 원고 만들기는 누를 때마다 1건 더 | 채택 |
 | [0031](0031-notification-inbox-and-publish-queue.md) | 알림함(종 모양, DB 보관), 진행 표시 닫기, 게시 대기 화면(검토로 되돌리기·폐기) | 채택 |
+| [0032](0032-fresh-sources-and-no-rumors.md) | 네이버 검색 최신순·기간, 원고에 오늘·자료 날짜, 지난 예정·소문 금지와 코드 검사 | 채택 |

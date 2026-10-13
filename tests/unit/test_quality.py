@@ -224,3 +224,17 @@ def test_count_emoji_counts_what_people_see(text: str, n: int) -> None:
 )
 def test_emoji_limit_more_phrasings(tone: str, limit: int) -> None:
     assert Q.emoji_limit(tone) == limit
+
+
+def test_unconfirmed_rumors_are_violations(app_config) -> None:
+    # 2026-10-13 실제 원고: 개봉 전 블로그 글을 보고 "가격은 아직 소문 단계"라고 썼다
+    gen = _gen(
+        app_config,
+        caption="가격은 아직 소문 단계예요.\n커뮤니티에서는 29,000원 선이라는 이야기가 돌아요.",
+        threads="공식 세부 금액은 아직 공지 전이에요.",
+    )
+    v = Q.rule_violations(gen, app_config.persona)
+    assert any("인스타그램 캡션에 확인되지 않은 내용" in x for x in v)
+    assert any("스레드 글에 확인되지 않은 내용" in x for x in v)
+    ok = _gen(app_config, "정가는 2만9000원이에요(10월 13일 기사 기준)", "11월 출시 예정이래요")
+    assert Q.rule_violations(ok, app_config.persona) == []

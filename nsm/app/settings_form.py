@@ -62,6 +62,16 @@ def _windows(form: dict[str, Any], key: str, label: str) -> list | None:
         raise SettingsError(f"{label}: {e}") from e
 
 
+PERIODS = {"1d": "최근 1일", "1w": "최근 1주", "1m": "최근 1달", "all": "기간 없음(정확도순)"}
+
+
+def _period(form: dict[str, Any]) -> str:
+    v = str(form.get("recent_period", "1w"))
+    if v not in PERIODS:
+        raise SettingsError("자료 검색 기간: 1일·1주·1달·기간 없음 중 하나를 고르세요")
+    return v
+
+
 def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
     """폼 값을 반영한 새 설정. 형식이 틀리면 SettingsError(아무것도 바뀌지 않음)."""
     topics = _lines(form, "topics", "관심 주제", MAX_TOPICS)
@@ -103,6 +113,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         daily_cost_cap_usd=_number(form, "daily_cost_cap_usd", "하루 비용 상한", 0.1, COST_CAP_MAX),
         min_hours_between_posts=_number(form, "min_hours_between_posts", "게시 간격", 0, 24),
         desktop_notifications=form.get("desktop_notifications") == "on",
+        collect={**cfg.settings.collect.model_dump(), "recent_period": _period(form)},
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
@@ -150,4 +161,5 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "min_hours_between_posts": f"{s.min_hours_between_posts:g}",
         "reply_interval_minutes": str(s.reply_interval_minutes),
         "desktop_notifications": "on" if s.desktop_notifications else "",
+        "recent_period": s.collect.recent_period,
     }

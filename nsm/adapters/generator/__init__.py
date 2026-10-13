@@ -26,6 +26,7 @@ def make_text_generator(
         cfg.settings.models.generation,
         cost_sink,
         include_blog="naver_blog" in cfg.settings.enabled_platforms,
+        tz=cfg.settings.timezone,
     )
 
 
