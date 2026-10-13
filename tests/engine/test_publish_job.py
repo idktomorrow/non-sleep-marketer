@@ -274,3 +274,15 @@ def test_posting_hours_limit_only_publishing(ctx: JobContext) -> None:
     ctx.clock.set(datetime(2026, 10, 11, 9, 0, tzinfo=KST))
     assert run_publish(ctx).skipped == ""
     assert _published(ctx, "threads")
+
+
+def test_card_shows_site_names_but_content_keeps_urls(ctx: JobContext) -> None:
+    from nsm.engine.publish import labeled_deck
+
+    c = ctx.repo.list_contents()[0]
+    outro = c.generated.deck.slides[-1]
+    urls = list(outro.sources)
+    assert urls and all(u.startswith("http") for u in urls)
+    shown = labeled_deck(c).slides[-1].sources
+    assert shown and not any(s.startswith("http") for s in shown)  # 카드에는 사이트 이름
+    assert ctx.repo.get_content(c.id).generated.deck.slides[-1].sources == urls  # 데이터는 그대로

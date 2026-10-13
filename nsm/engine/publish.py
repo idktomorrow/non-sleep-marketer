@@ -21,7 +21,7 @@ from nsm.domain.policy import (
     local_day_bounds,
     should_post,
 )
-from nsm.domain.quality import sources_line
+from nsm.domain.quality import card_sources, sources_line
 from nsm.engine.context import JobContext, JobResult
 from nsm.store.repo import InvalidTransitionError
 
@@ -31,9 +31,14 @@ PAUSED_KEY = "paused_platforms"  # health 잡이 로그인 만료 플랫폼을 �
 
 
 def labeled_deck(content: Content):
+    """렌더용 덱: 표기를 채우고, 마무리 장 출처는 긴 주소 대신 사이트 이름으로 보인다."""
     deck = content.generated.deck
     labels = deck.labels.model_copy(update={"virtual_person": True, "ad": content.is_ad})
-    return deck.model_copy(update={"labels": labels})
+    slides = [
+        s.model_copy(update={"sources": card_sources(list(s.sources))}) if s.kind == "outro" else s
+        for s in deck.slides
+    ]
+    return deck.model_copy(update={"labels": labels, "slides": slides})
 
 
 class CardOverflowError(Exception):

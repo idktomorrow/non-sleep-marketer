@@ -261,3 +261,27 @@ def test_awkward_outro_cta_is_a_violation(app_config, cta: str) -> None:
 def test_natural_outro_cta_passes(app_config, cta: str) -> None:
     gen = _with_cta(_gen(app_config), cta)
     assert not any("마무리 문구" in v for v in Q.rule_violations(gen, app_config.persona))
+
+
+@pytest.mark.parametrize(
+    ("url", "name"),
+    [
+        ("https://www.yna.co.kr/view/AKR20261012042600005?input=1195m", "연합뉴스"),
+        ("https://www.ize.co.kr/news/articleView.html?idxno=81538", "아이즈"),
+        ("https://ent.sbs.co.kr/news/article.do?article_id=E1", "SBS"),
+        ("https://news.jtbc.co.kr/article/NB1", "JTBC"),
+        ("http://www.finomy.com/news/articleView.html?idxno=263459", "finomy.com"),
+        ("브랜드 제공 자료", "브랜드 제공 자료"),
+    ],
+)
+def test_site_label_knows_news_sites(url: str, name: str) -> None:
+    assert Q.site_label(url) == name
+
+
+def test_card_sources_are_short_names_once() -> None:
+    srcs = [
+        "https://www.yna.co.kr/view/A",
+        "https://www.yna.co.kr/view/B",
+        "https://blog.naver.com/qmfosej/224433414252",
+    ]
+    assert Q.card_sources(srcs) == ["연합뉴스", "네이버 블로그"]
