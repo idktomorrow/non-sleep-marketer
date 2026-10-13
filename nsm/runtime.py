@@ -227,6 +227,9 @@ def run_forever() -> None:
             submit=scheduler.submit,
             adapters=ctx.adapters,
             media_dir=ctx.media_dir,
+            uploads_dir=Path(cfg.settings.collect.upload_dir)
+            if cfg.settings.collect.upload_dir
+            else paths.uploads_dir(),
             reports_dir=ctx.reports_dir,
             run_job_now=scheduler.run_now,
             job_names=frozenset(JOBS),

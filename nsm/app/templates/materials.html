@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>자료</h1>
+<p class="muted small">원고를 만들 때 쓰는 자료입니다. 네이버 블로그·뉴스와 구글 트렌드는 자동으로 모으고, 브랜드 자료(제품 정보, 보도자료, 고객 후기 엑셀 등)는 여기서 올립니다. 모든 자료는 관심 주제와 관련 있는지 판정을 거치고, "관련 있음"만 원고에 쓰입니다.</p>
+
+{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. 글자 {{ chars }}자를 읽었습니다. 다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+{% if deleted %}<div class="notice info"><b>{{ deleted }}</b> 파일을 지웠습니다. 이미 자료로 들어간 내용은 목록에 남습니다.</div>{% endif %}
+
+<h2>파일 올리기</h2>
+<div class="panel">
+  <form method="post" action="/materials/upload" enctype="multipart/form-data" class="actions"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf" required>
+    <button class="btn-primary btn-sm">올리기</button>
+  </form>
+  <p class="muted small" style="margin-bottom:0">txt·md·csv·xlsx(엑셀)·pdf, {{ max_mb }}MB 이하. 워드·한글 문서는 PDF로 저장해서 올리세요. 스캔한 이미지 PDF는 글자를 읽을 수 없습니다. 올리면 바로 글을 읽어 보고, 읽지 못하면 올리지 않습니다. 저장 위치: <code>{{ uploads_dir }}</code> (폴더에 직접 넣어도 됩니다)</p>
+  <div class="actions" style="margin-top:10px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">자료 모으기 지금 실행</button></form><span class="muted small">올린 파일과 네이버 새 자료를 바로 읽고 판정합니다</span></div>
+</div>
+
+<h2>올린 파일</h2>
+{% if files %}
+<div class="table-wrap"><table><tr><th>파일</th><th class="num">크기</th><th>자료 상태</th><th>원고</th><th></th></tr>
+{% for f in files %}<tr>
+<td>{{ f.name }}</td>
+<td class="num small">{{ f.size_kb }}KB</td>
+<td class="small">{% if not f.supported %}<span class="badge bad">읽을 수 없는 형식</span>
+{% elif not f.item %}<span class="badge gray">아직 안 읽음</span> <span class="muted">다음 자료 모으기 때 읽음</span>
+{% else %}<span class="badge {{ f.tone }}">{{ f.verdict }}</span> <span class="muted">{{ f.item.chars }}자 · {{ f.item.collected_at|kst }} 읽음{% if f.item.topic %} · 주제 {{ f.item.topic }}{% endif %}</span>{% if f.changed %} <span class="badge warn">고친 뒤 아직 안 읽음</span>{% endif %}{% endif %}</td>
+<td class="small">{% if f.item and f.item.used_in %}<a href="/review/{{ f.item.used_in }}">쓰인 원고</a>{% endif %}</td>
+<td><form class="inline" method="post" action="/materials/files/delete" onsubmit="return confirm('이 파일을 폴더에서 지울까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ f.name }}"><button class="btn-sm btn-ghost btn-danger">파일 지우기</button></form></td>
+</tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted">올린 파일이 없습니다.</p>{% endif %}
+
+<h2>모은 자료</h2>
+<div class="actions small" style="margin-bottom:8px">
+{% for key, label in [("all", "전체"), ("naver", "네이버"), ("upload", "올린 파일"), ("trends", "구글 트렌드")] %}
+<a class="btn btn-sm {{ 'btn-primary' if source == key else '' }}" href="/materials?source={{ key }}">{{ label }}{% set n = counts.get({"all": "", "naver": "naver", "upload": "upload", "trends": "google_trends"}[key]) %}{% if key == 'all' %} {{ counts.values()|sum }}{% elif n %} {{ n }}{% endif %}</a>
+{% endfor %}
+</div>
+{% if items %}
+<div class="table-wrap"><table><tr><th>모은 때</th><th>출처</th><th>제목</th><th>판정</th><th>주제</th><th>원고</th></tr>
+{% for it in items %}<tr>
+<td class="small">{{ it.collected_at|kst }}</td>
+<td class="small">{{ it.source_label }}</td>
+<td style="min-width:220px">{% if it.url and it.url.startswith('http') %}<a href="{{ it.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ it.title }}</a>{% else %}{{ it.title }}{% endif %} <span class="muted small">{{ it.chars }}자</span></td>
+<td class="small"><span class="badge {{ it.tone }}">{{ it.verdict }}</span></td>
+<td class="small">{{ it.topic or '' }}</td>
+<td class="small">{% if it.used_in %}<a href="/review/{{ it.used_in }}">쓰인 원고</a>{% endif %}</td>
+</tr>{% endfor %}
+</table></div>
+<p class="muted small">최근 150개까지 보여 줍니다. "관련 있음" 점수가 {{ "%.1f"|format(cfg.settings.relevance_threshold) }} 이상이고 아직 쓰이지 않은 자료가 "오늘" 화면의 "쓸 수 있는 자료"입니다.</p>
+{% else %}<p class="muted">모은 자료가 없습니다.</p>{% endif %}
+{% endblock %}

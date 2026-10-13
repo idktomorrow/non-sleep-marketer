@@ -233,6 +233,7 @@ def main() -> None:
         submit=_now,
         adapters={},
         media_dir=home / "media",
+        uploads_dir=home / "uploads",
         reports_dir=home / "reports",
         run_job_now=_demo_job,
         job_names=frozenset(

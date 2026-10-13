@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -37,6 +37,15 @@ from nsm.app.card_editor import (
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
 from nsm.app.ko import result_text
+from nsm.app.materials import (
+    MAX_FILE_BYTES,
+    MaterialError,
+    delete_file,
+    list_files,
+    save_material,
+    source_label,
+    verdict,
+)
 from nsm.app.settings_form import PERIODS, SettingsError, apply_settings_form, form_values
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
@@ -91,6 +100,7 @@ class AppState:
     job_names: frozenset[str] = frozenset()
     renderer: CardRenderer | None = None  # 카드 미리보기(M16). 없으면 미리보기 버튼이 안내만 한다
     notify: Callable[[str, str, str], None] | None = None  # 데스크톱 알림(제목, 내용, 수준)
+    uploads_dir: Path | None = None  # 직접 올린 자료 폴더(자료 화면, M18)
     manual_runs: list[ManualRun] = field(default_factory=list)
 
 
@@ -367,6 +377,66 @@ def create_app(state: AppState) -> FastAPI:
                     thumbs[c.id] = f"{route}{c.id}/slide-01.png"
                     break
         return thumbs
+
+    # ------------------------------------------------------------------ 자료 (M18)
+
+    MATERIAL_FILTERS = {
+        "all": None,
+        "naver": "naver",
+        "upload": "upload",
+        "trends": "google_trends",
+    }
+
+    @app.get("/materials", response_class=HTMLResponse)
+    def materials(request: Request, source: str = "all") -> HTMLResponse:
+        if source not in MATERIAL_FILTERS:
+            source = "all"
+        threshold = state.get_config().settings.relevance_threshold
+        items = state.repo.list_source_items_view(MATERIAL_FILTERS[source], limit=150)
+        for it in items:
+            it["verdict"], it["tone"] = verdict(it, threshold)
+            it["source_label"] = source_label(it["source"])
+        uploads = state.repo.list_source_items_view("upload", limit=500)
+        files = list_files(state.uploads_dir, uploads) if state.uploads_dir else []
+        for f in files:
+            if f["item"]:
+                f["verdict"], f["tone"] = verdict(f["item"], threshold)
+        q = request.query_params
+        return page(
+            request,
+            "materials.html",
+            items=items,
+            files=files,
+            source=source,
+            counts=state.repo.source_counts(),
+            uploads_dir=str(state.uploads_dir or ""),
+            max_mb=MAX_FILE_BYTES // (1024 * 1024),
+            uploaded=q.get("uploaded"),
+            chars=q.get("chars"),
+            error=q.get("error"),
+            deleted=q.get("deleted"),
+        )
+
+    @app.post("/materials/upload", dependencies=[Depends(check_csrf)])
+    async def upload_material(file: UploadFile = File(...)) -> RedirectResponse:
+        if state.uploads_dir is None:
+            raise HTTPException(503, "자료 폴더가 설정되지 않았습니다")
+        data = await file.read(MAX_FILE_BYTES + 1)
+        try:
+            path, chars = save_material(state.uploads_dir, file.filename or "자료", data)
+        except MaterialError as e:
+            return back("/materials?" + urlencode({"error": str(e)}))
+        return back("/materials?" + urlencode({"uploaded": path.name, "chars": chars}))
+
+    @app.post("/materials/files/delete", dependencies=[Depends(check_csrf)])
+    def delete_material_file(name: str = Form(...)) -> RedirectResponse:
+        if state.uploads_dir is None:
+            raise HTTPException(503, "자료 폴더가 설정되지 않았습니다")
+        try:
+            delete_file(state.uploads_dir, name)
+        except MaterialError as e:
+            raise HTTPException(400, str(e)) from e
+        return back("/materials?" + urlencode({"deleted": name}))
 
     # ------------------------------------------------------------------ 게시 대기 (N2)
 
