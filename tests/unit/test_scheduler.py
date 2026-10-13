@@ -73,3 +73,10 @@ def test_reschedule_follows_new_active_hours(app_config) -> None:
         assert "hour='0'" in str(s.scheduler.get_job("collect#0").trigger)
     finally:
         s.shutdown()
+
+
+def test_reply_interval_follows_setting(app_config) -> None:
+    assert "0:05:00" in str(job_triggers(app_config)["reply"])  # 기본 5분
+    fast = app_config.model_copy(deep=True)
+    fast.settings.reply_interval_minutes = 3
+    assert "0:03:00" in str(job_triggers(fast)["reply"])

@@ -42,7 +42,9 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
         "health": IntervalTrigger(minutes=30, jitter=120, timezone=tz),
         "generate": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
         "publish": IntervalTrigger(minutes=30, jitter=600, timezone=tz),
-        "reply": IntervalTrigger(minutes=10, jitter=180, timezone=tz),
+        "reply": IntervalTrigger(
+            minutes=cfg.settings.reply_interval_minutes, jitter=60, timezone=tz
+        ),
         "metrics": CronTrigger(hour=3, minute=10, jitter=900, timezone=tz),
         "weekly_report": CronTrigger(day_of_week="mon", hour=8, minute=0, jitter=600, timezone=tz),
     }

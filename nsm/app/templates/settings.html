@@ -57,6 +57,9 @@
     <label>하루 비용 상한(달러) <span class="hint">닿으면 그날은 원고를 만들지 않습니다</span><input type="number" name="daily_cost_cap_usd" value="{{ v.daily_cost_cap_usd }}" min="0.1" max="100" step="0.1" required></label>
     <label>같은 플랫폼 게시 간격(시간)<input type="number" name="min_hours_between_posts" value="{{ v.min_hours_between_posts }}" min="0" max="24" step="0.5" required></label>
   </div>
+  <div class="field-row">
+    <label>댓글 확인 간격(분, 3~60) <span class="hint">짧을수록 빨리 답하지만, 너무 자주 열면 플랫폼이 자동화로 의심할 수 있습니다. 5분 추천</span><input type="number" name="reply_interval_minutes" value="{{ v.reply_interval_minutes }}" min="3" max="60" step="1" required></label>
+  </div>
   <label class="check"><input type="checkbox" name="ad_label" {% if v.ad_label == 'on' %}checked{% endif %}> 모든 게시물에 "광고" 표기 <span class="hint">협찬·광고 계정일 때만 켜세요. 원고마다 광고로 표시된 것은 이 설정과 상관없이 표기됩니다</span></label>
 </div>
 
