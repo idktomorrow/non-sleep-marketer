@@ -274,7 +274,7 @@ def test_editor_page_shows_every_slide(env) -> None:
     deck = env["repo"].get_content("c2").generated.deck
     for i, _ in enumerate(deck.slides):
         assert f"/review/c2/slides/{i}/background" in html
-    assert 'name="s0_title"' in html and "출처는 사실 근거라" in html
+    assert 'name="s0_title"' in html and '_sources"' in html
 
 
 def test_empty_required_text_is_rejected(env) -> None:
@@ -332,3 +332,52 @@ class _pending:
         from concurrent.futures import TimeoutError as FutureTimeout
 
         raise FutureTimeout()
+
+
+# ---------------------------------------------------------------- 출처 수정
+def test_edit_sources_reaches_card_and_post_tail(env) -> None:
+    from nsm.engine.publish import build_post
+
+    deck = env["repo"].get_content("c1").generated.deck
+    oi = len(deck.slides) - 1
+    r = _post(
+        env,
+        "/review/c1/edit",
+        **{
+            f"s{oi}_sources": "https://news.naver.com/a\n브랜드 제공 자료\n\nhttps://news.naver.com/a"
+        },
+    )
+    assert r.status_code == 303
+    c = env["repo"].get_content("c1")
+    assert c.generated.deck.slides[oi].sources == ["https://news.naver.com/a", "브랜드 제공 자료"]
+    post = build_post(c, "threads", [])
+    assert post.text.rstrip().endswith("출처: 네이버 뉴스, 브랜드 제공 자료")
+
+
+@pytest.mark.parametrize(
+    ("value", "msg"),
+    [
+        ("\n \n", "1개 이상"),
+        ("\n".join(f"https://a.com/{i}" for i in range(6)), "5개까지"),
+        ("javascript:alert(1)", "http"),
+        ("file:///C:/secret.txt", "http"),
+        ("https://a.com/" + "x" * 300, "200자"),
+    ],
+)
+def test_bad_sources_are_rejected(value: str, msg: str) -> None:
+    with pytest.raises(E.EditError, match=msg):
+        E.parse_sources(value)
+
+
+def test_source_names_with_colon_and_space_are_allowed() -> None:
+    assert E.parse_sources("출처: 브랜드 자료\nBrand: 제공 자료") == [
+        "출처: 브랜드 자료",
+        "Brand: 제공 자료",
+    ]
+
+
+def test_editor_shows_sources_box(env) -> None:
+    deck = env["repo"].get_content("c1").generated.deck
+    oi = len(deck.slides) - 1
+    html = env["client"].get("/review/c1").text
+    assert f'name="s{oi}_sources"' in html

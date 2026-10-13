@@ -61,7 +61,8 @@
     <label>오른쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_right_points" rows="3">{{ s.right.points|join('\n') }}</textarea></label>
     {% endif %}
     {% if s.kind == 'outro' %}<label>마무리 문구<input type="text" name="s{{ i }}_cta" value="{{ s.cta }}"></label>
-    <p class="muted small">출처는 사실 근거라 여기서 고치지 않습니다: {{ s.sources|join(', ') }}</p>{% endif %}
+    <label>출처(한 줄에 하나, 웹 주소 또는 "브랜드 제공 자료" 같은 이름 · 1~5개)<textarea name="s{{ i }}_sources" rows="3">{{ s.sources|join('\n') }}</textarea></label>
+    <p class="muted small">카드 마지막 장과 SNS 글 끝 "출처:" 줄에 나갑니다. 아래 "사실 주장과 출처"의 근거 자료는 바뀌지 않으니, 주장의 근거를 지우지 않았는지 확인하세요.</p>{% endif %}
     </fieldset>
     {% endfor %}
     <h2>올릴 글</h2>

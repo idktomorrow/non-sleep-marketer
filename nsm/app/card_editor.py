@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ _SIGNATURES: tuple[tuple[bytes, str], ...] = (
     (b"\xff\xd8\xff", ".jpg"),
 )
 
-# 슬라이드 종류별로 고칠 수 있는 칸. 출처(outro.sources)는 사실 근거라 여기서 고치지 않는다.
+# 슬라이드 종류별로 고칠 수 있는 칸. 출처(outro.sources)는 parse_sources로 따로 검사한다.
 TEXT_FIELDS = {
     "cover": ("title", "subtitle"),
     "body": ("heading", "body"),
@@ -40,8 +41,32 @@ REQUIRED_TEXT = {
 }
 
 
+MAX_SOURCES = 5
+MAX_SOURCE_CHARS = 200
+# "javascript:", "file:", "ftp://" 처럼 http·https가 아닌 주소. "출처: 브랜드"처럼 콜론 뒤가 띄어진 이름은 통과.
+_OTHER_SCHEME = re.compile(r"^(?!https?:)[a-z][a-z0-9+.-]*:\S", re.IGNORECASE)
+
+
 class EditError(ValueError):
     """사람이 고친 값이 덱 계약(길이·필수값)에 맞지 않음. 400으로 돌려준다."""
+
+
+def parse_sources(v: str) -> list[str]:
+    """출처 칸(한 줄에 하나): 웹 주소(http·https) 또는 "브랜드 제공 자료" 같은 이름.
+
+    SNS 글 끝 출처 줄과 마무리 카드에 그대로 나가므로 최소 1개, 다른 형식의 주소(javascript: 등)는 받지 않는다.
+    """
+    out = list(dict.fromkeys(x.strip() for x in str(v).splitlines() if x.strip()))
+    if not out:
+        raise EditError("출처는 1개 이상 있어야 합니다")
+    if len(out) > MAX_SOURCES:
+        raise EditError(f"출처는 {MAX_SOURCES}개까지입니다")
+    for s in out:
+        if len(s) > MAX_SOURCE_CHARS:
+            raise EditError(f"출처 한 줄은 {MAX_SOURCE_CHARS}자까지입니다: {s[:40]}…")
+        if _OTHER_SCHEME.match(s):
+            raise EditError(f"웹 주소는 http·https만 쓸 수 있습니다: {s[:40]}")
+    return out
 
 
 def _lines(v: str) -> list[str]:
@@ -61,6 +86,8 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
             key = f"s{i}_{f}"
             if key in form:
                 data[f] = _lines(form[key])
+        if s.kind == "outro" and f"s{i}_sources" in form:
+            data["sources"] = parse_sources(form[f"s{i}_sources"])
         if s.kind == "compare":
             for side in ("left", "right"):
                 if f"s{i}_{side}_title" in form:
