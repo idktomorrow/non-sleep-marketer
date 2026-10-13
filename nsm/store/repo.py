@@ -820,3 +820,48 @@ class Repository:
             "(SELECT id FROM notifications ORDER BY created_at DESC, rowid DESC LIMIT ?)",
             [keep],
         )
+
+    # ------------------------------------------------------------ 자료 화면 (M18)
+
+    def list_source_items_view(
+        self, source: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """자료 화면용: 자료와 관련성 판정(방법 포함), 주제, 쓰인 원고. source는 'naver'·'upload'·접두어."""
+        where, params = "", []
+        if source:
+            where = "WHERE s.source = ? OR s.source LIKE ?"
+            params = [source, f"{source}:%"]
+        rows = self.db.execute(
+            "SELECT s.id, s.source, s.url, s.title, length(s.text), s.collected_at, s.relevance, "
+            "s.topic, s.used_in_content_id, c.label, c.classifier "
+            "FROM source_items s LEFT JOIN ("
+            "  SELECT target_id, arg_max(label, created_at) AS label, "
+            "         arg_max(classifier, created_at) AS classifier "
+            "  FROM classifications WHERE target_type = 'source_item' AND kind = 'relevance' "
+            "  GROUP BY target_id) c ON c.target_id = s.id "
+            f"{where} ORDER BY s.collected_at DESC, s.rowid DESC LIMIT ?",
+            [*params, limit],
+        )
+        return [
+            {
+                "id": r[0],
+                "source": r[1],
+                "url": r[2],
+                "title": r[3],
+                "chars": int(r[4] or 0),
+                "collected_at": from_db(r[5]),
+                "relevance": r[6],
+                "topic": r[7],
+                "used_in": r[8],
+                "label": r[9],
+                "classifier": r[10],
+            }
+            for r in rows
+        ]
+
+    def source_counts(self) -> dict[str, int]:
+        rows = self.db.execute(
+            "SELECT CASE WHEN source LIKE 'community:%' THEN 'community' ELSE source END, count(*) "
+            "FROM source_items GROUP BY 1"
+        )
+        return {r[0]: int(r[1]) for r in rows}

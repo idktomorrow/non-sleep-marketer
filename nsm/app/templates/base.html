@@ -35,6 +35,7 @@
     <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}</a>
     <a href="/queue" {% if request.url.path.startswith('/queue') %}class="active"{% endif %}>게시 대기{% if queue_count %}<span class="count soft">{{ queue_count }}</span>{% endif %}</a>
     <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
+    <a href="/materials" {% if request.url.path.startswith('/materials') %}class="active"{% endif %}>자료</a>
     <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
     {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
     <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>

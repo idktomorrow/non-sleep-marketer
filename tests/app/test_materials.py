@@ -1,0 +1,96 @@
+"""자료 화면(M18): 파일 올리기·읽기 확인·올린 파일 상태·모은 자료 목록."""
+
+from __future__ import annotations
+
+import pytest
+
+from nsm.adapters.sources.upload import UploadSource
+from nsm.app import materials as M
+from tests.app.test_dashboard import _post, env  # noqa: F401  같은 대시보드 픽스처
+
+
+@pytest.fixture
+def menv(env, tmp_path):  # noqa: F811
+    env["state"].uploads_dir = tmp_path / "uploads"
+    env["dir"] = tmp_path / "uploads"
+    return env
+
+
+def _upload(env, name: str, data: bytes):  # noqa: F811
+    return env["client"].post(
+        "/materials/upload",
+        data={"csrf": env["state"].csrf_token},
+        files={"file": (name, data)},
+        follow_redirects=False,
+    )
+
+
+def test_upload_reads_text_and_shows_pending_file(menv) -> None:
+    r = _upload(menv, "치이카와 신상 안내.txt", "치이카와 팝업 10월 20일 성수동 오픈".encode())
+    assert r.status_code == 303 and "uploaded=" in r.headers["location"]
+    assert (menv["dir"] / "치이카와 신상 안내.txt").is_file()
+    html = menv["client"].get(r.headers["location"]).text
+    assert "올렸습니다" in html and "글자 22자를 읽었습니다" in html
+    assert "치이카와 신상 안내.txt" in html and "아직 안 읽음" in html
+
+
+def test_collected_upload_shows_verdict(menv) -> None:
+    _upload(menv, "팝업.md", "치이카와 팝업 정보 정리 문서입니다".encode())
+    repo = menv["repo"]
+    item = UploadSource(menv["dir"], menv["state"].clock).collect([], 10)[0]
+    repo.insert_source_item(item)
+    repo.set_source_relevance(item.id, 0.93)
+    html = menv["client"].get("/materials").text
+    assert "관련 있음 0.93" in html and "올린 파일" in html
+    assert "관련 있음 0.93" in menv["client"].get("/materials?source=upload").text
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "msg"),
+    [
+        ("보고서.docx", b"PK\x03\x04", "읽을 수 있는 형식이 아닙니다"),
+        ("빈 파일.txt", b"   \n", "글자를 하나도 읽지 못해"),
+        ("깨진.pdf", b"%PDF-1.4 garbage", "파일을 읽지 못해"),
+    ],
+)
+def test_unusable_files_are_not_kept(menv, name: str, data: bytes, msg: str) -> None:
+    r = _upload(menv, name, data)
+    assert "error=" in r.headers["location"]
+    assert msg in menv["client"].get(r.headers["location"]).text
+    assert not list(menv["dir"].glob("*")) if menv["dir"].exists() else True
+
+
+def test_file_names_cannot_escape_and_do_not_overwrite(menv) -> None:
+    _upload(menv, "../../밖으로.txt", "치이카와 자료".encode())
+    _upload(menv, "밖으로.txt", "두 번째 자료".encode())
+    names = sorted(p.name for p in menv["dir"].iterdir())
+    assert names == ["밖으로 (2).txt", "밖으로.txt"]
+    assert not (menv["dir"].parent / "밖으로.txt").exists()
+
+
+def test_too_large_file_rejected(menv, monkeypatch) -> None:
+    monkeypatch.setattr(M, "MAX_FILE_BYTES", 10)
+    with pytest.raises(M.MaterialError, match="20MB"):
+        M.save_material(menv["dir"], "큰.txt", b"x" * 11)
+
+
+def test_delete_only_inside_folder(menv) -> None:
+    _upload(menv, "지울 파일.txt", "치이카와".encode())
+    assert _post(menv, "/materials/files/delete", name="../test.txt").status_code == 400
+    r = _post(menv, "/materials/files/delete", name="지울 파일.txt")
+    assert r.status_code == 303 and not (menv["dir"] / "지울 파일.txt").exists()
+
+
+def test_materials_page_lists_collected_items_with_filter(menv) -> None:
+    html = menv["client"].get("/materials").text
+    assert "모은 자료" in html and 'href="/materials"' in html  # 메뉴
+    assert "판정 전" in html or "관련" in html
+    assert menv["client"].get("/materials?source=bogus").status_code == 200
+
+
+def test_verdict_texts() -> None:
+    assert M.verdict({"classifier": "rule:다녀왔어"}, 0.8)[0] == '후기·일기 제외("다녀왔어")'
+    assert M.verdict({"label": "error", "classifier": "jev"}, 0.8)[0] == "판정 실패"
+    assert M.verdict({"relevance": None}, 0.8)[0] == "판정 전"
+    assert M.verdict({"relevance": 0.5, "classifier": "jev"}, 0.8) == ("관련 없음 0.50", "gray")
+    assert M.source_label("community:cafe.example.com") == "커뮤니티(cafe.example.com)"
