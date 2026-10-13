@@ -108,11 +108,11 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 .review-item { display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: center; }
 .review-item img, .review-item .thumb { display: block; width: 96px; aspect-ratio: 4 / 5; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); background: var(--accent-soft); }
 .review-item h3 { margin: 0 0 4px; font-size: 16px; } .review-item h3 a { color: var(--fg); text-decoration: none; }
-.actionbar { position: sticky; top: 92px; z-index: 5; background: rgba(245, 246, 248, .92); backdrop-filter: blur(6px);
+.actionbar { position: sticky; top: var(--topbar-h, 92px); z-index: 5; background: rgba(245, 246, 248, .92); backdrop-filter: blur(6px);
   padding: 10px 0; margin: -6px 0 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--line); }
 .actionbar .grow { flex: 1; }
 .review-grid { display: grid; grid-template-columns: minmax(300px, 400px) 1fr; gap: 20px; align-items: start; }
-.cards-col { position: sticky; top: 156px; }
+.cards-col { position: sticky; top: calc(var(--topbar-h, 92px) + 64px); }
 .cardstack { display: grid; gap: 10px; max-height: calc(100vh - 220px); overflow-y: auto; padding-right: 4px; }
 .cardstack img { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
 .slide-field { border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px 12px; margin: 0 0 10px; background: var(--surface); }
@@ -136,7 +136,6 @@ details > summary { cursor: pointer; font-weight: 700; padding: 6px 0; }
   .cards-col { position: static; }
   .cardstack { display: flex; overflow-x: auto; max-height: none; }
   .cardstack img { width: 72%; flex: 0 0 auto; }
-  .actionbar { top: 88px; }
 }
 @media (max-width: 520px) {
   body { font-size: 15px; }

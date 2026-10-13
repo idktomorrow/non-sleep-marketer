@@ -155,3 +155,31 @@ def test_discard_asks_for_confirmation(make) -> None:
     add("c1")
     html = build()[0].get("/review/c1").text
     assert "되돌릴 수 없습니다" in html and "저장하지 않은 수정이 있습니다" in html
+
+
+def test_review_list_prefers_preview_thumbnail(make) -> None:
+    build, add, _ = make
+    add("c1")
+    client, state = build()
+    for sub in ("cards", "previews"):
+        d = state.media_dir / sub / "c1"
+        d.mkdir(parents=True)
+        (d / "slide-01.png").write_bytes(_ONE_PX_PNG)
+    assert 'src="/previews/c1/slide-01.png"' in client.get("/review").text
+
+
+def test_unsaved_edit_guard_covers_every_other_form(make) -> None:
+    build, add, _ = make
+    add("c1")
+    html = build()[0].get("/review/c1").text
+    assert "querySelectorAll('form')" in html and "beforeunload" in html
+    assert "--topbar-h" in html  # 고정 막대가 머리줄 높이를 따른다
+
+
+def test_nav_count_and_oldest_link_are_not_capped(make) -> None:
+    build, add, _ = make
+    for i in range(105):
+        add(f"c{i:03d}", hours_ago=i + 1)
+    html = build()[0].get("/").text
+    assert '<span class="count">105</span>' in html
+    assert 'href="/review/c104"' in html  # 가장 오래된 원고

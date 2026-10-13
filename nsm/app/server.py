@@ -104,6 +104,19 @@ def create_app(state: AppState) -> FastAPI:
         except Exception:  # noqa: BLE001  색 값이 이상해도 화면은 떠야 한다
             return {"accent": "#1E3A5F", "accent_soft": "#F0F3F7"}
 
+    def pending_count() -> int:
+        return int(
+            state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'pending_review'")[
+                0
+            ][0]
+        )
+
+    def oldest_pending() -> str | None:
+        rows = state.repo.db.execute(
+            "SELECT id FROM contents WHERE status = 'pending_review' ORDER BY created_at, rowid LIMIT 1"
+        )
+        return rows[0][0] if rows else None
+
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
         cfg = state.get_config()
         return templates.TemplateResponse(
@@ -113,7 +126,7 @@ def create_app(state: AppState) -> FastAPI:
                 "csrf": state.csrf_token,
                 "cfg": cfg,
                 "theme": theme(cfg),
-                "pending_count": len(state.repo.list_contents("pending_review")),
+                "pending_count": pending_count(),
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
                 "has_reports": state.reports_dir is not None,
@@ -137,8 +150,11 @@ def create_app(state: AppState) -> FastAPI:
         start, end = local_day_bounds(now, tz())
         ov = queries.overview(state.repo.db, start, end)
         runs = state.repo.recent_runs(15)
-        pending = state.repo.list_contents("pending_review")
-        failed = state.repo.publications_in_status("failed")
+        # 곧 다시 시도할 것부터(대표로 보이는 오류가 매번 바뀌지 않게)
+        failed = sorted(
+            state.repo.publications_in_status("failed"),
+            key=lambda p: (p.next_attempt_at is None, p.next_attempt_at, p.id),
+        )
         cap = state.get_config().settings.daily_cost_cap_usd
         return page(
             request,
@@ -147,9 +163,8 @@ def create_app(state: AppState) -> FastAPI:
             human_approved=state.repo.count_human_approved(),
             runs=runs,
             # 오늘 할 일: 가장 오래 기다린 원고부터 바로 연다
-            first_pending=pending[-1].id if pending else None,
+            first_pending=oldest_pending(),
             failed_pubs=failed,
-            failed_runs=[r for r in runs[:5] if r.get("ok") is False],
             first_run=not runs and state.repo.count_contents() == 0,
             cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
         )
