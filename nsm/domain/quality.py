@@ -143,6 +143,14 @@ UNCONFIRMED_PHRASES = (
 )
 
 
+# 카드 마무리 문구에 쓰면 어색한 말: 카드 이미지는 누를 수 없다(2026-10-13 "링크는 저장부터 해요").
+CTA_AWKWARD = ("링크", "출처", "URL", "url", "프로필", "클릭", "눌러")
+
+
+def outro_cta(gen: GeneratedContent) -> str:
+    return next((s.cta for s in gen.deck.slides if s.kind == "outro"), "")
+
+
 def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
     """프롬프트에만 있던 규칙을 생성 결과에 대고 검사한다. 빈 목록이면 통과."""
     out: list[str] = []
@@ -157,6 +165,9 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
         hit = next((p for p in STIFF_PHRASES if p in texts[name]), None)
         if hit:
             out.append(f'{name}에 딱딱한 표현 "{hit}"')
+    hit = next((p for p in CTA_AWKWARD if p in outro_cta(gen)), None)
+    if hit:
+        out.append(f'마무리 문구에 카드에서 할 수 없는 말 "{hit}"')
     for name, text in texts.items():
         hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
         if hit:

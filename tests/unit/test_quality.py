@@ -238,3 +238,26 @@ def test_unconfirmed_rumors_are_violations(app_config) -> None:
     assert any("스레드 글에 확인되지 않은 내용" in x for x in v)
     ok = _gen(app_config, "정가는 2만9000원이에요(10월 13일 기사 기준)", "11월 출시 예정이래요")
     assert Q.rule_violations(ok, app_config.persona) == []
+
+
+def _with_cta(gen, cta: str):
+    slides = [
+        s.model_copy(update={"cta": cta}) if s.kind == "outro" else s for s in gen.deck.slides
+    ]
+    return gen.model_copy(update={"deck": gen.deck.model_copy(update={"slides": slides})})
+
+
+@pytest.mark.parametrize(
+    "cta", ["링크는 저장부터 해요", "출처 확인하고 저장해요", "프로필 링크 클릭!"]
+)
+def test_awkward_outro_cta_is_a_violation(app_config, cta: str) -> None:
+    gen = _with_cta(_gen(app_config), cta)
+    assert any("마무리 문구" in v for v in Q.rule_violations(gen, app_config.persona))
+
+
+@pytest.mark.parametrize(
+    "cta", ["여러분은 보셨나요?", "어떤 캐릭터가 제일 좋아요?", "저장해 두고 다시 봐요"]
+)
+def test_natural_outro_cta_passes(app_config, cta: str) -> None:
+    gen = _with_cta(_gen(app_config), cta)
+    assert not any("마무리 문구" in v for v in Q.rule_violations(gen, app_config.persona))
