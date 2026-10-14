@@ -286,3 +286,15 @@ def test_card_shows_site_names_but_content_keeps_urls(ctx: JobContext) -> None:
     shown = labeled_deck(c).slides[-1].sources
     assert shown and not any(s.startswith("http") for s in shown)  # 카드에는 사이트 이름
     assert ctx.repo.get_content(c.id).generated.deck.slides[-1].sources == urls  # 데이터는 그대로
+
+
+def test_zero_result_explains_why(ctx: JobContext) -> None:
+    """2026-10-14: 게시하기를 눌러도 "게시 0건 · 실패 0건"만 보였다. 플랫폼별로 왜 안 올렸는지 남긴다."""
+    from nsm.app.ko import result_text
+
+    run_publish(ctx)
+    r = run_publish(ctx)
+    waits = r.counts["waits"]
+    assert any(w.startswith("인스타그램 오늘 1건 다 올림") for w in waits)
+    assert any(w.startswith("스레드 3시간 간격 대기(") and "이후)" in w for w in waits)
+    assert "인스타그램 오늘 1건 다 올림" in result_text(r)

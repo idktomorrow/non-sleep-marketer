@@ -90,6 +90,9 @@ def result_text(result: object) -> str:
     ]
     errors = getattr(result, "errors", None) or []
     text = " · ".join(parts) or "바뀐 것 없음"
+    waits = counts.get("waits")
+    if isinstance(waits, list) and waits and not counts.get("published"):
+        text += " / " + ", ".join(waits)  # 게시: 왜 안 올렸는지
     return f"{text} · 오류 {len(errors)}건: {errors[0]}"[:300] if errors else text
 
 
