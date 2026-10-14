@@ -2,6 +2,7 @@
 
 > 작성일: 2026-10-11 · 상태: 1일차에 코드로 동결(이슈 M1) · 관련: [PRD](PRD.md) · [issues.md](issues.md)
 > 2026-10-11 변경: S1(#17)·S4(#20)·S6(#22)는 구현과 같은 PR에서 통과시키기 위해 메인 담당으로 옮김. 서브는 `nsm/render/`, `nsm/templates/`, `tests/render/`, `tests/contracts/`, `tests/fixtures/decks/` 담당.
+> 2026-10-14 변경: 2주차 서브 배치 S-β(#21)·S-γ(#23)·S8(#34)을 메인이 맡음([ADR 0034](adr/0034-main-takes-s-beta-gamma-s8.md)). 세 배치 동안 `tests/contracts/`, `nsm/render/`, `nsm/templates/`, `tests/render/`는 메인 소유, 머지 후 서브가 다듬을 수 있음.
 > 이 문서는 메인(선웅제)과 서브 팀원이 서로 기다리지 않고 동시에 작업하기 위한 **약속**입니다. 바꾸려면 PR로 두 사람이 합의합니다.
 
 ## 1. 디렉터리와 소유권

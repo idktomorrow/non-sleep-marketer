@@ -170,7 +170,8 @@ class DryRunAdapter:
             captured_at=now,
             views=views,
             reach=int(views * 0.8),
-            impressions=int(views * 1.2),
+            # 실계정과 같은 필드만(지표 가용성 매트릭스, tests/contracts/test_platform_contract.py)
+            impressions=int(views * 1.2) if self.platform == "instagram" else None,
             likes=int(views * 0.06),
             comments=int(views * 0.01),
             saves=int(views * 0.02) if self.platform == "instagram" else None,
