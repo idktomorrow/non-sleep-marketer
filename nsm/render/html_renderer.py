@@ -271,6 +271,17 @@ class HtmlCardRenderer:
         self.last_overflow = overflow
         return paths
 
+    def render_sample(self, deck: CardDeck, out_dir: Path, style: str) -> list[Path]:
+        """설정 화면 스타일 견본: 지정한 스타일로 그린다. 게시용 렌더의 `last_overflow`는 건드리지 않는다
+        (게시 잡이 렌더 직후 읽는 값이 요청 스레드의 견본 렌더로 바뀌면 안 된다)."""
+        with self._lock:
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
+                atexit.register(self.close)
+            pool = self._pool
+        paths, _overflow = pool.submit(self._render, deck, out_dir, check_style(style)).result()
+        return paths
+
     def _ensure_browser(self):
         if self._browser is None:
             from playwright.sync_api import sync_playwright

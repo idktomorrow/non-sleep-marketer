@@ -43,9 +43,18 @@
     <label>주 색(카드 바탕·화면 강조색)<span class="color-input"><input type="color" value="{{ v.primary_color if v.primary_color|length == 7 else '#1E3A5F' }}" data-for="primary_color"><input type="text" name="primary_color" value="{{ v.primary_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
     <label>보조 색(카드 강조)<span class="color-input"><input type="color" value="{{ v.accent_color if v.accent_color|length == 7 else '#F2A541' }}" data-for="accent_color"><input type="text" name="accent_color" value="{{ v.accent_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
   </div>
-  <div class="field-row">
-    <label>카드 스타일 <span class="hint">모든 원고의 카드 모양. 저장하면 다음에 그리는 카드부터 바뀝니다. 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그리고, 글이 넘치면 올리지 않고 검토로 돌려보냅니다(검토 화면 "미리보기 렌더"로 확인). 배경은 코드로 그려서 추가 비용이 없습니다</span><select name="card_style">{% for k, label in card_styles.items() %}<option value="{{ k }}" {% if v.card_style == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-  </div>
+  <fieldset class="style-picker">
+    <legend>카드 스타일 <span class="hint">모든 원고의 카드 모양. 견본은 지금 색과 페르소나로 그린 표지·본문 장입니다(색을 바꾸면 저장 전에도 따라 바뀜). 저장하면 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그립니다(글이 넘치면 올리지 않고 검토로). 배경은 코드로 그려서 추가 비용이 없습니다</span></legend>
+    <div class="style-options">
+    {% for k, label in card_styles.items() %}{% set name, desc = label.split(': ', 1) %}
+      <label class="style-option">
+        <span class="style-head"><input type="radio" name="card_style" value="{{ k }}" {% if v.card_style == k %}checked{% endif %}> <b>{{ name }}</b></span>
+        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
+        <span class="hint">{{ desc }}</span>
+      </label>
+    {% endfor %}
+    </div>
+  </fieldset>
 </div>
 
 <h2>운영</h2>
@@ -92,6 +101,26 @@
 </div>
 
 <script>
+// 카드 스타일 견본: 색을 바꾸면(저장 전에도) 견본을 그 색으로 다시 그린다
+(function () {
+  var thumbs = document.querySelectorAll('img.style-thumb');
+  if (!thumbs.length) return;
+  var hex = /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/, timer = null;
+  function color(name) { var el = document.querySelector('input[name="' + name + '"]'); return el ? el.value.trim() : ''; }
+  function refresh() {
+    var p = color('primary_color'), a = color('accent_color');
+    if (!hex.test(p) || !hex.test(a)) return;
+    thumbs.forEach(function (img) {
+      img.src = '/settings/style-preview/' + img.dataset.style + '/' + img.dataset.n + '.png?primary=' + encodeURIComponent(p) + '&accent=' + encodeURIComponent(a);
+    });
+  }
+  ['primary_color', 'accent_color'].forEach(function (name) {
+    document.querySelectorAll('input[name="' + name + '"], input[data-for="' + name + '"]').forEach(function (el) {
+      el.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(refresh, 600); });
+    });
+  });
+})();
+
 // 색 고르개 ↔ 글자 칸을 서로 맞춘다
 document.querySelectorAll('input[type=color][data-for]').forEach(function (picker) {
   var text = document.querySelector('input[name="' + picker.dataset.for + '"]');

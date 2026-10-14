@@ -214,3 +214,17 @@ def test_text_on_filled_boxes_is_readable(style: str, with_bg: bool, tmp_path: P
         finally:
             browser.close()
     assert bad == []
+
+
+def test_render_sample_uses_given_style_and_keeps_last_overflow(tmp_path: Path) -> None:
+    """설정 화면 견본 렌더는 지정한 스타일로 그리고, 게시 렌더가 읽는 last_overflow를 바꾸지 않는다."""
+    r = HtmlCardRenderer(style="clean")
+    try:
+        r.last_overflow = [7]
+        paths = r.render_sample(load("list"), tmp_path, "illust")
+        assert len(paths) == 4 and png_size(paths[0]) == (1080, 1350)
+        assert r.last_overflow == [7] and r.style == "clean"
+        with pytest.raises(ValueError):
+            r.render_sample(load("list"), tmp_path, "neon")
+    finally:
+        r.close()
