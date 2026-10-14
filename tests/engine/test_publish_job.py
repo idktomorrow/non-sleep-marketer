@@ -298,3 +298,18 @@ def test_zero_result_explains_why(ctx: JobContext) -> None:
     assert any(w.startswith("인스타그램 오늘 1건 다 올림") for w in waits)
     assert any(w.startswith("스레드 3시간 간격 대기(") and "이후)" in w for w in waits)
     assert "인스타그램 오늘 1건 다 올림" in result_text(r)
+
+
+def test_manual_publish_ignores_gap_but_keeps_quota(ctx: JobContext) -> None:
+    """2026-10-14 선웅제: "지금 실행"으로 누르면 게시 간격은 무시한다. 하루 한도는 지킨다."""
+    from nsm.engine.runner import run_job
+
+    run_publish(ctx)
+    assert len(_published(ctx, "threads")) == 1
+    assert run_publish(ctx).counts["published"] == 0  # 자동: 간격 대기
+    r = run_job("publish", ctx, manual=True)
+    assert len(_published(ctx, "threads")) == 2  # 수동: 간격 무시
+    assert len(_published(ctx, "instagram")) == 1  # 인스타 하루 1건은 그대로
+    assert any("인스타그램 오늘 1건 다 올림" in w for w in r.counts.get("waits", []))
+    run_job("publish", ctx, manual=True)
+    assert len(_published(ctx, "threads")) == 2  # 스레드 하루 2건도 그대로

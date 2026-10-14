@@ -29,6 +29,7 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 # 사람이 "지금 실행"으로 부를 때 다르게 동작하는 잡(예: 원고 만들기는 하루 목표와 상관없이 1건 더)
 MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "generate": lambda ctx: run_generate(ctx, manual=True),
+    "publish": lambda ctx: run_publish(ctx, manual=True),  # 게시 간격 무시(하루 한도는 지킴)
 }
 
 

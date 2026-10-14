@@ -156,7 +156,8 @@ def _record_failure(
         ctx.repo.transition_publication(pub.id, "failed", error=msg, next_attempt_at=retry_at)
 
 
-def run_publish(ctx: JobContext) -> JobResult:
+def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
+    """manual(사람이 "지금 실행"): 같은 플랫폼 게시 간격은 무시한다. 하루 한도·게시 시간은 지킨다(계정 보호)."""
     result = JobResult("publish")
     now = ctx.clock.now()
     s = ctx.config.settings
@@ -186,7 +187,7 @@ def run_publish(ctx: JobContext) -> JobResult:
             continue
         last = ctx.repo.last_published_at(platform)
         gap = timedelta(hours=s.min_hours_between_posts)
-        if last and now - last < gap:
+        if not manual and last and now - last < gap:
             at = (last + gap).astimezone(ZoneInfo(ctx.tz)).strftime("%H:%M")
             waits.append(f"{name} {s.min_hours_between_posts:g}시간 간격 대기({at} 이후)")
             continue
