@@ -27,8 +27,8 @@
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content">
     <div class="kicker"></div>
-    <h1 data-fit="64">{{ s.title }}</h1>
-    {% if s.subtitle %}<p class="subtitle" data-fit="30">{{ s.subtitle }}</p>{% endif %}
+    <h1 data-fit="88">{{ s.title | one_break }}</h1>
+    {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
   </div>
 </section>
 {%- endmacro %}
