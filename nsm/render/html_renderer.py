@@ -14,6 +14,7 @@ import atexit
 import colorsys
 import hashlib
 import logging
+import re
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -124,6 +125,11 @@ def _file_uri(path: str | Path | None) -> str:
     return p.resolve().as_uri() if p.exists() else ""
 
 
+def _one_break(text: str | None) -> str:
+    """줄 사이 빈 줄을 한 줄바꿈으로: 표지 제목에 빈 줄이 끼면 줄 사이가 크게 벌어진다(2026-10-13 실제 원고)."""
+    return re.sub(r"\n\s*\n+", "\n", (text or "").strip())
+
+
 def _env() -> Environment:
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -132,6 +138,7 @@ def _env() -> Environment:
         lstrip_blocks=True,
     )
     env.filters["file_uri"] = _file_uri
+    env.filters["one_break"] = _one_break
     return env
 
 

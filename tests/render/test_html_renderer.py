@@ -256,3 +256,56 @@ def test_renderer_version_tracks_template_files() -> None:
     v = template_version()
     assert v == template_version() and len(v) == 16
     assert HtmlCardRenderer().version == v
+
+
+# ---------------------------------------------------------------- 스레드 썸네일 가독성 (S-γ)
+
+# 스레드 피드는 카드 첫 장을 224×280 CSS px로 보여 준다(2026-10-14 threads.com 실측, 원본 1080의 약 21%).
+THUMB_SCALE = 224 / 1080
+MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9, "who": 7.5, "badge": 7.0}
+
+
+def _cover_sizes(deck: CardDeck, tmp_path: Path) -> dict[str, float]:
+    """글자 맞춤(nsmFit)이 끝난 뒤 표지 글자 크기(px)."""
+    from playwright.sync_api import sync_playwright
+
+    page_path = tmp_path / "deck.html"
+    page_path.write_text(build_html(deck), encoding="utf-8")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1080, "height": 1350})
+            page.goto(page_path.resolve().as_uri(), wait_until="load")
+            page.evaluate("document.fonts.ready.then(() => true)")
+            page.evaluate("window.nsmFit()")
+            return page.evaluate(
+                """() => {
+                  const s = document.querySelector('section.slide[data-kind="cover"]');
+                  const px = (sel) => { const e = s.querySelector(sel); return e ? parseFloat(getComputedStyle(e).fontSize) : 0; };
+                  return { title: px('h1'), subtitle: px('.subtitle'), who: px('.who'), badge: px('[data-label="virtual-person"]'),
+                           titleLines: Math.round(s.querySelector('h1').getBoundingClientRect().height / parseFloat(getComputedStyle(s.querySelector('h1')).lineHeight)) };
+                }"""
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
+@pytest.mark.parametrize("template", ["info", "list", "compare"])
+def test_cover_readable_at_threads_thumbnail(template: str, extreme: bool, tmp_path: Path) -> None:
+    """표지 제목·부제·이름·가상인물 배지가 피드 썸네일 크기에서도 최소 크기 이상이다(긴 글로 줄어든 뒤에도)."""
+    deck = _extreme(template) if extreme else load(template)
+    sizes = _cover_sizes(deck, tmp_path)
+    for key, minimum in MIN_THUMB_PX.items():
+        assert sizes[key] * THUMB_SCALE >= minimum, (
+            f"{key} {sizes[key]}px → 썸네일 {sizes[key] * THUMB_SCALE:.1f}px"
+        )
+
+
+def test_cover_title_blank_lines_collapse(tmp_path: Path) -> None:
+    """2026-10-13 실제 원고: 제목 "극장판 흥행에\n\n게임도 역주행"이 줄 사이가 크게 벌어져 그려졌다."""
+    raw = json.loads((FIXTURES / "info.json").read_text("utf-8"))
+    raw["slides"][0]["title"] = "극장판 흥행에\n\n게임도 역주행"
+    deck = CardDeck.model_validate(raw)
+    assert "극장판 흥행에\n게임도 역주행</h1>" in build_html(deck)
+    assert _cover_sizes(deck, tmp_path)["titleLines"] == 2
