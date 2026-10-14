@@ -308,6 +308,7 @@ class Clock(Protocol):
 - 템플릿 3종: `info`(cover + body… + outro), `list`(cover + list… + outro), `compare`(cover + compare + outro). 템플릿은 `kind`별 슬라이드 레이아웃을 가져야 함.
 - 폰트: Pretendard(SIL OFL)를 `nsm/templates/fonts/`에 동봉. 한글은 항상 HTML 텍스트로 그림(AI 이미지에 글자 넣지 않음).
 - `background`가 null이면 브랜드 색 기반 그라디언트/패턴으로 대체(이미지 생성을 끈 경우에도 완성도 유지).
+- 스타일(S8, ADR 0036): `clean`·`photo`·`illust`. 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
 - **표기 슬롯(필수)**: 아래 요소가 DOM에 존재해야 하고 렌더 테스트가 이를 검사함.
   - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 모든 슬라이드 모서리에 배경과 대비되는 색으로 표시.
   - `[data-label="ai-generated"]`: "AI 생성 이미지" 작은 캡션. `labels.ai_generated_image`가 true일 때 배경 이미지가 있는 슬라이드에 표시.
@@ -361,7 +362,7 @@ class Clock(Protocol):
 | `nsm init` | 설정 마법사(위험 고지 동의 → 브랜드 → 페르소나 → API 키(keyring) → 플랫폼 연결은 나중에 가능) |
 | `nsm run` | 단일 프로세스 시작: 스케줄러 + 대시보드(http://127.0.0.1:8765) |
 | `nsm run --once --job collect` | 특정 잡 1회 실행 (디버그·E2E용) |
-| `nsm render-preview deck.json --out DIR` | 덱 → PNG |
+| `nsm render-preview deck.json --out DIR [--style clean\|photo\|illust]` | 덱 → PNG (스타일 기본: 설정의 `brand.card_style`) |
 | `nsm install-autostart` / `uninstall-autostart` | Windows 작업 스케줄러에 로그온 시 `nsm run` 등록 |
 | `nsm doctor` | 1일차 검증 항목 자동 점검(MotherDuck 연결, 드라이버 로그인 상태, 폰트) |
 

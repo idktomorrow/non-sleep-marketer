@@ -46,7 +46,13 @@ from nsm.app.materials import (
     source_label,
     verdict,
 )
-from nsm.app.settings_form import PERIODS, SettingsError, apply_settings_form, form_values
+from nsm.app.settings_form import (
+    CARD_STYLE_NAMES,
+    PERIODS,
+    SettingsError,
+    apply_settings_form,
+    form_values,
+)
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -242,6 +248,7 @@ def create_app(state: AppState) -> FastAPI:
             request,
             "settings.html",
             periods=PERIODS,
+            card_styles=CARD_STYLE_NAMES,
             v=form_values(state.get_config()),
             error=None,
             saved=bool(saved),
@@ -258,6 +265,7 @@ def create_app(state: AppState) -> FastAPI:
                 request,
                 "settings.html",
                 periods=PERIODS,
+                card_styles=CARD_STYLE_NAMES,
                 v={**form_values(state.get_config()), **form},
                 error=str(e),
                 saved=False,

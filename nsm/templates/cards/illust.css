@@ -1,0 +1,94 @@
+/* illust 스타일(S8, ADR 0036): 파스텔 일러스트풍 배경 + 스티커 같은 번호 카드 + 페르소나 캐릭터.
+   base.css 위에 얹는다. 배경 도형과 캐릭터는 코드(CSS·SVG)로 그린다(AI 생성 이미지 아님).
+   캐릭터는 저작권 캐릭터가 아닌 자체 도형 캐릭터이고 색은 브랜드 색을 따른다(_parts.html mascot).
+   글자 크기는 base.css 그대로라 표지 가독성 최소값(S-γ, ADR 0035)이 유지된다. */
+
+.style-illust { --line: #1B1D22; }
+
+/* 바탕: 파스텔 + 점 무늬. 표지·마무리(.brand)도 같은 바탕에 진한 글자 */
+.style-illust .slide,
+.style-illust .slide.brand {
+  color: var(--ink);
+  background:
+    radial-gradient(color-mix(in srgb, var(--primary) 16%, transparent) 2.5px, transparent 3px) 0 0 / 36px 36px,
+    var(--illust-bg);
+}
+.style-illust .slide.has-bg { color: #fff; background-size: cover; background-position: center; }
+
+/* 장식: 모서리 얼룩 두 개, 표지·마무리는 언덕 + 캐릭터 */
+.slide > .deco { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.style-illust .blob { position: absolute; width: 520px; height: 520px; }
+.style-illust .blob path { fill: color-mix(in srgb, var(--accent) 26%, transparent); }
+.style-illust .blob-a { right: -200px; top: -170px; }
+.style-illust .blob-b { left: -240px; bottom: -260px; transform: rotate(140deg); }
+.style-illust .blob-b path { fill: color-mix(in srgb, var(--primary) 14%, transparent); }
+.style-illust .ground { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 240px; }
+.style-illust .ground path { fill: var(--illust-ground); }
+.style-illust .deco .mascot { position: absolute; left: 70px; bottom: 90px; width: 300px; height: 330px; }
+.style-illust .deco .mascot-wave { left: auto; right: 80px; }
+
+/* 본문 장 위 띠의 작은 캐릭터(얼굴만) */
+.style-illust .badges .mascot-mini { width: 76px; height: 76px; }
+
+/* 표기 배지: 밝은 바탕에서 진한 알약, 광고는 파스텔 위에서 보이는 색(ADR 0007) */
+.style-illust .slide .badge:not(.ad) { background: var(--line); color: #fff; }
+.style-illust .slide .badge.ad { background: var(--illust-ad-bg); color: var(--illust-ad-fg); }
+.style-illust .slide.has-bg .badge:not(.ad) { background: #fff; color: #111; }
+
+/* 표지: 위쪽에 제목(형광펜 밑줄), 아래는 캐릭터 자리 */
+.style-illust .cover .content { justify-content: flex-start; padding: 48px 0 300px; }
+.style-illust .cover .kicker { display: none; }
+.style-illust .hl {
+  background: linear-gradient(transparent 58%, color-mix(in srgb, var(--accent) 70%, transparent) 58% 92%, transparent 92%);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+
+/* 말풍선: 흰 바탕 + 진한 테두리 + 그림자(스티커 느낌) */
+.style-illust .cover .subtitle,
+.style-illust .outro .cta {
+  position: relative; align-self: flex-start; max-width: 100%;
+  background: #fff; color: var(--ink); opacity: 1;
+  padding: 26px 40px; border: 5px solid var(--line); border-radius: 40px; box-shadow: 8px 8px 0 var(--line);
+}
+.style-illust .cover .subtitle::after,
+.style-illust .outro .cta::after {
+  content: ""; position: absolute; left: 70px; bottom: -22px; width: 36px; height: 36px;
+  background: #fff; border-right: 5px solid var(--line); border-bottom: 5px solid var(--line);
+  transform: rotate(45deg); border-radius: 0 0 6px 0;
+}
+/* 마무리: 말풍선 꼬리가 오른쪽 아래 캐릭터를 향한다 */
+.style-illust .outro .content { justify-content: flex-start; padding: 40px 0 300px; }
+.style-illust .outro .cta { padding: 40px 52px; }
+.style-illust .outro .cta::after { left: auto; right: 120px; }
+.style-illust .outro .sources { margin-top: 40px; }
+
+/* 번호 카드: 리스트 항목·정보형 글머리를 흰 스티커 카드로 */
+.style-illust .body h2, .style-illust .list h2, .style-illust .compare h2 { color: var(--ink); }
+.style-illust .list li,
+.style-illust .body li {
+  background: #fff; border: 5px solid var(--line); border-radius: 28px; box-shadow: 8px 8px 0 var(--line);
+}
+.style-illust .list li::before { background: var(--accent); color: var(--on-accent); border: 4px solid var(--line); }
+.style-illust .body ul { counter-reset: n; gap: 26px; }
+.style-illust .body li {
+  counter-increment: n; display: flex; gap: 24px; align-items: center;
+  font-size: 38px; font-weight: 600; padding: 22px 28px;
+}
+.style-illust .body li::before {
+  content: counter(n); position: static; flex-shrink: 0; width: 60px; height: 60px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 32px; font-weight: 800;
+  background: var(--accent); color: var(--on-accent); border: 4px solid var(--line);
+}
+.style-illust .compare .col, .style-illust .compare .col.right {
+  background: #fff; border: 5px solid var(--line); box-shadow: 8px 8px 0 var(--line);
+}
+.style-illust .compare .col.right { background: var(--card-accent); }
+.style-illust .compare h3, .style-illust .compare .col.right h3 { color: var(--ink); }
+/* 배경 사진이 있는 장: 제목은 사진 위 흰 글자, 번호 카드·비교 칸은 흰 스티커 + 진한 글자 그대로 */
+.style-illust .slide.has-bg h2 { color: inherit; }
+.style-illust .slide.has-bg li,
+.style-illust .slide.has-bg .col,
+.style-illust .slide.has-bg .col h3 { color: var(--ink); }
+.style-illust .slide.has-bg.list li,
+.style-illust .slide.has-bg .col { background: #fff; }
+.style-illust .slide.has-bg .col.right { background: var(--card-accent); }

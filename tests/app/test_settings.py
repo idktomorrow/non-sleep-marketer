@@ -140,3 +140,18 @@ def test_recent_period_is_editable(env) -> None:  # noqa: F811
     assert env["holder"]["cfg"].settings.collect.recent_period == "1d"
     r = _post(env, "/settings", **_form(cfg, recent_period="10y"))
     assert r.status_code == 400 and "자료 검색 기간" in r.text
+
+
+def test_card_style_is_selectable(env) -> None:  # noqa: F811
+    """S8: 카드 스타일 전역 선택(brand.card_style). 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    cfg = env["holder"]["cfg"]
+    html = env["client"].get("/settings").text
+    assert 'name="card_style"' in html and "일러스트형" in html
+    _post(env, "/settings", **_form(cfg, card_style="illust"))
+    assert env["holder"]["cfg"].brand.card_style == "illust"
+    old_form = _form(env["holder"]["cfg"])
+    old_form.pop("card_style")
+    _post(env, "/settings", **old_form)
+    assert env["holder"]["cfg"].brand.card_style == "illust"
+    r = _post(env, "/settings", **_form(cfg, card_style="neon"))
+    assert r.status_code == 400 and "카드 스타일" in r.text

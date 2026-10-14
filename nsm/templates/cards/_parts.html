@@ -1,4 +1,59 @@
-{#- 슬라이드 조각 매크로. 표기 슬롯(data-label, data-sources, data-page)은 docs/contracts.md 5절 계약이다. -#}
+{#- 슬라이드 조각 매크로. 표기 슬롯(data-label, data-sources, data-page)은 docs/contracts.md 5절 계약이다.
+    스타일(S8)은 `style` 변수(clean|photo|illust)로 장식만 더한다. 글자·표기 슬롯은 세 스타일이 같다. -#}
+
+{#- 페르소나 캐릭터(illust 스타일): 저작권 캐릭터가 아닌 자체 도형 캐릭터. 색은 브랜드 색을 따른다(ADR 0036).
+    pose: stand(표지) | wave(마무리, 한 팔을 든다) | mini(본문 장 위 띠, 얼굴만) -#}
+{% macro mascot(pose) -%}
+<svg class="mascot mascot-{{ pose }}" viewBox="0 0 200 220" aria-hidden="true">
+  <g stroke="#1B1D22" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    {%- if pose != 'mini' %}
+    <ellipse cx="72" cy="203" rx="20" ry="10" fill="var(--mascot-body)"/>
+    <ellipse cx="128" cy="203" rx="20" ry="10" fill="var(--mascot-body)"/>
+    {%- endif %}
+    <path d="M100 58 L100 30" fill="none"/>
+    <path d="M100 34 C 84 18, 64 22, 62 30 C 70 42, 90 42, 100 34 Z" fill="var(--accent)"/>
+    <path d="M100 34 C 116 14, 140 16, 142 24 C 134 40, 112 42, 100 34 Z" fill="var(--accent)"/>
+    {%- if pose != 'mini' %}
+    <path d="M30 142 C 10 150, 10 170, 26 176" fill="none"/>
+    {%- if pose == 'wave' %}
+    <path d="M170 128 C 190 112, 192 88, 182 74" fill="none"/>
+    <circle cx="181" cy="70" r="10" fill="var(--mascot-body)"/>
+    {%- else %}
+    <path d="M170 142 C 190 150, 190 170, 174 176" fill="none"/>
+    {%- endif %}
+    {%- endif %}
+    <path d="M100 58 C 152 58, 178 96, 178 138 C 178 180, 146 198, 100 198 C 54 198, 22 180, 22 138 C 22 96, 48 58, 100 58 Z" fill="var(--mascot-body)"/>
+  </g>
+  <circle cx="74" cy="122" r="10" fill="#1B1D22"/><circle cx="126" cy="122" r="10" fill="#1B1D22"/>
+  <circle cx="77" cy="118" r="3.5" fill="#fff"/><circle cx="129" cy="118" r="3.5" fill="#fff"/>
+  <ellipse cx="58" cy="146" rx="12" ry="7" fill="var(--accent)" opacity=".55"/>
+  <ellipse cx="142" cy="146" rx="12" ry="7" fill="var(--accent)" opacity=".55"/>
+  <path d="M86 146 C 92 158, 108 158, 114 146" fill="none" stroke="#1B1D22" stroke-width="6" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{#- 코드로 그린 배경 장식(이미지 아님 → "AI 생성 이미지" 표기 대상이 아니다).
+    배경 사진이 있는 장은 장식 없이 사진 + 어두운 그라디언트(.has-bg)로 그린다(아래 띠의 흰 글자가 읽히게). -#}
+{% macro deco(s, bg) -%}
+{%- if bg %}
+{%- elif style == 'photo' %}
+<div class="deco" aria-hidden="true"><i class="ring"></i><i class="band"></i><i class="dots"></i></div>
+{%- elif style == 'illust' %}
+<div class="deco" aria-hidden="true">
+  <svg class="blob blob-a" viewBox="0 0 200 200"><path d="M150 30 C 190 60, 196 130, 150 170 C 104 206, 30 186, 16 130 C 2 74, 40 20, 96 14 C 118 12, 136 20, 150 30 Z"/></svg>
+  <svg class="blob blob-b" viewBox="0 0 200 200"><path d="M150 30 C 190 60, 196 130, 150 170 C 104 206, 30 186, 16 130 C 2 74, 40 20, 96 14 C 118 12, 136 20, 150 30 Z"/></svg>
+  {%- if s.kind in ('cover', 'outro') %}
+  <svg class="ground" viewBox="0 0 1080 240" preserveAspectRatio="none"><path d="M0 120 C 220 40, 420 40, 600 96 C 780 150, 940 110, 1080 60 L1080 240 L0 240 Z"/></svg>
+  {{ mascot('stand' if s.kind == 'cover' else 'wave') }}
+  {%- endif %}
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{#- 표지 제목: photo·illust는 줄마다 형광펜 상자(span.hl)를 씌운다. 글자는 그대로 HTML이다 -#}
+{% macro title_text(s) -%}
+{%- if style == 'clean' %}{{ s.title | one_break }}{% else %}<span class="hl">{{ s.title | one_break }}</span>{% endif -%}
+{%- endmacro %}
 
 {% macro chrome(s, i, n, deck, bg) -%}
 <div class="topbar">
@@ -9,6 +64,7 @@
   </div>
   <div class="badges">
     {%- if s.kind == 'cover' and deck.labels.ad %}<span class="badge ad" data-label="ad">광고</span>{% endif -%}
+    {%- if style == 'illust' and s.kind not in ('cover', 'outro') %}{{ mascot('mini') }}{% endif -%}
   </div>
 </div>
 <div class="bottombar">
@@ -19,6 +75,7 @@
 
 {% macro open(cls, s, bg) -%}
 <section class="slide {{ cls }}{% if bg %} has-bg{% endif %}" data-kind="{{ s.kind }}"{% if bg %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{{- deco(s, bg) }}
 {%- endmacro %}
 
 {% macro cover(s, i, n, deck) -%}
@@ -27,7 +84,7 @@
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content">
     <div class="kicker"></div>
-    <h1 data-fit="88">{{ s.title | one_break }}</h1>
+    <h1 data-fit="88">{{ title_text(s) }}</h1>
     {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
   </div>
 </section>

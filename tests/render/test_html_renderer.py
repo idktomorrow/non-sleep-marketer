@@ -255,7 +255,7 @@ def test_renderer_version_tracks_template_files() -> None:
 
     v = template_version()
     assert v == template_version() and len(v) == 16
-    assert HtmlCardRenderer().version == v
+    assert HtmlCardRenderer().version == f"{v}:clean"
 
 
 # ---------------------------------------------------------------- 스레드 썸네일 가독성 (S-γ)
@@ -265,12 +265,12 @@ THUMB_SCALE = 224 / 1080
 MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9, "who": 7.5, "badge": 7.0}
 
 
-def _cover_sizes(deck: CardDeck, tmp_path: Path) -> dict[str, float]:
+def _cover_sizes(deck: CardDeck, tmp_path: Path, style: str = "clean") -> dict[str, float]:
     """글자 맞춤(nsmFit)이 끝난 뒤 표지 글자 크기(px)."""
     from playwright.sync_api import sync_playwright
 
     page_path = tmp_path / "deck.html"
-    page_path.write_text(build_html(deck), encoding="utf-8")
+    page_path.write_text(build_html(deck, style), encoding="utf-8")
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         try:
@@ -290,12 +290,18 @@ def _cover_sizes(deck: CardDeck, tmp_path: Path) -> dict[str, float]:
             browser.close()
 
 
+@pytest.mark.parametrize("style", ["clean", "photo", "illust"])
 @pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
 @pytest.mark.parametrize("template", ["info", "list", "compare"])
-def test_cover_readable_at_threads_thumbnail(template: str, extreme: bool, tmp_path: Path) -> None:
-    """표지 제목·부제·이름·가상인물 배지가 피드 썸네일 크기에서도 최소 크기 이상이다(긴 글로 줄어든 뒤에도)."""
+def test_cover_readable_at_threads_thumbnail(
+    template: str, extreme: bool, style: str, tmp_path: Path
+) -> None:
+    """표지 제목·부제·이름·가상인물 배지가 피드 썸네일 크기에서도 최소 크기 이상이다(긴 글로 줄어든 뒤에도).
+
+    S8: 세 스타일 모두 같은 최소값을 지킨다(ADR 0035·0036).
+    """
     deck = _extreme(template) if extreme else load(template)
-    sizes = _cover_sizes(deck, tmp_path)
+    sizes = _cover_sizes(deck, tmp_path, style)
     for key, minimum in MIN_THUMB_PX.items():
         assert sizes[key] * THUMB_SCALE >= minimum, (
             f"{key} {sizes[key]}px → 썸네일 {sizes[key] * THUMB_SCALE:.1f}px"

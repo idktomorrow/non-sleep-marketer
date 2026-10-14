@@ -43,6 +43,9 @@
     <label>주 색(카드 바탕·화면 강조색)<span class="color-input"><input type="color" value="{{ v.primary_color if v.primary_color|length == 7 else '#1E3A5F' }}" data-for="primary_color"><input type="text" name="primary_color" value="{{ v.primary_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
     <label>보조 색(카드 강조)<span class="color-input"><input type="color" value="{{ v.accent_color if v.accent_color|length == 7 else '#F2A541' }}" data-for="accent_color"><input type="text" name="accent_color" value="{{ v.accent_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
   </div>
+  <div class="field-row">
+    <label>카드 스타일 <span class="hint">모든 원고의 카드 모양. 저장하면 다음에 그리는 카드부터 바뀝니다. 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그리고, 글이 넘치면 올리지 않고 검토로 돌려보냅니다(검토 화면 "미리보기 렌더"로 확인). 배경은 코드로 그려서 추가 비용이 없습니다</span><select name="card_style">{% for k, label in card_styles.items() %}<option value="{{ k }}" {% if v.card_style == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  </div>
 </div>
 
 <h2>운영</h2>

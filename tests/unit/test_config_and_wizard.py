@@ -181,3 +181,38 @@ def test_reply_interval_has_a_floor(app_config) -> None:
     assert Settings().reply_interval_minutes == 5
     with pytest.raises(pydantic.ValidationError):
         Settings(reply_interval_minutes=1)
+
+
+def test_card_style_and_image_generation_defaults(nsm_home: Path) -> None:
+    """S8(ADR 0036): 카드 스타일 기본 clean, AI 배경 이미지는 유료라 기본으로 꺼 둔다."""
+    from nsm.domain.models import Brand
+
+    cfg = wizard(ScriptedIO(NEW_ANSWERS, NEW_CONFIRMS), MemorySecretStore())
+    assert cfg.brand.card_style == "clean"
+    assert cfg.settings.image_generation == "off"
+    # 도메인 Brand(동결)를 넘겨도 설정 brand로 받는다
+    again = AppConfig(brand=Brand(name="b", industry="i"), persona=cfg.persona)
+    assert again.brand.card_style == "clean"
+    # 대시보드에서 고른 스타일은 nsm init을 다시 돌려도 남는다
+    save_config(
+        cfg.model_copy(update={"brand": cfg.brand.model_copy(update={"card_style": "photo"})})
+    )
+    keep_all = ["<default>"] * 13 + ["", "", ""]
+    cfg2 = wizard(ScriptedIO(keep_all, [True, False, True, True]), MemorySecretStore())
+    assert cfg2.brand.card_style == "photo"
+
+
+def test_entering_openai_key_offers_to_turn_on_images(nsm_home: Path) -> None:
+    answers = list(NEW_ANSWERS)
+    answers[-2] = "sk-openai-test"  # OpenAI 키
+    cfg = wizard(ScriptedIO(answers, [*NEW_CONFIRMS, True]), MemorySecretStore())
+    assert cfg.settings.image_generation == "auto"
+    cfg = wizard(ScriptedIO(answers, [*NEW_CONFIRMS, False]), MemorySecretStore())
+    assert cfg.settings.image_generation == "auto"  # 이미 켜져 있으면 다시 묻지 않는다
+    off = cfg.model_copy(
+        update={"settings": cfg.settings.model_copy(update={"image_generation": "off"})}
+    )
+    save_config(off)
+    keep_all = ["<default>"] * 13 + ["", "sk-openai-test", ""]
+    cfg = wizard(ScriptedIO(keep_all, [True, False, True, True, False]), MemorySecretStore())
+    assert cfg.settings.image_generation == "off"  # 거절하면 꺼진 그대로

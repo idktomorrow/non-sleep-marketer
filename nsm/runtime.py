@@ -117,7 +117,7 @@ def build_context(
     from nsm.adapters.generator import make_image_generator, make_text_generator
     from nsm.render import get_renderer
 
-    return JobContext(
+    ctx = JobContext(
         config=cfg,
         repo=repo,
         clock=clock,
@@ -129,12 +129,14 @@ def build_context(
         classifier_name=classifiers.name,
         text_generator=make_text_generator(cfg, secrets, repo),
         image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
-        renderer=get_renderer(),
         adapters=make_platform_adapters(cfg, clock),
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
         reports_dir=paths.reports_dir(),
     )
+    # 카드 스타일은 렌더할 때마다 현재 설정에서 읽는다: 대시보드 설정 저장이 재시작 없이 반영(S8)
+    ctx.renderer = get_renderer(style=lambda: ctx.config.brand.card_style)
+    return ctx
 
 
 def run_job_once(job: str) -> None:

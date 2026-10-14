@@ -1,3 +1,3 @@
 {#- 정보형: 표지 → 본문(body) 여러 장 → 마무리 -#}
 {% extends "cards/_layout.html" %}
-{% block middle %}{% import "cards/_parts.html" as parts %}{{ parts.body(s, i, n, deck) }}{% endblock %}
+{% block middle %}{% import "cards/_parts.html" as parts with context %}{{ parts.body(s, i, n, deck) }}{% endblock %}

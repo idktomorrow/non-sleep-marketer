@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="{{ css_uri }}">
+{#- 스타일(S8): clean은 base.css만, photo·illust는 그 위에 스타일 파일을 얹는다 -#}
+{% if style != 'clean' %}<link rel="stylesheet" href="{{ css_uri | replace('base.css', style ~ '.css') }}">
+{% endif %}
 <style>
 :root {
   --primary: {{ c.primary }}; --primary-deep: {{ c.primary_deep }}; --accent: {{ c.accent }};
@@ -12,11 +15,16 @@
   --card: {{ c.card }}; --card-accent: {{ c.card_accent }};
   --badge-bg: {{ c.badge_bg }}; --badge-fg: {{ c.badge_fg }};
   --ad-bg: {{ c.ad_bg }}; --ad-fg: {{ c.ad_fg }};
+  --photo-dark: {{ c.photo_dark }}; --photo-mid: {{ c.photo_mid }}; --photo-glow: {{ c.photo_glow }};
+  --photo-ad-bg: {{ c.photo_ad_bg }}; --photo-ad-fg: {{ c.photo_ad_fg }};
+  --illust-bg: {{ c.illust_bg }}; --illust-ground: {{ c.illust_ground }};
+  --illust-ad-bg: {{ c.illust_ad_bg }}; --illust-ad-fg: {{ c.illust_ad_fg }};
+  --mascot-body: {{ c.mascot_body }};
 }
 </style>
 </head>
-<body>
-{%- import "cards/_parts.html" as parts -%}
+<body class="style-{{ style }}">
+{%- import "cards/_parts.html" as parts with context -%}
 {%- set n = deck.slides | length -%}
 {%- for s in deck.slides %}
 {%- set i = loop.index %}
