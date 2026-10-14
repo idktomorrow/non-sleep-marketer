@@ -12,6 +12,7 @@ import hashlib
 import logging
 from datetime import timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from nsm.domain.models import Content, Platform, Publication, RenderedPost
 from nsm.domain.policy import (
@@ -26,6 +27,8 @@ from nsm.engine.context import JobContext, JobResult
 from nsm.store.repo import InvalidTransitionError
 
 log = logging.getLogger(__name__)
+
+PLATFORM_NAMES = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
 
 PAUSED_KEY = "paused_platforms"  # health 잡이 로그인 만료 플랫폼을 적는다
 
@@ -170,22 +173,33 @@ def run_publish(ctx: JobContext) -> JobResult:
     start, end = local_day_bounds(now, ctx.tz)
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     published = failed = 0
+    waits: list[str] = []  # 이번에 안 올린 이유(플랫폼별). 사람이 "왜 0건?"을 바로 알게.
     for platform in s.enabled_platforms:
+        name = PLATFORM_NAMES.get(platform, platform)
         adapter = ctx.adapters.get(platform)
         if adapter is None or platform in paused:
+            waits.append(f"{name} 일시 중지됨" if platform in paused else f"{name} 연결 안 됨")
             continue
-        if ctx.repo.count_published_between(platform, start, end) >= s.quotas.get(platform, 0):
+        quota = s.quotas.get(platform, 0)
+        if ctx.repo.count_published_between(platform, start, end) >= quota:
+            waits.append(f"{name} 오늘 {quota}건 다 올림(내일 다시)")
             continue
         last = ctx.repo.last_published_at(platform)
-        if last and now - last < timedelta(hours=s.min_hours_between_posts):
+        gap = timedelta(hours=s.min_hours_between_posts)
+        if last and now - last < gap:
+            at = (last + gap).astimezone(ZoneInfo(ctx.tz)).strftime("%H:%M")
+            waits.append(f"{name} {s.min_hours_between_posts:g}시간 간격 대기({at} 이후)")
             continue
         due = ctx.repo.due_publications(platform, now)
         if not due:
+            waits.append(f"{name} 올릴 차례인 원고 없음(재시도 시각 전이거나 대기 없음)")
             continue
         outcome = _publish_one(ctx, adapter, due[0], result)
         published += outcome == "published"
         failed += outcome == "failed"
     result.counts.update(published=published, failed=failed)
+    if waits:
+        result.counts["waits"] = waits
     result.ok = not result.errors
     return result
 
