@@ -179,3 +179,13 @@ def test_runtime_builds_both_live_adapters(app_config, nsm_home) -> None:
         app_config.model_copy(update={"settings": s}), SystemClock()
     )
     assert set(got) == {"threads", "instagram"} and isinstance(got["instagram"], InstagramAdapter)
+
+
+def test_publish_waits_while_buttons_are_disabled(tmp_path, clock) -> None:
+    """2026-10-14: 편집 단계의 "다음"이 처리 중(비활성)일 때 눌러 "Element is disabled"로 실패했다.
+    비활성 버튼은 누르지 않고 기다리며, 무시된 클릭은 다시 누른다."""
+    a, media = _adapter(tmp_path, clock, data={"code": "Cabc", "ratio": 0.8})
+    a.publish(_post(media))
+    body = a.repl.calls[0][0]
+    assert "nsmDisabled" in body and "'busy'" in body
+    assert "=== true, 20000" in body  # 공유하기는 실제로 눌렀을 때만 넘어간다

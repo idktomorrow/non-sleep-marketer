@@ -65,18 +65,29 @@ async function dialogName(pg) {
   const k = s.tree.indexOf('dialog "');
   return k < 0 ? '' : s.tree.slice(k + 8).split('"')[0];
 }
-async function clickDialogButton(pg, label) {
+async function dialogButton(pg, label) {
   const s = await snapshot(pg, { selector: '[role="dialog"]', interactive: true });
   const key = 'button "' + label + '" [ref=';
   const k = s.tree.indexOf(key);
-  if (k < 0) return false;
-  await pg.locator(s.tree.slice(k + key.length).split(']')[0]).click();
+  return k < 0 ? null : pg.locator(s.tree.slice(k + key.length).split(']')[0]);
+}
+// 처리 중인 버튼은 비활성이다(누르면 "Element is disabled"). 이미지 처리 중이므로 누르지 않고 기다린다.
+const nsmDisabled = async (b) => await b.evaluate(e => e.disabled === true || e.getAttribute('aria-disabled') === 'true');
+async function clickDialogButton(pg, label) {
+  const b = await dialogButton(pg, label);
+  if (!b) return false;
+  if (await nsmDisabled(b)) return 'busy';
+  try { await b.click(); } catch (e) { if (/disabled/i.test(String((e && e.message) || e))) return 'busy'; throw e; }
   return true;
 }
+// 다음 단계로: 화면이 덜 준비됐을 때 누른 "다음"은 무시되거나(2026-10-14 실패) 버튼이 처리 중(비활성)이 된다.
+// 처리 중이면 풀릴 때까지 기다리고, 넘어가지 않았으면 다시 누른다. 최대 60초.
 async function nextStep(pg, from) {
-  for (let i = 0; i < 4; i++) {
-    if (!(await clickDialogButton(pg, '다음'))) await sleep(1500);
-    const moved = await nsmUntil(async () => (await dialogName(pg)) !== from, 6000, 800);
+  const end = Date.now() + Math.min(60000, nsmLeft() - 30000);
+  while (Date.now() < end) {
+    // 비활성('busy')이면 누르지 않고 짧게 기다렸다 다시 본다
+    const r = await clickDialogButton(pg, '다음');
+    const moved = await nsmUntil(async () => (await dialogName(pg)) !== from, r === true ? 8000 : 2000, 800);
     if (moved) return true;
   }
   return false;
@@ -195,7 +206,9 @@ await threadsSwitch(true);
 await sleep(600);
 const thrState = await threadsSwitch(false);
 if (thrState.some(Boolean)) throw new NsmError('script', '"Threads에 공유" 스위치를 끄지 못함(중복 게시 위험)');
-if (!(await clickDialogButton(pg, '공유하기'))) throw new NsmError('script', '공유하기 버튼 없음');
+// 공유하기도 처리 중이면 비활성이다. 실제로 누를 때까지 기다린다('busy'는 누른 게 아님).
+const shareClicked = await nsmUntil(async () => (await clickDialogButton(pg, '공유하기')) === true, 20000, 1000);
+if (!shareClicked) throw new NsmError('script', '공유하기 버튼 없음 또는 계속 비활성');
 // 여기부터는 올라갔을 수 있으니 어떤 오류도 밖으로 내지 않는다(오류 → 재시도 → 중복 게시)
 try {
   const shared = await nsmUntil(async () => /공유되었습니다|게시물이 공유/.test(await pg.evaluate(() => document.body.innerText)), 60000, 1500);
