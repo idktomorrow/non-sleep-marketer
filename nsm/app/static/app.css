@@ -142,6 +142,18 @@ input[type=text]:disabled { background: #f3f4f6; color: var(--muted); }
 label.check { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; color: var(--fg); margin-top: 14px; }
 label.check .hint { flex-basis: 100%; color: var(--muted); }
 .settings-bar { position: sticky; top: auto; bottom: 0; margin-top: 16px; }
+/* 카드 스타일 고르기(S8): 견본 카드를 보고 고른다 */
+.style-picker { border: 0; padding: 0; margin: 14px 0 0; min-width: 0; }
+.style-picker legend { padding: 0; font-weight: 600; color: var(--fg); }
+.style-picker legend .hint { display: block; font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.style-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.style-option { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); cursor: pointer; }
+.style-option:has(input:checked) { border: 2px solid var(--accent); padding: 11px; background: var(--accent-soft); }
+.style-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.style-head { display: flex; gap: 6px; align-items: center; }
+.style-thumbs { display: flex; gap: 6px; }
+.style-thumb { width: 128px; height: 160px; border-radius: 6px; background: var(--line); object-fit: cover; box-shadow: var(--shadow); }
+.style-option .hint { color: var(--muted); }
 
 /* ---------------------------------------------------------------- 지금 실행 진행 표시 */
 .jobstatus { position: fixed; right: 16px; bottom: 16px; z-index: 20; display: flex; flex-direction: column; gap: 8px; max-width: min(380px, calc(100vw - 32px)); }
@@ -197,4 +209,5 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
   .todo-num { font-size: 26px; min-width: 40px; }
   .stats { grid-template-columns: 1fr 1fr; }
   .field-row { grid-template-columns: 1fr; }
+  .style-options { grid-template-columns: 1fr; }
 }

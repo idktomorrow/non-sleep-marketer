@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from nsm.config.paths import config_path, uploads_dir
-from nsm.config.schema import AppConfig, Settings
+from nsm.config.schema import AppConfig, BrandSettings, Settings
 from nsm.config.secrets import KEYS, KeyringSecretStore, SecretStore, mask
 from nsm.config.store import (
     ConfigNotFoundError,
@@ -22,7 +22,7 @@ from nsm.config.store import (
     split_list,
 )
 from nsm.domain.labels import DEFAULT_BANNED_PATTERNS
-from nsm.domain.models import Brand, Persona, _check_hex
+from nsm.domain.models import Persona, _check_hex
 
 RISK_NOTICE = """\
 [위험 고지]
@@ -127,7 +127,7 @@ def wizard(
     # 2. 브랜드
     io.echo("\n[1/4] 브랜드")
     b = existing.brand if existing else None
-    brand = Brand(
+    brand = BrandSettings(
         name=_ask(io, "브랜드 이름", b.name if b else ""),
         industry=_ask(io, "업종", b.industry if b else ""),
         products=split_list(
@@ -144,6 +144,7 @@ def wizard(
         primary_color=_ask_color(io, "브랜드 주 색 (#RRGGBB)", b.primary_color if b else "#1E40AF"),
         accent_color=_ask_color(io, "강조 색 (#RRGGBB)", b.accent_color if b else "#F59E0B"),
         logo_path=b.logo_path if b else None,
+        card_style=b.card_style if b else "clean",  # 대시보드에서 고른 스타일을 지키기
     )
 
     # 3. 페르소나
@@ -182,6 +183,7 @@ def wizard(
 
     # 4. API 키
     io.echo("\n[3/4] API 키 (Windows 자격 증명 관리자에 저장, 엔터를 누르면 건너뜀)")
+    new_keys: set[str] = set()
     for key in KEYS:
         current = secrets.get(key)
         v = io.prompt(
@@ -190,6 +192,7 @@ def wizard(
         if v:
             try:
                 secrets.set(key, v)
+                new_keys.add(key)
             except Exception as e:  # noqa: BLE001  키 저장 실패가 나머지 설정을 날리면 안 된다
                 io.echo(
                     f"  키를 저장하지 못했습니다({e}). 환경 변수로 넣을 수 있습니다: "
@@ -203,6 +206,13 @@ def wizard(
         "지금은 계정 연결 없이 드라이런(미리보기 저장)으로 시작할까요?", default=s.dry_run
     )
     settings = s.model_copy(update={"dry_run": dry_run})
+    # AI 배경 이미지는 유료라 기본으로 꺼 둔다(ADR 0036). OpenAI 키를 넣을 때만 켤지 묻는다
+    ask_images = "openai_api_key" in new_keys and settings.image_generation == "off"
+    if ask_images and io.confirm(
+        "OpenAI 키를 넣었습니다. AI 배경 이미지를 켤까요? (이미지마다 OpenAI 요금이 듭니다)",
+        default=True,
+    ):
+        settings = settings.model_copy(update={"image_generation": "auto"})
     if not dry_run:
         io.echo("  실제 계정 로그인은 `nsm run` 후 브라우저 창에서 진행합니다(사용설명서 5절).")
 

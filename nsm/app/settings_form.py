@@ -65,6 +65,21 @@ def _windows(form: dict[str, Any], key: str, label: str) -> list | None:
 PERIODS = {"1d": "최근 1일", "1w": "최근 1주", "1m": "최근 1달", "all": "기간 없음(정확도순)"}
 
 
+CARD_STYLE_NAMES = {
+    "clean": "깔끔(기본): 브랜드 색 면 + 흰 카드",
+    "photo": "사진형: 꽉 찬 어두운 배경 + 형광펜 제목 + 말풍선",
+    "illust": "일러스트형: 파스텔 배경 + 번호 카드 + 캐릭터",
+}
+
+
+def _card_style(form: dict[str, Any], current: str) -> str:
+    # 폼에 칸이 없으면(옛 화면·테스트) 지금 값을 지킨다
+    v = str(form.get("card_style", current))
+    if v not in CARD_STYLE_NAMES:
+        raise SettingsError("카드 스타일: 깔끔·사진형·일러스트형 중 하나를 고르세요")
+    return v
+
+
 def _period(form: dict[str, Any]) -> str:
     v = str(form.get("recent_period", "1w"))
     if v not in PERIODS:
@@ -99,6 +114,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         key_messages=_lines(form, "key_messages", "핵심 메시지"),
         primary_color=_text(form, "primary_color", "주 색"),
         accent_color=_text(form, "accent_color", "보조 색"),
+        card_style=_card_style(form, cfg.brand.card_style),
     )
     settings = cfg.settings.model_dump()
     settings.update(
@@ -154,6 +170,7 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "key_messages": "\n".join(b.key_messages),
         "primary_color": b.primary_color,
         "accent_color": b.accent_color,
+        "card_style": b.card_style,
         "posting_hours": format_windows(s.posting_hours) if s.posting_hours else "",
         "quota_instagram": str(s.quotas.get("instagram", 0)),
         "quota_threads": str(s.quotas.get("threads", 0)),

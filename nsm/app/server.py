@@ -46,7 +46,13 @@ from nsm.app.materials import (
     source_label,
     verdict,
 )
-from nsm.app.settings_form import PERIODS, SettingsError, apply_settings_form, form_values
+from nsm.app.settings_form import (
+    CARD_STYLE_NAMES,
+    PERIODS,
+    SettingsError,
+    apply_settings_form,
+    form_values,
+)
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -242,10 +248,27 @@ def create_app(state: AppState) -> FastAPI:
             request,
             "settings.html",
             periods=PERIODS,
+            card_styles=CARD_STYLE_NAMES,
+            style_previews=hasattr(state.renderer, "render_sample"),
             v=form_values(state.get_config()),
             error=None,
             saved=bool(saved),
         )
+
+    @app.get("/settings/style-preview/{style}/{n}.png")
+    def style_preview(style: str, n: int, primary: str = "", accent: str = "") -> FileResponse:
+        """카드 스타일 견본(S8): 지금 페르소나와 화면의 색(저장 전 값도)으로 그린 표지·본문 장."""
+        from nsm.app.style_preview import StylePreviewError, style_preview_png
+
+        if not hasattr(state.renderer, "render_sample"):
+            raise HTTPException(404, "카드 렌더러가 없습니다(`nsm doctor`로 크로미움 확인)")
+        try:
+            path = style_preview_png(
+                state.renderer, state.get_config(), state.media_dir, style, n, primary, accent
+            )
+        except StylePreviewError as e:
+            raise HTTPException(400, str(e)) from e
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "max-age=3600"})
 
     @app.post("/settings", dependencies=[Depends(check_csrf)], response_model=None)
     async def save_settings(request: Request) -> HTMLResponse | RedirectResponse:
@@ -258,6 +281,8 @@ def create_app(state: AppState) -> FastAPI:
                 request,
                 "settings.html",
                 periods=PERIODS,
+                card_styles=CARD_STYLE_NAMES,
+                style_previews=hasattr(state.renderer, "render_sample"),
                 v={**form_values(state.get_config()), **form},
                 error=str(e),
                 saved=False,

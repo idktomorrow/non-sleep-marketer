@@ -4,6 +4,8 @@
 - 슬라이드 한 장 = 1080×1350. 한 페이지에 모든 슬라이드를 그려 놓고 슬라이드 요소마다 스크린샷을 찍는다.
 - 글이 넘치면 템플릿의 `nsmFit()`이 `data-fit` 글자를 최소 크기까지 줄인다. 그래도 넘친 슬라이드 번호는
   `last_overflow`에 남는다(테스트·로그용).
+- 스타일(S8, ADR 0036): `clean`(기본)·`photo`·`illust`. `<body class="style-…">`와 스타일별 장식(코드로 그린
+  도형·SVG 캐릭터)만 바뀌고, 글자와 표기 슬롯은 세 스타일 모두 같은 HTML이다(글자를 이미지에 굽지 않는다).
 - Playwright 동기 API는 스레드에 하나만 띄울 수 있다. 수집용 브라우저 드라이버가 같은 작업 스레드에서
   이미 떠 있을 수 있으므로, 렌더는 전용 스레드 하나에서 하고 크로미움은 한 번 띄워 재사용한다.
 """
@@ -17,12 +19,14 @@ import logging
 import re
 import tempfile
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from importlib import resources
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
 
 log = logging.getLogger(__name__)
@@ -84,6 +88,18 @@ def _ink_on_light(rgb: tuple[float, float, float]) -> str:
     return _hex(out)
 
 
+def _dark_under_white(
+    rgb: tuple[float, float, float], min_contrast: float
+) -> tuple[float, float, float]:
+    """같은 색 계열에서 흰 글자 대비가 min_contrast 이상이 되는 가장 밝은 톤(노랑처럼 밝은 색도 어둡게)."""
+    light = colorsys.rgb_to_hls(*rgb)[1]
+    out = rgb
+    while _contrast(out, _WHITE) < min_contrast and light > 0.02:
+        light -= 0.02
+        out = _shade(rgb, light)
+    return out
+
+
 def palette(primary: str, accent: str) -> dict[str, str]:
     p, a = _rgb(primary), _rgb(accent)
     deep = tuple(v * 0.72 for v in p)
@@ -94,6 +110,19 @@ def palette(primary: str, accent: str) -> dict[str, str]:
     else:
         ad_bg = on_primary
         ad_fg = "#121419" if on_primary == "#FFFFFF" else "#FFFFFF"
+    # photo 스타일 바탕: 주 색을 아주 어둡게(흰 글자가 늘 읽히게). 광고 배지는 이 바탕에서도 눈에 띄어야 한다
+    photo_dark = min(_shade(p, 0.12), _dark_under_white(p, 14.0), key=_luminance)
+    photo_mid = min(_shade(p, 0.26), _dark_under_white(p, 8.0), key=_luminance)
+    if _contrast(a, photo_mid) >= 2.0:
+        photo_ad_bg, photo_ad_fg = _hex(a), _on(a)
+    else:
+        photo_ad_bg, photo_ad_fg = "#FFFFFF", "#121419"
+    # illust 스타일 바탕: 주 색을 아주 옅게(파스텔). 글자는 ink, 광고 배지는 파스텔 위에서 보이는 색
+    illust_bg = _shade(p, 0.94)
+    if _contrast(a, illust_bg) >= 2.0:
+        illust_ad_bg, illust_ad_fg = _hex(a), _on(a)
+    else:
+        illust_ad_bg, illust_ad_fg = "#1B1D22", "#FFFFFF"
     card = tuple(0.94 + 0.06 * v for v in p)
     card_accent = tuple(0.92 + 0.08 * v for v in a)
     return {
@@ -112,6 +141,18 @@ def palette(primary: str, accent: str) -> dict[str, str]:
         "badge_fg": "#FFFFFF",
         "ad_bg": ad_bg,
         "ad_fg": ad_fg,
+        "photo_dark": _hex(photo_dark),
+        "photo_mid": _hex(photo_mid),
+        # 배경 원 색: 주 색 계열이되 밝기를 고정(밝은 브랜드 색이어도 흰 글자가 읽히게)
+        "photo_glow": _hex(min(_shade(p, 0.34), _dark_under_white(p, 5.0), key=_luminance)),
+        "photo_ad_bg": photo_ad_bg,
+        "photo_ad_fg": photo_ad_fg,
+        "illust_bg": _hex(illust_bg),
+        "illust_ground": _hex(_shade(p, 0.84)),
+        "illust_ad_bg": illust_ad_bg,
+        "illust_ad_fg": illust_ad_fg,
+        # 캐릭터 몸 색: 주 색의 밝은 톤(채도는 그대로). 진한 눈·입이 늘 보이게
+        "mascot_body": _hex(_shade(p, 0.7)),
     }
 
 
@@ -152,8 +193,15 @@ def template_version() -> str:
     return h.hexdigest()[:16]
 
 
-def build_html(deck: CardDeck) -> str:
-    """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 브랜드 색 그라디언트로 대체된다."""
+def check_style(style: str) -> str:
+    if style not in CARD_STYLES:
+        raise ValueError(f"카드 스타일은 {', '.join(CARD_STYLES)} 중 하나입니다: {style}")
+    return style
+
+
+def build_html(deck: CardDeck, style: str = "clean") -> str:
+    """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다."""
+    check_style(style)
     slides = []
     for s in deck.slides:
         bg = s.background if s.background and Path(s.background).exists() else None
@@ -174,6 +222,7 @@ def build_html(deck: CardDeck) -> str:
         .render(
             deck=deck,
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
+            style=style,
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),
         )
     )
@@ -187,16 +236,29 @@ class HtmlCardRenderer:
 
     Playwright 객체는 만든 스레드에서만 쓸 수 있으므로 모든 렌더를 그 스레드로 보낸다.
     호출한 스레드에 다른 Playwright(수집 드라이버)가 떠 있어도 충돌하지 않는다.
+
+    `style`은 문자열이나 함수다. 함수면 렌더할 때마다 불러서, 대시보드에서 바꾼 `brand.card_style`이
+    재시작 없이 다음 렌더부터 적용된다(포트 `render(deck, out_dir)`는 동결이라 스타일을 인자로 받지 않는다).
     """
 
-    def __init__(self, timeout_ms: int = 30_000) -> None:
+    def __init__(self, timeout_ms: int = 30_000, style: str | Callable[[], str] = "clean") -> None:
         self.timeout_ms = timeout_ms
         self.last_overflow: list[int] = []
         self._pool: ThreadPoolExecutor | None = None
         self._pw = None
         self._browser = None
         self._lock = threading.Lock()
-        self.version = template_version()
+        self._style = style
+        self._template_version = template_version()
+
+    @property
+    def style(self) -> str:
+        return check_style(self._style() if callable(self._style) else self._style)
+
+    @property
+    def version(self) -> str:
+        """렌더 캐시 지문(publish.render_images): 템플릿 파일과 스타일 중 하나라도 바뀌면 다시 그린다."""
+        return f"{self._template_version}:{self.style}"
 
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
         self.last_overflow = []  # 이전 덱의 값이 남지 않게
@@ -205,8 +267,19 @@ class HtmlCardRenderer:
                 self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
                 atexit.register(self.close)
             pool = self._pool
-        paths, overflow = pool.submit(self._render, deck, out_dir).result()
+        paths, overflow = pool.submit(self._render, deck, out_dir, self.style).result()
         self.last_overflow = overflow
+        return paths
+
+    def render_sample(self, deck: CardDeck, out_dir: Path, style: str) -> list[Path]:
+        """설정 화면 스타일 견본: 지정한 스타일로 그린다. 게시용 렌더의 `last_overflow`는 건드리지 않는다
+        (게시 잡이 렌더 직후 읽는 값이 요청 스레드의 견본 렌더로 바뀌면 안 된다)."""
+        with self._lock:
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
+                atexit.register(self.close)
+            pool = self._pool
+        paths, _overflow = pool.submit(self._render, deck, out_dir, check_style(style)).result()
         return paths
 
     def _ensure_browser(self):
@@ -217,13 +290,13 @@ class HtmlCardRenderer:
             self._browser = self._pw.chromium.launch()
         return self._browser
 
-    def _render(self, deck: CardDeck, out_dir: Path) -> tuple[list[Path], list[int]]:
+    def _render(self, deck: CardDeck, out_dir: Path, style: str) -> tuple[list[Path], list[int]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         browser = self._ensure_browser()
         # 로컬 절대 경로가 담긴 HTML은 결과 폴더에 남기지 않는다(임시 폴더에서 렌더 후 삭제)
         with tempfile.TemporaryDirectory(prefix="nsm-card-") as tmp:
             html_path = Path(tmp) / "deck.html"
-            html_path.write_text(build_html(deck), encoding="utf-8")
+            html_path.write_text(build_html(deck, style), encoding="utf-8")
             page = browser.new_page(
                 viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1
             )

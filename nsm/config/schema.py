@@ -6,7 +6,7 @@ API 키는 여기 두지 않는다. keyring(Windows 자격 증명 관리자)에 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -15,6 +15,17 @@ from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
+CardStyle = Literal["clean", "photo", "illust"]
+CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
+
+
+class BrandSettings(Brand):
+    """설정 파일의 brand. 도메인 Brand(동결)에 카드 스타일 선택만 더한다. 덱 JSON 계약은 그대로다."""
+
+    card_style: CardStyle = "clean"
 
 
 class CollectSettings(_Model):
@@ -65,8 +76,9 @@ class Settings(_Model):
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: MotherDuck 토큰이 있으면 jev, 없으면 claude (ADR 0003)
     classifier: Literal["auto", "jev", "claude"] = "auto"
-    # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경만
-    image_generation: Literal["auto", "on", "off"] = "auto"
+    # off(기본): AI 배경을 만들지 않고 코드로 그린 배경만(유료라서 꺼 둠, ADR 0036).
+    # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경. on: 항상 생성(키 없으면 경고 후 템플릿 배경)
+    image_generation: Literal["auto", "on", "off"] = "off"
     # ADR 0017: 1일차 검증에서 Aside 무인 게시 확인. 구현 전(배치 G)에는 Playwright로 대신 동작
     browser_driver: Literal["aside", "playwright"] = "aside"
     # 게시 계정 핸들(예: {"threads": "@nonsleepmarketer"}). 실계정 어댑터(배치 G)는 로그인된
@@ -85,6 +97,12 @@ class Settings(_Model):
 class AppConfig(_Model):
     version: int = 1
     risk_accepted_at: datetime | None = None
-    brand: Brand
+    brand: BrandSettings
     persona: Persona
     settings: Settings = Field(default_factory=Settings)
+
+    @field_validator("brand", mode="before")
+    @classmethod
+    def _brand_from_domain(cls, v: object) -> object:
+        # 마법사·테스트가 도메인 Brand를 넘겨도 받는다(card_style은 기본값)
+        return v.model_dump() if isinstance(v, Brand) and not isinstance(v, BrandSettings) else v

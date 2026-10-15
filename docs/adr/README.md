@@ -47,3 +47,5 @@
 | [0033](0033-materials-page.md) | 자료 화면: 파일 올리기(바로 읽기 확인), 올린 파일 상태, 모은 자료와 판정 | 채택 |
 | [0034](0034-main-takes-s-beta-gamma-s8.md) | 2주차 서브 배치 S-β(#21)·S-γ(#23)·S8(#34)을 메인이 맡음(머지 후 서브가 다듬을 수 있음) | 채택 |
 | [0035](0035-cover-readable-at-threads-thumbnail.md) | 카드 표지 글자를 스레드 피드 썸네일(224×280 실측) 크기에서도 읽히게 키우고, 제목의 빈 줄은 합침 | 채택 |
+| [0036](0036-code-drawn-card-styles.md) | 카드 스타일 clean·photo·illust(`brand.card_style`)는 코드로 그린 배경·자체 캐릭터만, AI 배경 이미지는 기본 off | 채택 |
+| [0037](0037-per-content-card-style.md) | 원고별 카드 스타일은 덱 JSON `style` 필드 계약 변경으로 2차에(합의 PR) | 제안 |

@@ -70,16 +70,35 @@ def run(
 def render_preview(
     deck: Path = typer.Argument(..., exists=True, help="카드 덱 JSON"),
     out: Path | None = typer.Option(None, "--out", help="기본: <NSM_HOME>/preview/render"),
+    style: str | None = typer.Option(
+        None,
+        "--style",
+        help="카드 스타일 clean|photo|illust. 기본: 설정 파일의 brand.card_style(없으면 clean)",
+    ),
 ) -> None:
-    """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α)."""
+    """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α, 스타일은 S8)."""
     from nsm.config.paths import preview_dir
+    from nsm.config.schema import CARD_STYLES
     from nsm.domain.models import CardDeck
     from nsm.render import get_renderer
 
+    if style is None:
+        style = _configured_card_style()
+    if style not in CARD_STYLES:
+        raise typer.BadParameter(f"{', '.join(CARD_STYLES)} 중 하나", param_hint="--style")
     d = CardDeck.model_validate_json(deck.read_text(encoding="utf-8"))
-    paths = get_renderer().render(d, out or preview_dir() / "render")
+    paths = get_renderer(style=style).render(d, out or preview_dir() / "render")
     for p in paths:
         typer.echo(str(p))
+
+
+def _configured_card_style() -> str:
+    from nsm.config.store import load_config
+
+    try:
+        return load_config().brand.card_style
+    except Exception:  # noqa: BLE001  설정 전(nsm init 전)에도 미리보기는 된다
+        return "clean"
 
 
 @app.command("install-autostart")
