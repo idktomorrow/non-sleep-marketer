@@ -1,6 +1,6 @@
 # 0036. 카드 스타일 clean·photo·illust는 코드로 그린 배경만 쓰고, AI 배경 이미지는 기본으로 끈다
 
-- 상태: 제안 (PR 리뷰에서 세 스타일 PNG를 보고 선웅제 승인)
+- 상태: 채택 (2026-10-15, PR #69 리뷰에서 선웅제가 photo·illust 디자인과 캐릭터, 썸네일 가독성, 대기 원고 다시 그리기 동작을 승인)
 - 날짜: 2026-10-14
 - 결정한 사람: 선웅제(배치 지시: 유료 이미지 생성 제외), 배치 S8 기본값
 - 관련: 이슈 #34, [ADR 0034](0034-main-takes-s-beta-gamma-s8.md), [ADR 0035](0035-cover-readable-at-threads-thumbnail.md), [ADR 0024](0024-card-editor-scope.md), [레퍼런스](../samples/references/README.md), 샘플 [docs/samples/styles/](../samples/styles/)
