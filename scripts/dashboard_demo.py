@@ -179,12 +179,37 @@ def seed(repo: Repository, cfg: AppConfig, media: Path, reports: Path, renderer)
 
     for kind, usd in (("llm", 0.065), ("classifier", 0.0012), ("llm", 0.058)):
         repo.record_cost(kind, "anthropic", usd, "demo")
+    wait = "인스타그램 요청 제한으로 쉬는 중(02:56 이후 다시)"
     for job, ok, msg in (
-        ("collect", True, "new=13, duplicate=0, classified=13, relevant=2, bodies=1"),
-        ("generate", True, "templates=['info', 'list'], created=2, pending_review=2, approved=0"),
+        (
+            "collect",
+            True,
+            JobResult(
+                "collect",
+                counts={"new": 13, "duplicate": 4, "classified": 13, "relevant": 2, "bodies": 1},
+            ).summary(),
+        ),
+        (
+            "generate",
+            True,
+            JobResult(
+                "generate",
+                counts={"templates": ["info", "list"], "created": 2, "pending_review": 2},
+            ).summary(),
+        ),
         ("publish", False, "threads: 로그인 필요(Aside 브라우저)"),
-        ("reply", True, "new=6, auto_replied=2, escalated=4"),
-        ("health", True, ""),
+        (
+            "reply",
+            True,
+            JobResult("reply", counts={"new": 6, "auto_replied": 2, "escalated": 4}).summary(),
+        ),
+        # C10 전에 저장된 예전 형식 줄: 화면에서 문장으로 바뀌어 보여야 한다
+        (
+            "reply",
+            True,
+            f"reply: new=0, auto_replied=0, hidden=0, escalated=0, ignored=0, rate_limited=['{wait}']",
+        ),
+        ("health", True, "health: paused=[]"),
     ):
         rid = repo.start_run(job)
         repo.finish_run(rid, ok, msg)

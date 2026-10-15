@@ -11,6 +11,7 @@ from typing import Any
 
 from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
+from nsm.engine.summary import describe
 from nsm.ports import (
     CardRenderer,
     Classifier,
@@ -57,8 +58,5 @@ class JobResult:
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        if self.skipped:
-            return f"{self.job}: 건너뜀 ({self.skipped})"
-        parts = ", ".join(f"{k}={v}" for k, v in self.counts.items())
-        err = f" / 오류 {len(self.errors)}건: {self.errors[0]}" if self.errors else ""
-        return f"{self.job}: {parts or '변화 없음'}{err}"
+        """사람이 읽는 한 줄(실행 기록·알림·로그). 예: "새 댓글 없음 · 인스타그램 요청 제한으로 쉬는 중(02:56 이후 다시)"."""
+        return describe(self.job, self.skipped, self.counts, self.errors)

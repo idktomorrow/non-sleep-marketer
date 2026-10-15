@@ -5,6 +5,8 @@ DB·라우트·계약의 값은 그대로 두고 화면에서만 바꾼다. 모�
 
 from __future__ import annotations
 
+from nsm.engine.summary import describe, readable
+
 CONTENT_STATUS = {
     "draft": "작성 중",
     "pending_review": "검토 대기",
@@ -62,41 +64,18 @@ JOBS: dict[str, tuple[str, str]] = {
 }
 
 
-# 작업 결과 숫자 → 한국어(지금 실행 결과 알림에 쓴다). 여기 없는 숫자는 보여 주지 않는다.
-RESULT_COUNTS = {
-    "new": "새 자료",
-    "relevant": "관련 자료",
-    "excluded_genre": "후기·일기 제외",
-    "created": "새 원고",
-    "pending_review": "검토 대기",
-    "approved": "바로 승인",
-    "published": "게시",
-    "failed": "실패",
-    "auto_replied": "자동 답글",
-    "hidden": "숨김",
-    "escalated": "사람 확인",
-}
-
-
 def result_text(result: object) -> str:
-    """JobResult → "새 자료 15건 · 관련 자료 5건" 같은 한 줄. 결과가 JobResult가 아니면 "끝"."""
-    skipped = getattr(result, "skipped", None)
+    """ "지금 실행" 결과 알림 한 줄(실행 기록과 같은 문장). 결과가 JobResult가 아니면 "끝났습니다"."""
     counts = getattr(result, "counts", None)
     if counts is None:
         return "끝났습니다"
-    if skipped:
-        return f"건너뜀: {skipped}"
-    parts = [
-        f"{label} {counts[k]}건"
-        for k, label in RESULT_COUNTS.items()
-        if isinstance(counts.get(k), int) and not isinstance(counts.get(k), bool)
-    ]
-    errors = getattr(result, "errors", None) or []
-    text = " · ".join(parts) or "바뀐 것 없음"
-    waits = counts.get("waits")
-    if isinstance(waits, list) and waits and not counts.get("published"):
-        text += " / " + ", ".join(waits)  # 게시: 왜 안 올렸는지
-    return f"{text} · 오류 {len(errors)}건: {errors[0]}"[:300] if errors else text
+    text = describe(
+        getattr(result, "job", ""),
+        getattr(result, "skipped", "") or "",
+        counts,
+        getattr(result, "errors", None) or [],
+    )
+    return text[:300]
 
 
 def ko(value: object, table: dict[str, str]) -> str:
@@ -115,4 +94,6 @@ FILTERS = {
     "ko_comment": lambda v: ko(v, COMMENT_STATUS),
     "ko_cost": lambda v: ko(v, COST_KIND),
     "ko_job": lambda v: JOBS.get(str(v), (str(v), ""))[0],
+    # 실행 기록 요약: {{ r.message|run_text(r.job) }}. 예전 형식(reply: new=0, ...)도 문장으로
+    "run_text": lambda message, job: readable(str(job), message),
 }

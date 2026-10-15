@@ -40,9 +40,9 @@ def test_run_now_stays_on_page_and_shows_progress(env) -> None:  # noqa: F811
         JobResult("collect", counts={"new": 15, "relevant": 5, "bodies": 4})
     )
     done = env["client"].get("/jobs/status").text
-    assert "자료 모으기 완료" in done and "새 자료 15건 · 관련 자료 5건" in done
+    assert "자료 모으기 완료" in done and "새 자료 15개 · 관련 자료 5개 · 원문 4개 읽음" in done
     assert "hx-trigger" not in done  # 다 끝나면 다시 읽지 않는다
-    assert sent == [("자료 모으기 완료", "새 자료 15건 · 관련 자료 5건", "info")]
+    assert sent == [("자료 모으기 완료", "새 자료 15개 · 관련 자료 5개 · 원문 4개 읽음", "info")]
 
     env["state"].clock.advance(minutes=4)
     assert "자료 모으기" not in env["client"].get("/jobs/status").text  # 3분 지나면 사라짐
@@ -72,10 +72,8 @@ def test_foreign_referer_is_not_followed(env) -> None:  # noqa: F811
 
 def test_result_text_in_korean() -> None:
     assert result_text(JobResult("generate", skipped="쓸 자료 없음")) == "건너뜀: 쓸 자료 없음"
-    assert result_text(JobResult("publish", counts={"published": 2, "failed": 0})) == (
-        "게시 2건 · 실패 0건"
-    )
-    assert result_text(JobResult("health", counts={"paused": []})) == "바뀐 것 없음"
+    assert result_text(JobResult("publish", counts={"published": 2, "failed": 0})) == "2건 올림"
+    assert result_text(JobResult("health", counts={"paused": []})) == "로그인 정상"
     assert "오류 1건: 타임아웃" in result_text(JobResult("reply", errors=["타임아웃"]))
     assert result_text("collect") == "끝났습니다"
 
