@@ -155,7 +155,7 @@ def run_job_once(job: str) -> None:
             # 이 프로세스가 DB를 연 유일한 프로세스이므로(DuckDB 잠금), 남은 publishing은 중단된 것이다
             recover_interrupted(ctx)
             result = run_job(job, ctx)
-            print(result.summary())
+            print(f"{result.job}: {result.summary()}")
             if not result.ok:
                 raise SystemExit(1)
     finally:

@@ -6,7 +6,7 @@
 <div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
 {% for r in runs %}<tr><td><b>{{ r.job|ko_job }}</b><br><span class="muted small">{{ r.job }}</span></td><td class="small">{{ r.started_at|kst }}</td><td class="small">{{ r.finished_at|kst }}</td>
 <td>{% if r.ok %}<span class="badge ok">성공</span>{% elif r.ok is none %}<span class="badge gray">실행 중</span>{% else %}<span class="badge bad">실패</span>{% endif %}</td>
-<td style="min-width:240px"><pre>{{ r.message or '' }}</pre></td></tr>{% endfor %}
+<td style="min-width:240px"><pre>{{ r.message|run_text(r.job) }}</pre></td></tr>{% endfor %}
 </table></div>
 {% else %}<p class="muted">아직 실행 기록이 없습니다.</p>{% endif %}
 {% endblock %}

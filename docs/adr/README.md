@@ -50,3 +50,4 @@
 | [0036](0036-code-drawn-card-styles.md) | 카드 스타일 clean·photo·illust(`brand.card_style`)는 코드로 그린 배경·자체 캐릭터만, AI 배경 이미지는 기본 off | 채택 |
 | [0037](0037-per-content-card-style.md) | 원고별 카드 스타일은 덱 JSON `style` 필드 계약 변경으로 2차에(합의 PR) | 제안 |
 | [0038](0038-instagram-rate-limit-rest.md) | 플랫폼 요청 제한(HTTP 429)은 로그인 문제와 구분해 2~8시간 쉬고, 인스타그램 댓글은 30분마다·최근 3일 글만 | 제안 |
+| [0039](0039-readable-run-summaries.md) | 작업 요약은 한 함수(`summary.describe`)가 만드는 한국어 문장, DB의 예전 형식 줄은 보여 줄 때 바꿈 | 제안 |

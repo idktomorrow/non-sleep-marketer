@@ -64,7 +64,7 @@ class JobScheduler:
 
     def _run(self, name: str, manual: bool = False) -> JobResult:
         result = run_job(name, self._ctx(), manual=manual)
-        log.info(result.summary())
+        log.info("%s: %s", name, result.summary())
         return result
 
     def install(self, cfg: AppConfig) -> list[str]:
