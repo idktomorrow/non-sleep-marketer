@@ -30,6 +30,8 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "generate": lambda ctx: run_generate(ctx, manual=True),
     "publish": lambda ctx: run_publish(ctx, manual=True),  # 게시 간격 무시(하루 한도는 지킴)
+    # 댓글 확인: 플랫폼별 최소 간격 무시(요청 제한으로 쉬는 중이면 그대로 쉼)
+    "reply": lambda ctx: run_reply(ctx, manual=True),
 }
 
 

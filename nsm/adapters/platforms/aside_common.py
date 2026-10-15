@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from nsm.adapters.drivers.aside import AsideError, AsideRepl
@@ -23,6 +24,25 @@ class LoginRequiredError(AdapterError):
 
 class AccountMismatchError(AdapterError):
     """로그인된 계정이 설정의 게시 계정과 다름. 게시하지 않는다."""
+
+
+class RateLimitedError(AdapterError):
+    """플랫폼이 요청이 많다고 막음(HTTP 429). `retry_at`까지 이 플랫폼에 브라우저 요청을 보내지 않는다.
+
+    로그인 문제가 아니므로 health 잡이 플랫폼을 멈추거나 "로그인 필요"를 알리지 않는다(ADR 0038).
+    엔진은 이 클래스를 몰라도 되게 `retry_at` 속성으로 알아본다(포트는 동결).
+    """
+
+    def __init__(self, message: str, retry_at: datetime) -> None:
+        super().__init__(message)
+        self.retry_at = retry_at
+
+
+# 처음 막히면 2시간 쉬고, 쉰 뒤 바로 또 막히면 두 배씩(최대 8시간). 성공하면 처음으로.
+RATE_LIMIT_COOLDOWN = timedelta(hours=2)
+RATE_LIMIT_MAX = timedelta(hours=8)
+# 예외 메시지로만 알 수 있는 경우. ERR_HTTP_RESPONSE_CODE_FAILURE는 404·500에도 나와 넣지 않는다
+_RATE_LIMIT_TEXT = re.compile(r"HTTP ERROR 429|Too Many Requests")
 
 
 def norm_handle(h: str | None) -> str:
@@ -59,6 +79,9 @@ class AsideAdapterBase:
         self.clock = clock
         self.repl = repl or AsideRepl()
         self.media_dir = media_dir
+        # 요청 제한으로 쉬는 중이면 그 끝 시각. 엔진(publish·reply)이 미리 보고 건너뛴다.
+        self.blocked_until: datetime | None = None
+        self._strikes = 0
 
     def capabilities(self) -> set[str]:
         return set(PLATFORM_CAPABILITIES[self.platform])
@@ -72,14 +95,37 @@ class AsideAdapterBase:
             raise AccountMismatchError(
                 f"{self.platform} 게시 계정이 설정에 없습니다(settings.accounts). 실계정 동작을 하지 않습니다."
             )
+        return self._call(body, {"handle": self.handle, **(args or {})}, files)
+
+    def _call(self, body: str, args: dict, files: list[Path] | None = None, *, probe: bool = False):
+        """브라우저 요청 하나. 요청 제한으로 쉬는 중이면 브라우저를 열지 않고 바로 RateLimitedError.
+
+        probe(로그인 점검): 홈 화면은 글 페이지가 막혀도 열리므로, 성공해도 백오프를 초기화하지 않는다.
+        """
+        now = self._now()
+        if self.blocked_until and now < self.blocked_until:
+            raise RateLimitedError(
+                f"{self.platform} 요청 제한으로 쉬는 중(HTTP 429)", self.blocked_until
+            )
         try:
-            return self.repl.run(body, {"handle": self.handle, **(args or {})}, files)
+            data = self.repl.run(body, args, files)
         except AsideError as e:
+            if e.code == "ratelimit" or _RATE_LIMIT_TEXT.search(str(e)):
+                raise self._rate_limited(now, e) from e
             if e.code == "login":
                 raise LoginRequiredError(f"{self.platform} 로그인 필요: {e}") from e
             if e.code == "mismatch":
                 raise AccountMismatchError(f"{self.platform}: {e}") from e
             raise AdapterError(f"{self.platform}: {e}") from e
+        if not probe:
+            self._strikes = 0
+        return data
+
+    def _rate_limited(self, now: datetime, e: Exception) -> RateLimitedError:
+        self._strikes += 1
+        wait = min(RATE_LIMIT_COOLDOWN * 2 ** (self._strikes - 1), RATE_LIMIT_MAX)
+        self.blocked_until = now + wait
+        return RateLimitedError(f"{self.platform} 요청 제한: {e}", self.blocked_until)
 
     def _now(self) -> datetime:
         return self.clock.now()
@@ -87,7 +133,21 @@ class AsideAdapterBase:
 
 # JS 공통: 현재 로그인 핸들 확인. 각 플랫폼 스크립트 앞에 붙인다.
 JS_ASSERT_HANDLE = r"""
+// 페이지가 아예 안 열린 경우를 로그인 풀림과 구분한다. 요청 제한(429) 화면에는 내 프로필 사진이 없어
+// 예전에는 "로그인돼 있지 않음"으로 잘못 보고했다(2026-10-14~15 인스타그램 댓글 확인).
+async function nsmCheckPage(pg) {
+  const url = pg.url();
+  const text = await pg.evaluate(() => ((document.body && document.body.innerText) || '').slice(0, 600)).catch(() => '');
+  if (/HTTP ERROR 429|Too Many Requests|몇 분 후 다시 시도|Please wait a few minutes/i.test(text)) {
+    throw new NsmError('ratelimit', '요청이 너무 많음(HTTP 429)');
+  }
+  if (url.startsWith('chrome-error://')) {
+    const m = text.match(/(HTTP ERROR \d+|ERR_[A-Z_]+)/);
+    throw new NsmError('page', '페이지를 열 수 없음(' + (m ? m[1] : url) + ')');
+  }
+}
 async function nsmAssertHandle(pg, readHandle) {
+  await nsmCheckPage(pg);
   const me = ((await readHandle(pg)) || '').replace(/^@/, '').toLowerCase();
   if (!me) throw new NsmError('login', '로그인돼 있지 않음');
   if (me !== ARGS.handle) throw new NsmError('mismatch', '로그인 계정 @' + me + ' ≠ 설정 @' + ARGS.handle);

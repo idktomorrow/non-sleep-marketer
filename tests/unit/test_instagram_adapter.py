@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -189,3 +189,134 @@ def test_publish_waits_while_buttons_are_disabled(tmp_path, clock) -> None:
     body = a.repl.calls[0][0]
     assert "nsmDisabled" in body and "'busy'" in body
     assert "=== true, 20000" in body  # 공유하기는 실제로 눌렀을 때만 넘어간다
+
+
+# --- 요청 제한(HTTP 429), ADR 0038 -------------------------------------------------
+
+
+def test_rate_limit_page_is_not_reported_as_logged_out(tmp_path, clock) -> None:
+    """2026-10-14~15: 429 화면에는 내 프로필 사진이 없어 "로그인돼 있지 않음"으로 잘못 보고했다.
+    로그인 확인 전에 페이지가 막혔는지 먼저 본다."""
+    a, _ = _adapter(tmp_path, clock, data=[])
+    a.fetch_new_comments(["P1"], None)
+    body = a.repl.calls[0][0]
+    assert body.index("await nsmCheckPage(pg);") < body.index("const me = ((await readHandle")
+    assert "HTTP ERROR 429" in body and "'ratelimit'" in body
+    a.repl.data = {"me": "nonsleepmarketer"}
+    a.health()
+    health = a.repl.calls[-1][0]
+    assert health.index("await nsmCheckPage(pg);") < health.index("return { me:")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AsideError("요청이 너무 많음(HTTP 429)", code="ratelimit"),
+        AsideError("page.goto: net::ERR_FAILED (HTTP ERROR 429)"),
+    ],
+    ids=["429-page", "429-in-message"],
+)
+def test_rate_limit_rests_without_opening_the_browser(tmp_path, clock, error) -> None:
+    from nsm.adapters.platforms.aside_common import RateLimitedError
+
+    a, _ = _adapter(tmp_path, clock, error=error)
+    with pytest.raises(RateLimitedError) as e:
+        a.fetch_new_comments(["P1"], None)
+    assert e.value.retry_at == clock.now() + timedelta(hours=2) == a.blocked_until
+    assert not isinstance(e.value, LoginRequiredError)
+    calls = len(a.repl.calls)
+    a.repl.error = None
+    a.repl.data = {"me": "nonsleepmarketer"}
+    for call in (lambda: a.fetch_new_comments(["P1"], None), a.health, a.read_account_metrics):
+        with pytest.raises(RateLimitedError):
+            call()
+    assert len(a.repl.calls) == calls  # 쉬는 동안 브라우저 요청 0건
+    clock.advance(hours=2)
+    assert a.health().logged_in is True  # 쉬고 나면 다시
+
+
+def test_rate_limit_backs_off_longer_when_hit_again(tmp_path, clock) -> None:
+    from nsm.adapters.platforms.aside_common import RateLimitedError
+
+    a, _ = _adapter(tmp_path, clock, error=AsideError("429", code="ratelimit"))
+    waits = []
+    for _ in range(4):
+        with pytest.raises(RateLimitedError) as e:
+            a.read_account_metrics()
+        waits.append(e.value.retry_at - clock.now())
+        clock.set(e.value.retry_at)
+    assert waits == [timedelta(hours=h) for h in (2, 4, 8, 8)]  # 두 배씩, 최대 8시간
+    a.repl.error, a.repl.data = None, {"followers": 1}
+    a.read_account_metrics()  # 성공하면 처음(2시간)으로
+    a.repl.error = AsideError("429", code="ratelimit")
+    with pytest.raises(RateLimitedError) as e:
+        a.read_account_metrics()
+    assert e.value.retry_at - clock.now() == timedelta(hours=2)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AsideError("페이지를 열 수 없음(ERR_INTERNET_DISCONNECTED)", code="page"),
+        # 404(지운 글)·500에도 나오는 오류라 요청 제한으로 보지 않는다(쉬면 몇 시간 멈춤)
+        AsideError(
+            "page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://www.instagram.com/p/X/"
+        ),
+    ],
+    ids=["network", "http-error"],
+)
+def test_unopenable_page_is_a_plain_error_not_login(tmp_path, clock, error) -> None:
+    a, _ = _adapter(tmp_path, clock, error=error)
+    with pytest.raises(AdapterError) as e:
+        a.read_account_metrics()
+    assert not isinstance(e.value, LoginRequiredError) and a.blocked_until is None
+
+
+class SeqRepl(FakeRepl):
+    """호출마다 다음 결과(값 또는 예외)."""
+
+    def __init__(self, results) -> None:
+        super().__init__()
+        self.results = list(results)
+
+    def run(self, body, args=None, files=None):
+        self.calls.append((body, args or {}, list(files or [])))
+        r = self.results.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def test_every_comment_page_is_checked_for_rate_limit(tmp_path, clock) -> None:
+    """둘째 글부터 429여도 알아본다(핸들 확인은 첫 글만)."""
+    a, _ = _adapter(tmp_path, clock, data=[])
+    a.fetch_new_comments(["P1"], None)
+    assert "else { await nsmCheckPage(pg); }" in a.repl.calls[0][0]
+
+
+def test_rate_limit_in_a_later_batch_is_not_swallowed(tmp_path, clock) -> None:
+    """앞 묶음은 읽었고 뒤 묶음이 막힘: 부분 결과를 돌려주면 since가 앞당겨져 못 읽은 글의 댓글을 잃는다."""
+    from nsm.adapters.platforms.aside_common import RateLimitedError
+    from nsm.adapters.platforms.instagram import COMMENT_BATCH
+
+    a, _ = _adapter(tmp_path, clock)
+    row = {"handle": "fan", "cid": "1", "text": "hi", "at": "2026-10-11T00:00:00Z", "parent": "P1"}
+    a.repl = SeqRepl([[row], AsideError("429", code="ratelimit")])
+    with pytest.raises(RateLimitedError):
+        a.fetch_new_comments([f"P{i}" for i in range(COMMENT_BATCH + 1)], None)
+
+
+def test_login_check_success_does_not_reset_backoff(tmp_path, clock) -> None:
+    """홈 화면(로그인 점검)은 글 페이지가 막혀도 열린다. 그 성공으로 백오프가 2시간으로 돌아가면 안 된다."""
+    from nsm.adapters.platforms.aside_common import RateLimitedError
+
+    a, _ = _adapter(tmp_path, clock)
+    limit = AsideError("429", code="ratelimit")
+    a.repl = SeqRepl([limit, {"me": "nonsleepmarketer"}, limit])
+    with pytest.raises(RateLimitedError) as e:
+        a.read_account_metrics()
+    clock.set(e.value.retry_at)
+    assert a.health().logged_in
+    with pytest.raises(RateLimitedError) as e:
+        a.read_account_metrics()
+    assert e.value.retry_at - clock.now() == timedelta(hours=4)

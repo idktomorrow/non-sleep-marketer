@@ -132,6 +132,20 @@ def test_reply_interval_is_editable_with_a_floor(env) -> None:  # noqa: F811
     assert r.status_code == 400 and "댓글 확인 간격" in r.text
 
 
+def test_instagram_comment_interval_is_editable(env) -> None:  # noqa: F811
+    """인스타그램 댓글 확인 간격은 따로(10~180분, ADR 0038). 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    cfg = env["holder"]["cfg"]
+    assert 'name="instagram_comment_interval_minutes"' in env["client"].get("/settings").text
+    _post(env, "/settings", **_form(cfg, instagram_comment_interval_minutes="45"))
+    assert env["holder"]["cfg"].settings.instagram_comment_interval_minutes == 45
+    r = _post(env, "/settings", **_form(cfg, instagram_comment_interval_minutes="5"))
+    assert r.status_code == 400 and "인스타그램 댓글 확인 간격" in r.text
+    old = _form(env["holder"]["cfg"])
+    old.pop("instagram_comment_interval_minutes")
+    _post(env, "/settings", **old)
+    assert env["holder"]["cfg"].settings.instagram_comment_interval_minutes == 45
+
+
 def test_recent_period_is_editable(env) -> None:  # noqa: F811
     cfg = env["holder"]["cfg"]
     html = env["client"].get("/settings").text

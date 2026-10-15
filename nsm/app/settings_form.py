@@ -17,6 +17,7 @@ MAX_LINES = 30
 MAX_TEXT = 500
 QUOTA_MAX = 10
 COST_CAP_MAX = 100.0
+IG_INTERVAL = "instagram_comment_interval_minutes"
 
 
 class SettingsError(ValueError):
@@ -133,6 +134,12 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
+        # 칸이 없는 옛 폼은 지금 값을 지킨다
+        instagram_comment_interval_minutes=int(
+            _number(form, IG_INTERVAL, "인스타그램 댓글 확인 간격", 10, 180)
+        )
+        if IG_INTERVAL in form
+        else cfg.settings.instagram_comment_interval_minutes,
     )
     try:
         return AppConfig.model_validate(
@@ -177,6 +184,7 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "daily_cost_cap_usd": f"{s.daily_cost_cap_usd:g}",
         "min_hours_between_posts": f"{s.min_hours_between_posts:g}",
         "reply_interval_minutes": str(s.reply_interval_minutes),
+        IG_INTERVAL: str(s.instagram_comment_interval_minutes),
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
     }

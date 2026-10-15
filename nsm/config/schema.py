@@ -73,6 +73,10 @@ class Settings(_Model):
     comment_lookback_days: int = 14
     # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
     reply_interval_minutes: int = Field(default=5, ge=3, le=60)
+    # 인스타그램은 댓글을 보려면 글 페이지를 하나씩 열어야 해서 요청 제한(HTTP 429)에 걸리기 쉽다.
+    # 위 간격과 따로, 이 간격(분)보다 자주 보지 않고 최근 며칠 글만 본다(ADR 0038).
+    instagram_comment_interval_minutes: int = Field(default=30, ge=10, le=180)
+    instagram_comment_lookback_days: int = Field(default=3, ge=1, le=14)
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: MotherDuck 토큰이 있으면 jev, 없으면 claude (ADR 0003)
     classifier: Literal["auto", "jev", "claude"] = "auto"

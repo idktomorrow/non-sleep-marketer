@@ -8,12 +8,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from nsm.domain.models import COMMENT_CATEGORIES, Comment
 from nsm.domain.policy import decide_comment, find_banned, local, should_act
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.publish import PAUSED_KEY
+from nsm.engine.rate_limit import blocked_until, resting, retry_at
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +34,35 @@ def _post_context(ctx: JobContext, c: Comment) -> str:
     return f"{g.topic}\n{g.threads_text}"
 
 
-def run_reply(ctx: JobContext) -> JobResult:
+CHECKED_KEY = "comments_checked_at"  # {플랫폼: 마지막으로 댓글을 확인한 시각}
+# 잡은 몇 분마다 돌고 지터가 있어, 간격을 딱 맞추면 한 번씩 밀린다. 이만큼은 일찍 와도 확인한다.
+INTERVAL_SLACK = timedelta(minutes=2)
+
+
+def _platform_rules(ctx: JobContext, platform: str) -> tuple[int, int | None]:
+    """(댓글을 볼 최근 일수, 플랫폼별 최소 확인 간격 분). 인스타그램은 글 페이지를 하나씩 열어
+    요청 제한(HTTP 429)에 걸리기 쉬워 더 드물게, 더 최근 글만 본다(ADR 0038)."""
+    s = ctx.config.settings
+    if platform == "instagram":
+        return s.instagram_comment_lookback_days, s.instagram_comment_interval_minutes
+    return s.comment_lookback_days, None
+
+
+def _due(ctx: JobContext, platform: str, now: datetime, gap: int | None) -> bool:
+    if not gap:
+        return True
+    last = (ctx.repo.get_setting(CHECKED_KEY, {}) or {}).get(platform)
+    return not last or now - datetime.fromisoformat(last) >= timedelta(minutes=gap) - INTERVAL_SLACK
+
+
+def _mark_checked(ctx: JobContext, platform: str, now: datetime) -> None:
+    seen = dict(ctx.repo.get_setting(CHECKED_KEY, {}) or {})
+    seen[platform] = now.isoformat()
+    ctx.repo.set_setting(CHECKED_KEY, seen)
+
+
+def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
+    """manual(사람이 "지금 실행"): 플랫폼별 최소 확인 간격은 무시한다. 요청 제한으로 쉬는 중이면 그대로 쉰다."""
     result = JobResult("reply")
     now = ctx.clock.now()
     ok, why = should_act(now, ctx.config.persona, ctx.tz)
@@ -43,24 +72,32 @@ def run_reply(ctx: JobContext) -> JobResult:
     if ctx.comment_classifier is None:
         result.skipped = "댓글 분류기가 없음"
         return result
-    s = ctx.config.settings
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     counts = dict.fromkeys(("new", "auto_replied", "hidden", "escalated", "ignored"), 0)
+    waits: list[str] = []
     for platform, adapter in ctx.adapters.items():
         if platform in paused or "fetch_comments" not in adapter.capabilities():
             continue
-        posts = ctx.repo.published_posts_since(
-            platform, now - timedelta(days=s.comment_lookback_days)
-        )
+        if until := blocked_until(adapter, now):
+            waits.append(resting(ctx, platform, until))
+            continue
+        days, gap = _platform_rules(ctx, platform)
+        if not manual and not _due(ctx, platform, now, gap):
+            continue
+        posts = ctx.repo.published_posts_since(platform, now - timedelta(days=days))
         if not posts:
             continue
+        _mark_checked(ctx, platform, now)  # 실패해도 적는다: 막힌 플랫폼을 몇 분마다 두드리지 않게
         try:
             comments = adapter.fetch_new_comments(
                 [p.external_id for p in posts if p.external_id],
                 ctx.repo.latest_comment_time(platform),
             )
         except Exception as e:  # noqa: BLE001
-            result.errors.append(f"{platform} 댓글 조회 실패: {e}")
+            if until := retry_at(e):
+                waits.append(resting(ctx, platform, until))
+            else:
+                result.errors.append(f"{platform} 댓글 조회 실패: {e}")
             continue
         for c in comments:
             if ctx.repo.insert_comment(c):
@@ -73,6 +110,10 @@ def run_reply(ctx: JobContext) -> JobResult:
             try:
                 outcome = _handle(ctx, adapter, c)
             except Exception as e:  # noqa: BLE001  한 댓글 실패가 나머지를 막지 않게
+                if until := retry_at(e):
+                    # 댓글 탓이 아니다: 'new'로 남겨 쉬고 나서 처리한다. 남은 댓글도 막히니 여기서 그만
+                    waits.append(resting(ctx, platform, until))
+                    break
                 log.warning("댓글 처리 실패 %s: %s", c.external_id, e)
                 result.errors.append(f"댓글 {c.external_id}: {e}")
                 ctx.repo.update_comment(
@@ -81,6 +122,8 @@ def run_reply(ctx: JobContext) -> JobResult:
                 outcome = "escalated"
             counts[outcome] += 1
     result.counts.update(counts)
+    if waits:
+        result.counts["rate_limited"] = waits
     if counts["escalated"]:
         ctx.notifier.notify(
             "댓글 확인 필요", f"사람이 확인해야 할 댓글이 {counts['escalated']}건 있습니다", "warn"
