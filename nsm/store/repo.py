@@ -473,6 +473,7 @@ class Repository:
         error: str | None = None,
         next_attempt_at: datetime | None = None,
         increment_attempts: bool = False,
+        refund_attempt: bool = False,  # 이번 시도를 횟수에서 뺀다(요청 제한처럼 원고 탓이 아닌 실패)
     ) -> None:
         if new_status == "failed" and next_attempt_at is None:
             raise ValueError("failed로 바꿀 때는 next_attempt_at(재시도 시각)이 필요합니다")
@@ -493,7 +494,7 @@ class Repository:
                     new_status,
                     error,
                     to_db(next_attempt_at),
-                    1 if increment_attempts else 0,
+                    (1 if increment_attempts else 0) - (1 if refund_attempt else 0),
                     published_at,
                     pub_id,
                     *sources,

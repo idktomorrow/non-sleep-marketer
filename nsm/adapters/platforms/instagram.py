@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
     AsideAdapterBase,
+    RateLimitedError,
     check_upload_paths,
     norm_handle,
 )
@@ -149,6 +150,7 @@ _HEALTH = (
     JS_IG
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/');
+await nsmCheckPage(pg);
 return { me: ((await readHandle(pg)) || '').toLowerCase() };
 """
 )
@@ -248,7 +250,8 @@ const out = [];
 let checked = false;
 for (const code of ARGS.codes) {
   const pg = await nsmOpen('https://www.instagram.com/p/' + code + '/');
-  if (!checked) { await nsmAssertHandle(pg, readHandle); checked = true; }
+  // 둘째 글부터 막혀도(429) 알아보게 글마다 페이지를 검사한다. 핸들은 처음 한 번만
+  if (!checked) { await nsmAssertHandle(pg, readHandle); checked = true; } else { await nsmCheckPage(pg); }
   await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000);
   await sleep(2000);
   // 댓글의 시각은 /p/<글>/c/<댓글ID>/ 링크 안에 있다. 거기서 위로 올라가 작성자 링크가 있는 칸을 찾는다.
@@ -408,7 +411,7 @@ class InstagramAdapter(AsideAdapterBase):
     platform = "instagram"
 
     def health(self) -> HealthStatus:
-        me = (self.repl.run(_HEALTH, {}) or {}).get("me", "")
+        me = (self._call(_HEALTH, {}, probe=True) or {}).get("me", "")
         if not me:
             return HealthStatus(logged_in=False, detail="인스타그램 로그인 필요(Aside 브라우저)")
         if self.handle and me != self.handle:
@@ -456,6 +459,8 @@ class InstagramAdapter(AsideAdapterBase):
         for i in range(0, len(ids), COMMENT_BATCH):
             try:
                 rows += self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+            except RateLimitedError:
+                raise  # 남은 묶음도 막힌다. 읽은 것도 버려 since를 앞당기지 않는다(다음에 다시 읽음)
             except AdapterError as e:
                 errors.append(e)
         if errors and not rows:

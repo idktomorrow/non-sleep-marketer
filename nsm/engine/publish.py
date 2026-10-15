@@ -24,6 +24,7 @@ from nsm.domain.policy import (
 )
 from nsm.domain.quality import card_sources, sources_line
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.rate_limit import blocked_until, resting, retry_at
 from nsm.store.repo import InvalidTransitionError
 
 log = logging.getLogger(__name__)
@@ -181,6 +182,9 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
         if adapter is None or platform in paused:
             waits.append(f"{name} 일시 중지됨" if platform in paused else f"{name} 연결 안 됨")
             continue
+        if until := blocked_until(adapter, now):  # 사람이 누른 게시하기도 계정 보호를 위해 쉰다
+            waits.append(resting(ctx, platform, until))
+            continue
         quota = s.quotas.get(platform, 0)
         if ctx.repo.count_published_between(platform, start, end) >= quota:
             waits.append(f"{name} 오늘 {quota}건 다 올림(내일 다시)")
@@ -238,6 +242,13 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
+        if until := retry_at(e):
+            # 원고 탓이 아니다: 재시도 횟수를 쓰지 않고(포기·검토로 돌리지 않음) 쉬는 끝 시각에 다시
+            resting(ctx, pub.platform, until)
+            ctx.repo.transition_publication(
+                pub.id, "failed", error=msg, next_attempt_at=until, refund_attempt=True
+            )
+            return "failed"
         try:
             _record_failure(ctx, pub, content, attempts, msg)
         except Exception as e2:  # noqa: BLE001  실패 기록 실패가 다른 플랫폼 게시를 막지 않게
