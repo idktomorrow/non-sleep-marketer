@@ -1,0 +1,2 @@
+{# 실행 결과 배지(실행 기록·오늘 화면 공용, C11) #}
+{% macro run_badge(ok) %}{% if ok %}<span class="badge ok">성공</span>{% elif ok is none %}<span class="badge gray">실행 중</span>{% else %}<span class="badge bad">실패</span>{% endif %}{% endmacro %}
