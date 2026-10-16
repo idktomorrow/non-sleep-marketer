@@ -28,7 +28,6 @@
 .style-illust .deco .mascot-wave { left: auto; right: 80px; }
 
 /* 본문 장 위 띠의 작은 캐릭터(얼굴만) */
-.style-illust .badges .mascot-mini { width: 76px; height: 76px; }
 
 /* 표기 배지: 밝은 바탕에서 진한 알약, 광고는 파스텔 위에서 보이는 색(ADR 0007) */
 .style-illust .slide .badge:not(.ad) { background: var(--line); color: #fff; }

@@ -30,7 +30,7 @@
 | [0016](0016-drop-naver-blog-publishing.md) | 네이버 블로그 게시를 MVP 범위에서 뺀다 | 채택 |
 | [0017](0017-aside-default-driver-after-day1.md) | 1일차 검증 후 브라우저 드라이버 기본값을 Aside로 | 채택 |
 | [0018](0018-platform-capabilities-from-day1.md) | 플랫폼 capability: 스레드 숨기기 지원, 인스타그램 미지원 | 채택 |
-| [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆 | 채택 |
+| [0019](0019-label-wording-and-placement.md) | 표기 문구는 공정위 예규 원문, 가상인물 배지는 이름 옆(어느 장에 둘지는 0043) | 채택 |
 | [0020](0020-aside-repl-execution.md) | 실계정 어댑터는 `aside repl` 고정 스크립트, 이미지는 일회용 로컬 서버 | 채택 |
 | [0021](0021-collect-driver-stays-playwright.md) | 자료 수집은 Playwright 수집 전용 프로필 유지(게시·댓글만 Aside) | 채택 |
 | [0022](0022-fetch-article-body-for-relevant-items.md) | 관련 자료로 판정된 글만 원문 본문(상한 3,000자) | 채택 |
@@ -54,3 +54,4 @@
 | [0040](0040-run-log-shows-changes.md) | 실행 기록 화면은 작업 상태 표 + 변화가 있던 실행만(같은 결과는 묶음), 전체는 버튼으로 | 제안 |
 | [0041](0041-stability-watchdog-and-backup.md) | 안정화: "계속 0건"(2일)은 health 잡이 확인해 오늘 할 일·하루 한 번 알림, 매일 새벽 `COPY FROM DATABASE` 백업(최근 7개), 실행 기록 90일 보관 | 제안 |
 | [0042](0042-simple-and-advanced-screen-modes.md) | 대시보드는 한 앱 안의 "간단(기본)·고급" 스위치로 보이는 것만 줄인다. 간단은 자료·실행 기록 메뉴와 세부 설정을 숨기고 "오늘"에 자료 올리기 | 제안 |
+| [0043](0043-virtual-person-badge-cover-and-outro.md) | 카드의 이름과 "가상인물" 배지는 표지와 마지막 장에만, 중간 장에는 둘 다 없음(이름만 남기지 않음) | 채택 |
