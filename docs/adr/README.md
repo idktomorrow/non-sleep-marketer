@@ -52,3 +52,4 @@
 | [0038](0038-instagram-rate-limit-rest.md) | 플랫폼 요청 제한(HTTP 429)은 로그인 문제와 구분해 2~8시간 쉬고, 인스타그램 댓글은 30분마다·최근 3일 글만 | 제안 |
 | [0039](0039-readable-run-summaries.md) | 작업 요약은 한 함수(`summary.describe`)가 만드는 한국어 문장, DB의 예전 형식 줄은 보여 줄 때 바꿈 | 제안 |
 | [0040](0040-run-log-shows-changes.md) | 실행 기록 화면은 작업 상태 표 + 변화가 있던 실행만(같은 결과는 묶음), 전체는 버튼으로 | 제안 |
+| [0041](0041-stability-watchdog-and-backup.md) | 안정화: "계속 0건"(2일)은 health 잡이 확인해 오늘 할 일·하루 한 번 알림, 매일 새벽 `COPY FROM DATABASE` 백업(최근 7개), 실행 기록 90일 보관 | 제안 |

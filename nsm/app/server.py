@@ -59,6 +59,7 @@ from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
+from nsm.engine.watchdog import STALLS_KEY
 from nsm.ports import CardRenderer, Clock, PlatformAdapter
 from nsm.store import queries
 from nsm.store.repo import InvalidTransitionError, Repository
@@ -221,6 +222,7 @@ def create_app(state: AppState) -> FastAPI:
             ov=ov,
             human_approved=state.repo.count_human_approved(),
             runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
+            stalls=state.repo.get_setting(STALLS_KEY, []) or [],  # 계속 0건(C12)
             # 오늘 할 일: 가장 오래 기다린 원고부터 바로 연다
             first_pending=oldest_pending(),
             failed_pubs=failed,

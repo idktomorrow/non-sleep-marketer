@@ -43,6 +43,7 @@ class JobContext:
     media_dir: Path = Path("media")
     preview_dir: Path = Path("preview")
     reports_dir: Path = Path("reports")
+    backups_dir: Path | None = None  # 없으면 백업하지 않는다(테스트·드라이 실행)
 
     @property
     def tz(self) -> str:

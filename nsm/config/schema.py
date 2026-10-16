@@ -77,6 +77,10 @@ class Settings(_Model):
     # 위 간격과 따로, 이 간격(분)보다 자주 보지 않고 최근 며칠 글만 본다(ADR 0038).
     instagram_comment_interval_minutes: int = Field(default=30, ge=10, le=180)
     instagram_comment_lookback_days: int = Field(default=3, ge=1, le=14)
+    # 안정화(C12): 수집 관련 자료·게시가 이 일수 동안 0건이면 알림(화면 구조 변경 등으로 조용히 멈춘 경우)
+    stall_alert_days: int = Field(default=2, ge=1, le=14)
+    backup_keep: int = Field(default=7, ge=1, le=60)  # 하루 한 번 데이터 백업, 최근 몇 개를 남길지
+    run_log_keep_days: int = Field(default=90, ge=7, le=3650)  # 실행 기록 보관 일수
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: MotherDuck 토큰이 있으면 jev, 없으면 claude (ADR 0003)
     classifier: Literal["auto", "jev", "claude"] = "auto"

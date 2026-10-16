@@ -36,7 +36,16 @@ STUCK_AFTER = timedelta(hours=2)
 RUN_WINDOW = 1000
 
 # 작업 순서(상태 표). 하는 일 순서대로
-ORDER = ("reply", "publish", "health", "generate", "collect", "metrics", "weekly_report")
+ORDER = (
+    "reply",
+    "publish",
+    "health",
+    "generate",
+    "collect",
+    "metrics",
+    "weekly_report",
+    "maintenance",
+)
 
 
 @dataclass
@@ -118,6 +127,7 @@ def schedule_text(cfg: AppConfig) -> dict[str, str]:
         "collect": "하루 1~2번",
         "metrics": "매일 새벽 3시",
         "weekly_report": "매주 월요일 아침",
+        "maintenance": "매일 새벽 4시 반",
     }
 
 

@@ -9,6 +9,7 @@ from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
+from nsm.engine.maintenance import run_maintenance
 from nsm.engine.publish import run_publish
 from nsm.engine.reply import run_reply
 from nsm.engine.weekly_report import run_weekly_report
@@ -23,6 +24,7 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "health": run_health,
     "metrics": run_metrics,
     "weekly_report": run_weekly_report,
+    "maintenance": run_maintenance,
 }
 
 

@@ -8,6 +8,7 @@ from datetime import timedelta
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
+from nsm.engine.watchdog import check_stalls
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +54,14 @@ def run_health(ctx: JobContext) -> JobResult:
     result.counts.update(paused=sorted(paused))
     if limited:
         result.counts["rate_limited"] = limited
+    try:
+        stalls = check_stalls(ctx)  # 조용히 멈춘 수집·게시(C12)
+    except Exception as e:  # noqa: BLE001  로그인 점검 결과를 가리지 않게
+        log.warning("계속 0건 확인 실패: %s", e)
+        result.errors.append(f"계속 0건 확인 실패: {e}")
+        stalls = []
+    if stalls:
+        result.counts["stalls"] = stalls
     return result
 
 

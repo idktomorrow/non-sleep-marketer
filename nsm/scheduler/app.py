@@ -47,6 +47,8 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
         ),
         "metrics": CronTrigger(hour=3, minute=10, jitter=900, timezone=tz),
         "weekly_report": CronTrigger(day_of_week="mon", hour=8, minute=0, jitter=600, timezone=tz),
+        # 데이터 백업·실행 기록 정리(C12). 지표(03:10) 뒤, 다른 작업이 드문 새벽
+        "maintenance": CronTrigger(hour=4, minute=30, jitter=600, timezone=tz),
     }
     for i, (h, m) in enumerate(sorted(collect_times)):
         triggers[f"collect#{i}"] = CronTrigger(hour=h, minute=m, jitter=1800, timezone=tz)
@@ -91,6 +93,20 @@ class JobScheduler:
         self.scheduler.start()
 
     def shutdown(self) -> None:
+        """멈추기 전에 스케줄러가 하던 한 바퀴를 마치게 한다.
+
+        APScheduler 3은 shutdown()에서 상태를 '멈춤'으로 먼저 바꾼 뒤 잠금을 잡는다. 그 사이 스케줄러
+        스레드가 막 끝난 일회성 작업(submit)을 지우려 하면 '멈춤' 상태라 대기 목록에서 찾다가
+        JobLookupError가 난다(가끔 나던 테스트 경고, C12). 일시정지로 새 바퀴를 막고, 잠금을 한 번
+        잡아 하던 바퀴가 끝나기를 기다린 뒤 멈춘다.
+        """
+        if self.scheduler.running:
+            self.scheduler.pause()
+            # 내부 잠금 이름이 바뀐 버전이면 기다리지 않고 그냥 멈춘다(경고가 날 수 있을 뿐 동작은 같다)
+            lock = getattr(self.scheduler, "_jobstores_lock", None)
+            if lock is not None:
+                with lock:  # 하던 바퀴가 끝날 때까지
+                    pass
         self.scheduler.shutdown(wait=True)
 
     def submit(self, fn: Callable[[], Any]) -> Future:
