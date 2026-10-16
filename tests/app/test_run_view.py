@@ -138,6 +138,7 @@ def test_logs_page_default_and_all(make) -> None:  # noqa: F811
     assert ">2번<" in html and html.count('class="run-text"') == 2
     every = client.get("/logs?all=1").text
     assert "모든 실행" in every and every.count('class="run-text"') == 4
+    repo.set_setting("ui_mode", "advanced")  # 최근 실행 표는 고급 모드 "오늘"에만(C13)
     home = client.get("/").text
     assert "새 댓글 1개" in home and ">새 댓글 없음<" not in home
 
