@@ -6,6 +6,7 @@ Database 하나를 만들고, 스케줄러·대시보드 스레드는 `cursor()`
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -113,6 +114,34 @@ class Database:
                 return []
         finally:
             cur.close()
+
+    def backup_to(self, target: Path) -> Path:
+        """지금 DB를 target 파일로 통째로 복사한다(C12 자동 백업).
+
+        DuckDB는 파일을 연 프로세스만 읽을 수 있어 파일 복사 대신 `COPY FROM DATABASE`를 쓴다.
+        임시 파일에 다 쓴 뒤 이름을 바꿔, 도중에 꺼져도 반쯤 쓴 백업이 남지 않게 한다.
+        """
+        if self.path == ":memory:":
+            raise ValueError("메모리 DB는 백업하지 않습니다")
+        target = Path(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        for leftover in (tmp, tmp.with_name(tmp.name + ".wal")):
+            leftover.unlink(missing_ok=True)
+        path = str(tmp).replace("'", "''")
+        try:
+            with self._lock:
+                name = self._conn.execute("SELECT current_database()").fetchone()[0]  # type: ignore[index]
+                self._conn.execute(f"ATTACH '{path}' AS nsm_backup")
+                try:
+                    self._conn.execute(f'COPY FROM DATABASE "{name}" TO nsm_backup')
+                finally:
+                    self._conn.execute("DETACH nsm_backup")
+            os.replace(tmp, target)
+        except Exception:
+            tmp.unlink(missing_ok=True)  # 반쯤 쓴 임시 파일을 남기지 않는다
+            raise
+        return target
 
     def close(self) -> None:
         self._conn.close()

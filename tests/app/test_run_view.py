@@ -210,3 +210,15 @@ def test_show_all_accepts_true(make) -> None:  # noqa: F811
     for q in ("1", "true"):
         r = client.get(f"/logs?all={q}")
         assert r.status_code == 200 and "모든 실행" in r.text
+
+
+def test_stalls_show_up_as_todo(make) -> None:  # noqa: F811
+    from nsm.engine.watchdog import STALLS_KEY
+
+    build, _, repo = make
+    repo.set_setting(
+        STALLS_KEY, ["자료 모으기 2일째 관련 자료 0개: 수집하는 사이트 화면이 바뀌었거나"]
+    )
+    html = build()[0].get("/").text
+    assert "계속 0건" in html and "자료 모으기 2일째 관련 자료 0개" in html
+    assert "오늘 할 일이 없습니다" not in html

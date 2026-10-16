@@ -20,7 +20,7 @@
 
 <div class="today">
   <section class="panel todo">
-    {% set todo = (ov.pending_review or 0) + (ov.escalated_comments or 0) + (failed_pubs|length) + (paused|length) %}
+    {% set todo = (ov.pending_review or 0) + (ov.escalated_comments or 0) + (failed_pubs|length) + (paused|length) + (stalls|length) %}
     <ul class="todo-list">
       {% if ov.pending_review %}
       <li><a class="todo-item warn" href="{{ '/review/' ~ first_pending if first_pending else '/review' }}">
@@ -45,6 +45,12 @@
         <span class="todo-num">!</span>
         <span class="todo-text"><b>로그인이 필요해 멈춘 플랫폼</b><span>{% for p in paused %}{{ p|ko_platform }}{% if not loop.last %}, {% endif %}{% endfor %} · Aside 브라우저에서 다시 로그인하면 30분 안에 다시 시작합니다</span></span></div></li>
       {% endif %}
+      {% for st in stalls %}
+      <li><a class="todo-item warn" href="/logs">
+        <span class="todo-num">0</span>
+        <span class="todo-text"><b>계속 0건</b><span>{{ st }}</span></span>
+        <span class="todo-go btn btn-sm">실행 기록</span></a></li>
+      {% endfor %}
       {% if not todo and not first_run %}
       <li class="all-done"><b class="ok">오늘 할 일이 없습니다.</b> <span class="muted">새 원고나 확인할 댓글이 생기면 여기에 나옵니다.</span></li>
       {% endif %}

@@ -107,6 +107,17 @@ def _weekly(c: dict[str, Any]) -> list[str]:
     return parts
 
 
+def _maintenance(c: dict[str, Any]) -> list[str]:
+    parts = []
+    if c.get("backup"):
+        parts.append(f"데이터 백업 {c['backup']}({c.get('backup_mb', 0)}MB)")
+        if _n(c, "backups_removed"):
+            parts.append(f"오래된 백업 {_n(c, 'backups_removed')}개 지움")
+    if _n(c, "runs_pruned"):
+        parts.append(f"오래된 실행 기록 {_n(c, 'runs_pruned')}줄 정리")
+    return parts or ["정리할 것 없음"]
+
+
 _JOBS = {
     "collect": _collect,
     "generate": _generate,
@@ -115,6 +126,7 @@ _JOBS = {
     "health": _health,
     "metrics": _metrics,
     "weekly_report": _weekly,
+    "maintenance": _maintenance,
 }
 
 
@@ -136,9 +148,12 @@ def describe(
         return f"건너뜀: {skipped}"
     c = counts or {}
     fn = _JOBS.get(job)
-    parts = fn(c) if fn else [_plain(k, v) for k, v in c.items() if k != "rate_limited"]
-    if limited := c.get("rate_limited"):
-        parts.extend(map(str, limited))
+    parts = (
+        fn(c) if fn else [_plain(k, v) for k, v in c.items() if k not in ("rate_limited", "stalls")]
+    )
+    for key in ("rate_limited", "stalls"):  # 여러 작업이 붙이는 문장 목록
+        if extra := c.get(key):
+            parts.extend(map(str, extra))
     text = SEP.join(p for p in parts if p) or "바뀐 것 없음"
     if errors:
         text += f"{SEP}오류 {len(errors)}건: {errors[0]}"

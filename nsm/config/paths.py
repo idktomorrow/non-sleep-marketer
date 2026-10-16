@@ -35,5 +35,9 @@ def reports_dir() -> Path:
     return nsm_home() / "reports"
 
 
+def backups_dir() -> Path:
+    return nsm_home() / "backups"
+
+
 def logs_dir() -> Path:
     return nsm_home() / "logs"

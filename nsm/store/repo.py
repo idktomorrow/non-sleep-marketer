@@ -773,6 +773,42 @@ class Repository:
         )
         return {r[0]: from_db(r[1]) for r in rows}
 
+    # ------------------------------------------------------------ 조용히 멈춤 확인 (C12 watchdog)
+
+    def runs_since(self, job: str, since: datetime) -> int:
+        """since 이후 성공한 job 실행 수. 건너뛴 실행과 실패는 세지 않는다."""
+        return int(
+            self.db.execute(
+                "SELECT count(*) FROM run_logs WHERE job = ? AND started_at >= ? "
+                "AND ok AND coalesce(message, '') NOT LIKE '건너뜀:%'",
+                [job, to_db(since)],
+            )[0][0]
+        )
+
+    def relevant_since(self, since: datetime, threshold: float) -> int:
+        """since 이후 모은 자료 중 관련도가 기준 이상인 것."""
+        return int(
+            self.db.execute(
+                "SELECT count(*) FROM source_items WHERE collected_at >= ? AND relevance >= ?",
+                [to_db(since), threshold],
+            )[0][0]
+        )
+
+    def waiting_publications(self, platform: Platform, before: datetime) -> int:
+        """before보다 먼저 만들어져 아직 못 올린(대기·실패 후 재시도 대기) 게시 수."""
+        return int(
+            self.db.execute(
+                "SELECT count(*) FROM publications WHERE platform = ? "
+                "AND status IN ('queued', 'failed') AND created_at < ?",
+                [platform, to_db(before)],
+            )[0][0]
+        )
+
+    def prune_runs(self, keep_days: int) -> int:
+        """keep_days일보다 오래된 실행 기록을 지운다(C12). 원고·댓글·성과는 건드리지 않는다."""
+        cutoff = self._now() - timedelta(days=keep_days)
+        return self._count(self.db.execute("DELETE FROM run_logs WHERE started_at < ?", [cutoff]))
+
     @staticmethod
     def _run_rows(rows) -> list[dict[str, Any]]:
         return [
