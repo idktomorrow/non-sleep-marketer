@@ -85,7 +85,8 @@ def test_label_slots_present(template: str) -> None:
     deck = load(template)
     s = slots(deck)
     assert len(s) == len(deck.slides)
-    assert all(x["labels"].count("virtual-person") == 1 for x in s)  # 모든 장에 가상인물 배지
+    # 가상인물 배지는 표지와 마지막 장에만(ADR 0043). 중간 장은 이름(인물)도 배지도 없다
+    assert [x["labels"].count("virtual-person") for x in s] == [1] + [0] * (len(s) - 2) + [1]
     assert all(x["page"] == 1 for x in s)
     assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
     ad = [x for x in s if "ad" in x["labels"]]
@@ -247,7 +248,10 @@ def test_virtual_person_badge_sits_next_to_persona_name(template: str) -> None:
         r'<div class="ident">\s*<div class="who">[^<]*(?:<img[^>]*>)?[^<]*</div>'
         r'\s*<span class="badge" data-label="virtual-person">가상인물</span>'
     )
-    assert len(re.findall(pattern, html)) == len(deck.slides)
+    assert len(re.findall(pattern, html)) == 2  # 표지와 마지막 장(ADR 0043)
+    # 이름(인물)이 배지 없이 나오는 장은 없다
+    assert html.count('<div class="who">') == html.count('data-label="virtual-person"') == 2
+    assert html.count(deck.persona.handle) == 2
 
 
 def test_renderer_version_tracks_template_files() -> None:

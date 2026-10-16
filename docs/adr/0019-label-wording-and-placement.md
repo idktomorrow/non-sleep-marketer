@@ -1,6 +1,6 @@
 # 0019. 표기 문구는 공정위 예규 원문 그대로, 카드의 가상인물 배지는 페르소나 이름 옆
 
-- 상태: 채택(2026-10-13, 선웅제 확정) · 날짜: 2026-10-13 · 관련: [0007](0007-labels-and-no-testimonials.md), [day1-verification](../day1-verification.md) "표기 문구 원문 대조"
+- 상태: 채택(2026-10-13, 선웅제 확정). 어느 장에 두는지는 [0043](0043-virtual-person-badge-cover-and-outro.md)이 바꿈(모든 장 → 표지와 마지막 장) · 날짜: 2026-10-13 · 관련: [0007](0007-labels-and-no-testimonials.md), [day1-verification](../day1-verification.md) "표기 문구 원문 대조"
 
 ## 배경
 

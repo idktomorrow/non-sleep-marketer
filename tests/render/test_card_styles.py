@@ -48,7 +48,8 @@ def test_label_slots_do_not_depend_on_style(style: str, template: str) -> None:
     deck = load(template)
     assert _slots_with_style(deck, style) == slots(deck)  # 같은 장, 같은 표기 슬롯
     html = build_html(deck, style)
-    assert html.count('data-label="virtual-person"') == len(deck.slides)
+    # 표지와 마지막 장에만, 이름과 함께(ADR 0043)
+    assert html.count('data-label="virtual-person"') == html.count('<div class="who">') == 2
     assert html.count('data-label="ad"') == (1 if deck.labels.ad else 0)
 
 
@@ -123,9 +124,9 @@ def test_style_specific_parts() -> None:
     assert (
         "photo.css" in photo and '<span class="hl">' in photo and '<svg class="mascot' not in photo
     )
-    # illust: 표지 캐릭터 1, 마무리 손 흔드는 캐릭터 1, 본문 장마다 작은 캐릭터
+    # illust: 표지 캐릭터 1, 마무리 손 흔드는 캐릭터 1. 캐릭터도 가상인물이라 배지가 있는 이 두 장에만(ADR 0043)
     assert illust.count("mascot-stand") == 1 and illust.count("mascot-wave") == 1
-    assert illust.count("mascot-mini") == len(deck.slides) - 2
+    assert "mascot-mini" not in illust
 
 
 def test_unknown_style_is_rejected() -> None:
