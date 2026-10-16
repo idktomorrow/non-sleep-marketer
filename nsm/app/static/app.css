@@ -39,7 +39,7 @@ nav.menu .count { background: var(--accent); color: var(--on-accent); border-rad
 /* 화면 모드 스위치(C13). hidden은 display를 지정한 칸(.field-row 등)에서도 숨긴다 */
 [hidden] { display: none !important; }
 .ui-mode { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--surface); }
-.ui-mode button { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; cursor: pointer; min-height: 0; }
+.ui-mode button { border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 999px; cursor: pointer; min-height: 0; }
 .ui-mode button.on { background: var(--accent); color: var(--on-accent); }
 .quick-upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .quick-upload input[type=file] { max-width: 100%; }

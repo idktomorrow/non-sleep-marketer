@@ -9,7 +9,7 @@
 <section class="panel">
   <h2 style="margin-top:0">처음이시군요. 이 순서로 시작하세요</h2>
   <ol class="steps">
-    <li><b>자료 모으기</b> <span class="muted">관심 주제로 네이버·구글 트렌드에서 자료를 모읍니다. 브랜드 자료가 있으면 {{ '아래 "자료 올리기"로 올리세요' if simple else '자료 화면에서 올리거나 uploads 폴더에 넣어 두세요' }}.</span>
+    <li><b>자료 모으기</b> <span class="muted">관심 주제로 네이버·구글 트렌드에서 자료를 모읍니다. 브랜드 자료가 있으면 {{ '아래 "자료 올리기"로 올리세요' if simple and can_upload else '자료 화면에서 올리거나 uploads 폴더에 넣어 두세요' }}.</span>
       <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-primary">자료 모으기 실행</button></form></div></li>
     <li><b>원고 만들기</b> <span class="muted">모은 자료로 카드뉴스와 글을 만듭니다. 원고 1건에 약 6센트(Claude)가 듭니다.</span>
       <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/generate/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>원고 만들기 실행</button></form></div></li>

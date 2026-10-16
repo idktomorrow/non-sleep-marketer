@@ -8,7 +8,7 @@
 {% elif request.query_params.get('notified') %}<div class="notice info">테스트 알림을 보냈습니다. 화면 오른쪽 아래에 "논슬립 마케터 알림 테스트"가 보이지 않으면 Windows 설정 → 시스템 → 알림에서 알림과 "방해 금지"를 확인하세요.</div>{% endif %}
 {% if error %}<div class="notice bad">저장하지 못했습니다. {{ error }}</div>{% endif %}
 
-<form method="post" action="/settings" class="settings-form" id="settings-form"><input type="hidden" name="csrf" value="{{ csrf }}">
+<form method="post" action="/settings" class="settings-form" id="settings-form"{% if simple %} novalidate{% endif %}><input type="hidden" name="csrf" value="{{ csrf }}">
 
 <h2>페르소나</h2>
 <div class="panel">

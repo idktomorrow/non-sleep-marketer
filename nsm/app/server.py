@@ -255,7 +255,7 @@ def create_app(state: AppState) -> FastAPI:
         state.repo.set_setting(UI_MODE_KEY, mode)
         path = _local_path(request.headers.get("referer")) or "/"
         # 간단 모드로 바꿀 때 메뉴에서 사라지는 화면에 있었으면 "오늘"로
-        if mode == "simple" and path.startswith(ADVANCED_PATHS):
+        if mode == "simple" and any(path == p or path.startswith(p + "/") for p in ADVANCED_PATHS):
             path = "/"
         return back(path)
 

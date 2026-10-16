@@ -56,6 +56,7 @@ def test_switch_to_simple_from_hidden_screen_goes_home(uenv) -> None:
     assert _mode(uenv, "simple", "http://testserver/logs?all=1").headers["location"] == "/"
     assert _mode(uenv, "simple", "http://testserver/materials").headers["location"] == "/"
     assert _mode(uenv, "simple", "http://testserver/settings").headers["location"] == "/settings"
+    assert _mode(uenv, "simple", "http://testserver/logsx").headers["location"] == "/logsx"
     # 다른 곳에서 온 referer는 따르지 않는다
     assert _mode(uenv, "simple", "http://evil.example/review").headers["location"] == "/"
 
@@ -81,6 +82,8 @@ def test_hidden_screens_still_open_in_simple_mode(uenv) -> None:
 def test_simple_settings_hide_detail_fields_but_still_save_them(uenv) -> None:
     html = uenv["client"].get("/settings").text
     assert html.count('class="field-row adv-only" hidden') == 2
+    # 숨은 칸은 눌러 고칠 수 없으니, config.yaml 값이 입력 제한(step 등)에 안 맞아도 저장이 막히지 않게(서버가 검사)
+    assert 'id="settings-form" novalidate' in html
     for name in ("active_hours", "reply_interval_minutes", "min_hours_between_posts"):
         assert f'name="{name}"' in html  # 숨겨도 폼에 있어 저장할 때 같이 간다
     for name in ("posting_hours", "quota_instagram", "daily_cost_cap_usd", "card_style"):
@@ -94,7 +97,8 @@ def test_simple_settings_hide_detail_fields_but_still_save_them(uenv) -> None:
     assert new.reply_interval_minutes == cfg.settings.reply_interval_minutes
     assert uenv["state"].get_config().persona.active_hours == cfg.persona.active_hours
     _mode(uenv, "advanced")
-    assert 'adv-only" hidden' not in uenv["client"].get("/settings").text
+    advanced = uenv["client"].get("/settings").text
+    assert 'adv-only" hidden' not in advanced and "novalidate" not in advanced
 
 
 def _upload(e, nxt: str | None):
