@@ -2,25 +2,21 @@
     스타일(S8)은 `style` 변수(clean|photo|illust)로 장식만 더한다. 글자·표기 슬롯은 세 스타일이 같다. -#}
 
 {#- 페르소나 캐릭터(illust 스타일): 저작권 캐릭터가 아닌 자체 도형 캐릭터. 색은 브랜드 색을 따른다(ADR 0036).
-    pose: stand(표지) | wave(마무리, 한 팔을 든다) | mini(본문 장 위 띠, 얼굴만) -#}
+    pose: stand(표지) | wave(마무리, 한 팔을 든다). 캐릭터도 가상인물이라 배지가 있는 표지·마지막 장에만(ADR 0043) -#}
 {% macro mascot(pose) -%}
 <svg class="mascot mascot-{{ pose }}" viewBox="0 0 200 220" aria-hidden="true">
   <g stroke="#1B1D22" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
-    {%- if pose != 'mini' %}
     <ellipse cx="72" cy="203" rx="20" ry="10" fill="var(--mascot-body)"/>
     <ellipse cx="128" cy="203" rx="20" ry="10" fill="var(--mascot-body)"/>
-    {%- endif %}
     <path d="M100 58 L100 30" fill="none"/>
     <path d="M100 34 C 84 18, 64 22, 62 30 C 70 42, 90 42, 100 34 Z" fill="var(--accent)"/>
     <path d="M100 34 C 116 14, 140 16, 142 24 C 134 40, 112 42, 100 34 Z" fill="var(--accent)"/>
-    {%- if pose != 'mini' %}
     <path d="M30 142 C 10 150, 10 170, 26 176" fill="none"/>
     {%- if pose == 'wave' %}
     <path d="M170 128 C 190 112, 192 88, 182 74" fill="none"/>
     <circle cx="181" cy="70" r="10" fill="var(--mascot-body)"/>
     {%- else %}
     <path d="M170 142 C 190 150, 190 170, 174 176" fill="none"/>
-    {%- endif %}
     {%- endif %}
     <path d="M100 58 C 152 58, 178 96, 178 138 C 178 180, 146 198, 100 198 C 54 198, 22 180, 22 138 C 22 96, 48 58, 100 58 Z" fill="var(--mascot-body)"/>
   </g>

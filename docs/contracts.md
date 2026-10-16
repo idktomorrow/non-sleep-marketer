@@ -310,7 +310,7 @@ class Clock(Protocol):
 - `background`가 null이면 브랜드 색 기반 그라디언트/패턴으로 대체(이미지 생성을 끈 경우에도 완성도 유지).
 - 스타일(S8, ADR 0036): `clean`·`photo`·`illust`. 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
 - **표기 슬롯(필수)**: 아래 요소가 DOM에 존재해야 하고 렌더 테스트가 이를 검사함.
-  - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 모든 슬라이드 모서리에 배경과 대비되는 색으로 표시.
+  - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 페르소나 이름 바로 옆에 배경과 대비되는 색으로 표시. 이름(인물)과 배지는 cover·outro 슬라이드에만 함께 두고, 가운데 슬라이드에는 둘 다 두지 않음(ADR 0043, 그 전에는 모든 슬라이드). 덱 JSON은 그대로.
   - `[data-label="ai-generated"]`: "AI 생성 이미지" 작은 캡션. `labels.ai_generated_image`가 true일 때 배경 이미지가 있는 슬라이드에 표시.
   - `[data-label="ad"]`: "광고" 배지. `labels.ad`가 true면 cover 슬라이드 상단에 크게 표시.
   - `[data-sources]`: outro 슬라이드의 출처 목록.

@@ -45,6 +45,7 @@ class Slots(HTMLParser):
                     "labels": [],
                     "page": 0,
                     "sources": 0,
+                    "who": 0,
                     "style": a.get("style") or "",
                 }
             )
@@ -58,6 +59,8 @@ class Slots(HTMLParser):
             cur["page"] += 1
         if "data-sources" in a:
             cur["sources"] += 1
+        if tag == "div" and a.get("class") == "who":
+            cur["who"] += 1
 
 
 def slots(deck: CardDeck) -> list[dict]:
@@ -87,6 +90,8 @@ def test_label_slots_present(template: str) -> None:
     assert len(s) == len(deck.slides)
     # 가상인물 배지는 표지와 마지막 장에만(ADR 0043). 중간 장은 이름(인물)도 배지도 없다
     assert [x["labels"].count("virtual-person") for x in s] == [1] + [0] * (len(s) - 2) + [1]
+    # 장마다: 이름(인물)이 있으면 배지도 있고, 없으면 둘 다 없다
+    assert all(x["who"] == x["labels"].count("virtual-person") for x in s)
     assert all(x["page"] == 1 for x in s)
     assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
     ad = [x for x in s if "ad" in x["labels"]]
