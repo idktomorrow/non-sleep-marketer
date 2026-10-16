@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -46,6 +46,7 @@ from nsm.app.materials import (
     source_label,
     verdict,
 )
+from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
     PERIODS,
@@ -207,7 +208,7 @@ def create_app(state: AppState) -> FastAPI:
         now = state.clock.now()
         start, end = local_day_bounds(now, tz())
         ov = queries.overview(state.repo.db, start, end)
-        runs = state.repo.recent_runs(15)
+        runs, _ = build_rows(state.repo.recent_runs(RUN_WINDOW), show_all=False)
         # 곧 다시 시도할 것부터(대표로 보이는 오류가 매번 바뀌지 않게)
         failed = sorted(
             state.repo.publications_in_status("failed"),
@@ -219,7 +220,7 @@ def create_app(state: AppState) -> FastAPI:
             "overview.html",
             ov=ov,
             human_approved=state.repo.count_human_approved(),
-            runs=runs,
+            runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
             # 오늘 할 일: 가장 오래 기다린 원고부터 바로 연다
             first_pending=oldest_pending(),
             failed_pubs=failed,
@@ -758,8 +759,20 @@ def create_app(state: AppState) -> FastAPI:
         )
 
     @app.get("/logs", response_class=HTMLResponse)
-    def logs(request: Request) -> HTMLResponse:
-        return page(request, "logs.html", runs=state.repo.recent_runs(200))
+    def logs(request: Request, show_all: bool = Query(False, alias="all")) -> HTMLResponse:
+        """?all=1(또는 true): 걸러내지 않고 최근 200줄 전부."""
+        runs = state.repo.recent_runs(200 if show_all else RUN_WINDOW)
+        rows, hidden = build_rows(runs, show_all)
+        statuses = job_statuses(
+            state.get_config(),
+            state.repo.latest_runs(),
+            state.repo.last_success_at(),
+            state.clock.now(),
+            fmt,
+        )
+        return page(
+            request, "logs.html", runs=rows, hidden=hidden, show_all=show_all, statuses=statuses
+        )
 
     if state.reports_dir is not None:
         from nsm.app.reports import make_router

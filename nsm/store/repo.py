@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from nsm.domain.clock import new_id
@@ -751,6 +751,30 @@ class Repository:
             "SELECT job, started_at, finished_at, ok, message FROM run_logs ORDER BY started_at DESC, rowid DESC LIMIT ?",
             [limit],
         )
+        return self._run_rows(rows)
+
+    def latest_runs(self, days: int = 30) -> list[dict[str, Any]]:
+        """작업마다 최근 days일 안의 가장 최근 실행 하나(실행 기록 화면의 작업 상태 표, C11).
+
+        실행 기록은 하루 수백 줄씩 쌓이므로 최근 것만 본다(주간 리포트도 30일 안에 있다).
+        """
+        rows = self.db.execute(
+            "SELECT job, started_at, finished_at, ok, message FROM run_logs WHERE started_at >= ? "
+            "QUALIFY row_number() OVER (PARTITION BY job ORDER BY started_at DESC, rowid DESC) = 1",
+            [self._now() - timedelta(days=days)],
+        )
+        return self._run_rows(rows)
+
+    def last_success_at(self, days: int = 30) -> dict[str, datetime]:
+        """작업마다 최근 days일 안에서 마지막으로 성공한 시각."""
+        rows = self.db.execute(
+            "SELECT job, max(started_at) FROM run_logs WHERE ok AND started_at >= ? GROUP BY job",
+            [self._now() - timedelta(days=days)],
+        )
+        return {r[0]: from_db(r[1]) for r in rows}
+
+    @staticmethod
+    def _run_rows(rows) -> list[dict[str, Any]]:
         return [
             {
                 "job": r[0],

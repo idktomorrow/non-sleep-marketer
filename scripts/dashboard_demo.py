@@ -210,6 +210,11 @@ def seed(repo: Repository, cfg: AppConfig, media: Path, reports: Path, renderer)
             f"reply: new=0, auto_replied=0, hidden=0, escalated=0, ignored=0, rate_limited=['{wait}']",
         ),
         ("health", True, "health: paused=[]"),
+        # 운영처럼 5분마다 쌓이는 줄(C11: 실행 기록에서 숨기거나 묶여야 한다)
+        *[("reply", True, f"새 댓글 없음 · {wait}")] * 6,
+        ("health", True, f"로그인 정상 · {wait}"),
+        ("publish", True, "건너뜀: 게시 시간 밖"),
+        *[("reply", True, "새 댓글 없음")] * 5,
     ):
         rid = repo.start_run(job)
         repo.finish_run(rid, ok, msg)

@@ -1,12 +1,29 @@
 {% extends "base.html" %}
+{% from "_run_badge.html" import run_badge %}
 {% block content %}
 <h1>실행 기록</h1>
-<p class="muted small">자동 작업이 언제 돌았고 무엇을 했는지 보여 줍니다. 실패가 이어지면 요약의 내용을 사용설명서 7절(문제 해결)에서 찾아보세요.</p>
+<p class="muted small">자동 작업이 잘 돌고 있는지, 무슨 일이 있었는지 보여 줍니다. 실패가 이어지면 요약의 내용을 사용설명서 7절(문제 해결)에서 찾아보세요.</p>
+
+<h2>작업 상태</h2>
+<p class="muted small">작업마다 마지막 실행입니다. "정상"이면 따로 볼 것이 없습니다.</p>
+<div class="table-wrap"><table class="job-status"><tr><th>작업</th><th class="col-every">언제 도나</th><th>마지막 실행</th><th>상태</th><th>마지막 결과</th></tr>
+{% for s in statuses %}<tr><td><b>{{ s.job|ko_job }}</b></td><td class="small muted col-every">{{ s.every }}</td>
+<td class="small">{% if s.last %}{{ s.last.started_at|kst }}{% else %}-{% endif %}</td>
+<td>{% if s.state == 'ok' %}<span class="badge ok">정상</span>{% elif s.state == 'bad' %}<span class="badge bad">실패</span>{% elif s.state == 'running' %}<span class="badge gray">실행 중</span>{% elif s.state == 'stale' %}<span class="badge warn">오래 안 돌았음</span>{% else %}<span class="badge gray">아직 안 돌았음</span>{% endif %}</td>
+<td class="small">{% if s.last %}{{ s.last.text }}{% endif %}{% if s.note %}<br><span class="muted">{{ s.note }}</span>{% endif %}</td></tr>{% endfor %}
+</table></div>
+
+<h2>{% if show_all %}모든 실행{% else %}변화가 있던 실행{% endif %}</h2>
+<p class="muted small">
+{% if show_all %}최근 실행을 하나도 빼지 않고 보여 줍니다. <a href="/logs">변화가 있던 것만 보기</a>
+{% else %}새 댓글·게시·새 원고·실패·요청 제한처럼 무슨 일이 있던 실행만 보여 주고, 같은 결과가 이어지면 한 줄로 묶습니다.{% if hidden %} 아무 일 없던 실행 {{ hidden }}번은 숨겼습니다.{% endif %} <a href="/logs?all=1">전체 보기</a>{% endif %}
+</p>
 {% if runs %}
 <div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
 {% for r in runs %}<tr><td><b>{{ r.job|ko_job }}</b><br><span class="muted small">{{ r.job }}</span></td><td class="small">{{ r.started_at|kst }}</td><td class="small">{{ r.finished_at|kst }}</td>
-<td>{% if r.ok %}<span class="badge ok">성공</span>{% elif r.ok is none %}<span class="badge gray">실행 중</span>{% else %}<span class="badge bad">실패</span>{% endif %}</td>
-<td style="min-width:240px"><pre>{{ r.message|run_text(r.job) }}</pre></td></tr>{% endfor %}
+<td>{{ run_badge(r.ok) }}{% if r.count > 1 %}<br><span class="badge gray" title="같은 결과가 이어진 횟수">{{ r.count }}번</span>{% endif %}</td>
+<td style="min-width:240px"><div class="run-text">{{ r.text }}</div></td></tr>{% endfor %}
 </table></div>
-{% else %}<p class="muted">아직 실행 기록이 없습니다.</p>{% endif %}
+{% elif show_all %}<p class="muted">아직 실행 기록이 없습니다.</p>
+{% else %}<p class="muted">최근에 따로 볼 만한 실행이 없습니다. 모두 아무 일 없이 끝났습니다.</p>{% endif %}
 {% endblock %}
