@@ -192,6 +192,21 @@ class Repository:
         )
         return [(self._row_to_item(r[:8]), float(r[8]), r[9]) for r in rows]
 
+    def items_by_url_hashes(self, hashes: list[str]) -> list[tuple[SourceItem, float | None, bool]]:
+        """URL 해시로 찾은 자료: (자료, 관련성, 이미 원고에 썼나). 키워드 원고(C15)가 이번에 찾은 글을 고를 때."""
+        if not hashes:
+            return []
+        marks = ",".join("?" * len(hashes))
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS}, relevance, used_in_content_id FROM source_items "
+            f"WHERE url_hash IN ({marks}) ORDER BY collected_at DESC",
+            hashes,
+        )
+        return [
+            (self._row_to_item(r[:8]), None if r[8] is None else float(r[8]), r[9] is not None)
+            for r in rows
+        ]
+
     def unclassified_items(self, limit: int = 200) -> list[SourceItem]:
         rows = self.db.execute(
             f"SELECT {self._ITEM_COLS} FROM source_items WHERE relevance IS NULL "

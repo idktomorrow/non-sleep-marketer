@@ -130,7 +130,14 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         daily_cost_cap_usd=_number(form, "daily_cost_cap_usd", "하루 비용 상한", 0.1, COST_CAP_MAX),
         min_hours_between_posts=_number(form, "min_hours_between_posts", "게시 간격", 0, 24),
         desktop_notifications=form.get("desktop_notifications") == "on",
-        collect={**cfg.settings.collect.model_dump(), "recent_period": _period(form)},
+        collect={
+            **cfg.settings.collect.model_dump(),
+            "recent_period": _period(form),
+            # 칸이 없는 옛 폼은 지금 값을 지킨다(C15)
+            "exclude_words": _lines(form, "exclude_words", "수집 제외어")
+            if "exclude_words" in form
+            else cfg.settings.collect.exclude_words,
+        },
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
@@ -187,4 +194,5 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         IG_INTERVAL: str(s.instagram_comment_interval_minutes),
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
+        "exclude_words": "\n".join(s.collect.exclude_words),
     }

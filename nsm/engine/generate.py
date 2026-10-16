@@ -24,6 +24,7 @@ from nsm.domain.policy import (
     under_cost_cap,
 )
 from nsm.domain.quality import normalize_bullets, rule_violations
+from nsm.engine.collect import excluded_word
 from nsm.engine.context import JobContext, JobResult
 from nsm.ports import AdapterError
 
@@ -76,8 +77,10 @@ def _pick_material(
 ) -> tuple[str, list[tuple[SourceItem, float]]] | None:
     """쓸 자료 묶음: 가장 오래 안 쓴 페르소나 주제 → 그 주제의 관련성 높은 자료 3건."""
     groups: dict[str, list[tuple[SourceItem, float]]] = defaultdict(list)
+    words = ctx.config.settings.collect.exclude_words
     for item, rel, topic in ctx.repo.unused_relevant_items(ctx.config.settings.relevance_threshold):
-        if topic:
+        # 제외어를 나중에 넣었어도 이미 모아 둔 자료가 원고에 쓰이지 않게(C15)
+        if topic and not excluded_word(item, words):
             groups[topic].append((item, rel))
     if not groups:
         return None

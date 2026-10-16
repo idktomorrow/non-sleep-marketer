@@ -52,7 +52,10 @@ def run(
     job: str = typer.Option(
         "",
         "--job",
-        help="--once와 함께: collect|generate|publish|reply|metrics|health|weekly_report",
+        help="--once와 함께: collect|generate|publish|reply|metrics|health|weekly_report|maintenance|keyword",
+    ),
+    keyword: str = typer.Option(
+        "", "--keyword", help="--job keyword와 함께: 이 키워드로 자료를 찾아 원고 1건"
     ),
 ) -> None:
     """스케줄러와 대시보드를 한 프로세스로 실행합니다."""
@@ -61,7 +64,7 @@ def run(
     if once:
         if not job:
             raise typer.BadParameter("--once에는 --job이 필요합니다")
-        run_job_once(job)
+        run_job_once(job, keyword or None)
     else:
         run_forever()
 

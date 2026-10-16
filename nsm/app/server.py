@@ -34,6 +34,7 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
+from nsm.app.ko import ALL_JOBS as RUN_LABELS
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
 from nsm.app.ko import result_text
@@ -58,6 +59,7 @@ from nsm.config.schema import AppConfig
 from nsm.domain.models import Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
+from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
 from nsm.engine.watchdog import STALLS_KEY
 from nsm.ports import CardRenderer, Clock, PlatformAdapter
@@ -87,6 +89,7 @@ class ManualRun:
     ok: bool = True
     text: str = ""
     dismissed: bool = False  # 사람이 x를 눌러 닫음
+    detail: str = ""  # 진행 표시에 이름과 함께 보일 값(키워드 원고의 키워드)
 
 
 def _local_path(referer: str | None) -> str | None:
@@ -117,6 +120,7 @@ class AppState:
     notify: Callable[[str, str, str], None] | None = None  # 데스크톱 알림(제목, 내용, 수준)
     uploads_dir: Path | None = None  # 직접 올린 자료 폴더(자료 화면, M18)
     manual_runs: list[ManualRun] = field(default_factory=list)
+    run_keyword_now: Callable[[str], Future] | None = None  # 키워드 원고(C15)
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -246,6 +250,8 @@ def create_app(state: AppState) -> FastAPI:
             uploaded=request.query_params.get("uploaded"),
             chars=request.query_params.get("chars"),
             upload_error=request.query_params.get("error"),
+            kw_error=request.query_params.get("kw_error"),
+            can_keyword=state.run_keyword_now is not None,
         )
 
     @app.post("/ui-mode", dependencies=[Depends(check_csrf)])
@@ -330,17 +336,35 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(503, "스케줄러가 없습니다")
         if name not in state.job_names:
             raise HTTPException(404, f"알 수 없는 잡: {name}")
-        run = ManualRun(id=secrets.token_hex(4), name=name, started=state.clock.now())
-        run.future = state.run_job_now(name)
-        state.manual_runs.append(run)
-        del state.manual_runs[:-MAX_MANUAL_RUNS]
-        run.future.add_done_callback(lambda f, r=run: _manual_done(r, f))
+        _track(name, state.run_job_now(name))
         # 누른 화면에 그대로 머물며 진행 상황을 본다(실행 기록으로 보내지 않음)
         return back(_local_path(request.headers.get("referer")) or "/")
 
+    @app.post("/keyword-draft", dependencies=[Depends(check_csrf)])
+    def keyword_draft(request: Request, keyword: str = Form("")) -> RedirectResponse:
+        """키워드 원고(C15): 키워드로 최근 글을 찾아 원고 1건. 진행은 오른쪽 아래 표시로 본다."""
+        if state.run_keyword_now is None:
+            raise HTTPException(503, "스케줄러가 없습니다")
+        path = _local_path(request.headers.get("referer")) or "/"
+        try:
+            kw = clean_keyword(keyword)
+        except KeywordError as e:
+            return back(path.split("?")[0] + "?" + urlencode({"kw_error": str(e)}))
+        _track("keyword", state.run_keyword_now(kw), detail=kw)
+        return back(path)
+
+    def _track(name: str, future: Future, detail: str = "") -> None:
+        run = ManualRun(
+            id=secrets.token_hex(4), name=name, started=state.clock.now(), detail=detail
+        )
+        run.future = future
+        state.manual_runs.append(run)
+        del state.manual_runs[:-MAX_MANUAL_RUNS]
+        future.add_done_callback(lambda f, r=run: _manual_done(r, f))
+
     def _manual_done(run: ManualRun, fut: Future) -> None:
         run.finished = state.clock.now()
-        label = JOB_LABELS.get(run.name, (run.name, ""))[0]
+        label = RUN_LABELS.get(run.name, (run.name, ""))[0]
         err = fut.exception()
         run.ok = err is None and bool(getattr(fut.result(), "ok", True))
         run.text = f"{type(err).__name__}: {err}"[:300] if err else result_text(fut.result())
@@ -360,7 +384,8 @@ def create_app(state: AppState) -> FastAPI:
             items.append(
                 {
                     "id": r.id,
-                    "label": JOB_LABELS.get(r.name, (r.name, ""))[0],
+                    "label": RUN_LABELS.get(r.name, (r.name, ""))[0]
+                    + (f" '{r.detail}'" if r.detail else ""),
                     "state": "running" if r.finished is None else ("ok" if r.ok else "bad"),
                     "elapsed": f"{secs // 60}분 {secs % 60}초" if secs >= 60 else f"{secs}초",
                     "text": r.text,

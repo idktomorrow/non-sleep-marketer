@@ -68,6 +68,13 @@ JOBS: dict[str, tuple[str, str]] = {
 }
 
 
+# 값을 받아 부르는 잡("지금 실행" 버튼 목록에는 없음). 실행 기록·진행 표시의 이름에 쓴다
+ARG_JOBS: dict[str, tuple[str, str]] = {
+    "keyword": ("키워드 원고", "넣은 키워드로 최근 글을 찾아 원고 1건을 만듭니다"),
+}
+ALL_JOBS = {**JOBS, **ARG_JOBS}
+
+
 def result_text(result: object) -> str:
     """ "지금 실행" 결과 알림 한 줄(실행 기록과 같은 문장). 결과가 JobResult가 아니면 "끝났습니다"."""
     counts = getattr(result, "counts", None)
@@ -97,7 +104,7 @@ FILTERS = {
     "ko_category": lambda v: ko(v, COMMENT_CATEGORY),
     "ko_comment": lambda v: ko(v, COMMENT_STATUS),
     "ko_cost": lambda v: ko(v, COST_KIND),
-    "ko_job": lambda v: JOBS.get(str(v), (str(v), ""))[0],
+    "ko_job": lambda v: ALL_JOBS.get(str(v), (str(v), ""))[0],
     # 실행 기록 요약: {{ r.message|run_text(r.job) }}. 예전 형식(reply: new=0, ...)도 문장으로
     "run_text": lambda message, job: readable(str(job), message),
 }

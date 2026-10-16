@@ -140,7 +140,7 @@ def build_context(
     return ctx
 
 
-def run_job_once(job: str) -> None:
+def run_job_once(job: str, arg: str | None = None) -> None:
     from nsm.engine.runner import run_job
 
     logging.basicConfig(
@@ -155,7 +155,7 @@ def run_job_once(job: str) -> None:
 
             # 이 프로세스가 DB를 연 유일한 프로세스이므로(DuckDB 잠금), 남은 publishing은 중단된 것이다
             recover_interrupted(ctx)
-            result = run_job(job, ctx)
+            result = run_job(job, ctx, arg=arg)
             print(f"{result.job}: {result.summary()}")
             if not result.ok:
                 raise SystemExit(1)
@@ -235,6 +235,7 @@ def run_forever() -> None:
             else paths.uploads_dir(),
             reports_dir=ctx.reports_dir,
             run_job_now=scheduler.run_now,
+            run_keyword_now=lambda kw: scheduler.run_now("keyword", kw),
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,

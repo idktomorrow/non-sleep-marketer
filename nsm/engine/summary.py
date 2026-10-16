@@ -28,6 +28,8 @@ def _collect(c: dict[str, Any]) -> list[str]:
         parts.append(f"{looked}관련 자료 {_n(c, 'relevant')}개")
     if _n(c, "excluded_genre"):
         parts.append(f"후기·일기 {_n(c, 'excluded_genre')}개 제외")
+    if _n(c, "excluded_word"):
+        parts.append(f"제외어가 든 글 {_n(c, 'excluded_word')}개 뺌")
     if _n(c, "bodies"):
         parts.append(f"원문 {_n(c, 'bodies')}개 읽음")
     return parts
@@ -50,6 +52,21 @@ def _generate(c: dict[str, Any]) -> list[str]:
         parts.append(f"규칙에 걸려 다시 쓴 원고 {_n(c, 'regenerated')}개")
     if c.get("cost_cap_hit"):
         parts.append("오늘 비용 상한에 닿아 멈춤")
+    return parts
+
+
+def _keyword(c: dict[str, Any]) -> list[str]:
+    """키워드 원고(C15): 예) "'치이카와 굿즈' 원고 1개 만듦(검토 대기 1개) · 찾은 새 글 8개, 쓸 만한 자료 3개"."""
+    kw = c.get("keyword")
+    made = _generate(c)
+    if kw:
+        made[0] = f"'{kw}' {made[0]}"
+    found = f"찾은 새 글 {_n(c, 'new')}개" + (
+        f"(이미 본 글 {_n(c, 'duplicate')}개)" if _n(c, "duplicate") else ""
+    )
+    parts = [*made, f"{found}, 쓸 만한 자료 {_n(c, 'relevant')}개"]
+    if _n(c, "excluded_word"):
+        parts.append(f"제외어가 든 글 {_n(c, 'excluded_word')}개 뺌")
     return parts
 
 
@@ -121,6 +138,7 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
 _JOBS = {
     "collect": _collect,
     "generate": _generate,
+    "keyword": _keyword,
     "publish": _publish,
     "reply": _reply,
     "health": _health,
