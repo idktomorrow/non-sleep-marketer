@@ -2,6 +2,7 @@
 {% block content %}
 <h1>설정</h1>
 <p class="muted small">저장하면 다음 작업부터 바로 반영됩니다(프로그램을 다시 켤 필요 없음). 이미 만든 원고는 그대로입니다.</p>
+{% if simple %}<p class="muted small">자주 바꾸는 항목만 보입니다. 활동 시간, 게시 간격, 댓글 확인 간격 같은 세부 값은 오른쪽 위 <b>고급</b>에서 바꿀 수 있습니다.</p>{% endif %}
 {% if saved %}<div class="notice info">저장했습니다.</div>{% endif %}
 {% if request.query_params.get('notified') == 'off' %}<div class="notice warn">알림이 꺼져 있어 보내지 않았습니다. 아래 "Windows 알림 받기"를 켜고 저장하세요.</div>
 {% elif request.query_params.get('notified') %}<div class="notice info">테스트 알림을 보냈습니다. 화면 오른쪽 아래에 "논슬립 마케터 알림 테스트"가 보이지 않으면 Windows 설정 → 시스템 → 알림에서 알림과 "방해 금지"를 확인하세요.</div>{% endif %}
@@ -22,7 +23,7 @@
     <label>관심 주제(한 줄에 하나, 1~10개) <span class="hint">이 낱말로 자료를 모으고 원고 주제를 고릅니다</span><textarea name="topics" rows="4" required>{{ v.topics }}</textarea></label>
     <label>금칙어(한 줄에 하나) <span class="hint">들어가면 자동 게시하지 않습니다</span><textarea name="banned_words" rows="4">{{ v.banned_words }}</textarea></label>
   </div>
-  <details><summary>고급: 금칙 패턴(정규식, 한 줄에 하나)</summary>
+  <details {% if simple %}hidden{% endif %}><summary>고급: 금칙 패턴(정규식, 한 줄에 하나)</summary>
     <textarea name="banned_patterns" rows="5" aria-label="금칙 패턴">{{ v.banned_patterns }}</textarea>
     <p class="muted small">가상인물의 체험 표현("써봤는데" 등)을 막는 기본 패턴입니다. 지우기 전에 한 번 더 생각해 주세요.</p>
   </details>
@@ -59,19 +60,19 @@
 
 <h2>운영</h2>
 <div class="panel">
-  <div class="field-row">
+  <div class="field-row adv-only" {% if simple %}hidden{% endif %}>
     <label>활동 시간 <span class="hint">자료 수집·원고·댓글 답글. 예: 00:00-23:59</span><input type="text" name="active_hours" value="{{ v.active_hours }}" required></label>
+    <label>같은 플랫폼 게시 간격(시간)<input type="number" name="min_hours_between_posts" value="{{ v.min_hours_between_posts }}" min="0" max="24" step="0.5" required></label>
+  </div>
+  <div class="field-row">
     <label>게시 시간 <span class="hint">글은 이 시간에만 올립니다. 비우면 활동 시간과 같음</span><input type="text" name="posting_hours" value="{{ v.posting_hours }}" placeholder="08:00-23:00"></label>
+    <label>하루 비용 상한(달러) <span class="hint">닿으면 그날은 원고를 만들지 않습니다</span><input type="number" name="daily_cost_cap_usd" value="{{ v.daily_cost_cap_usd }}" min="0.1" max="100" step="0.1" required></label>
   </div>
   <div class="field-row">
     <label>인스타그램 하루 게시 수<input type="number" name="quota_instagram" value="{{ v.quota_instagram }}" min="0" max="10" step="1" required></label>
     <label>스레드 하루 게시 수<input type="number" name="quota_threads" value="{{ v.quota_threads }}" min="0" max="10" step="1" required></label>
   </div>
-  <div class="field-row">
-    <label>하루 비용 상한(달러) <span class="hint">닿으면 그날은 원고를 만들지 않습니다</span><input type="number" name="daily_cost_cap_usd" value="{{ v.daily_cost_cap_usd }}" min="0.1" max="100" step="0.1" required></label>
-    <label>같은 플랫폼 게시 간격(시간)<input type="number" name="min_hours_between_posts" value="{{ v.min_hours_between_posts }}" min="0" max="24" step="0.5" required></label>
-  </div>
-  <div class="field-row">
+  <div class="field-row adv-only" {% if simple %}hidden{% endif %}>
     <label>자료 검색 기간 <span class="hint">네이버 블로그·뉴스를 최신순으로 이 기간만 찾습니다. 길게 잡으면 이미 지난 "출시 예정" 글이 섞일 수 있습니다</span><select name="recent_period">{% for k, label in periods.items() %}<option value="{{ k }}" {% if v.recent_period == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
     <label>댓글 확인 간격(분, 3~60) <span class="hint">스레드 기준입니다. 짧을수록 빨리 답하지만, 너무 자주 열면 플랫폼이 자동화로 의심할 수 있습니다. 5분 추천</span><input type="number" name="reply_interval_minutes" value="{{ v.reply_interval_minutes }}" min="3" max="60" step="1" required></label>
     <label>인스타그램 댓글 확인 간격(분, 10~180) <span class="hint">인스타그램은 댓글을 보려고 글 페이지를 하나씩 열어서, 자주 열면 "요청이 너무 많음"(HTTP 429)으로 한동안 막힙니다. 위 간격과 따로 이보다 자주 보지 않고, 최근 3일 글만 봅니다. 30분 추천</span><input type="number" name="instagram_comment_interval_minutes" value="{{ v.instagram_comment_interval_minutes }}" min="10" max="180" step="1" required></label>

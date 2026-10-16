@@ -14,6 +14,9 @@
     {% if cfg.settings.dry_run %}<span class="mode dry" title="실제로 올리지 않고 미리보기 폴더에 저장합니다">드라이런</span>
     {% else %}<span class="mode live" title="실제 계정에 게시합니다">실계정</span>{% endif %}
     <span class="who">{{ cfg.persona.name }} {{ cfg.persona.handle }} · {{ cfg.brand.name }}</span>
+    <form class="ui-mode" method="post" action="/ui-mode" title="간단: 매일 쓰는 화면만 · 고급: 자료·실행 기록과 세부 설정까지"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button name="mode" value="simple" {% if simple %}class="on" aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>간단</button><button name="mode" value="advanced" {% if not simple %}class="on" aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>고급</button>
+    </form>
     <details class="bell" id="bell">
       <summary aria-label="알림{% if bell.unread %} {{ bell.unread }}개 안 읽음{% endif %}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2Z"/></svg>{% include "_bell_badge.html" %}</summary>
       <div class="bell-panel">
@@ -35,10 +38,10 @@
     <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}</a>
     <a href="/queue" {% if request.url.path.startswith('/queue') %}class="active"{% endif %}>게시 대기{% if queue_count %}<span class="count soft">{{ queue_count }}</span>{% endif %}</a>
     <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
-    <a href="/materials" {% if request.url.path.startswith('/materials') %}class="active"{% endif %}>자료</a>
+    {% if not simple or request.url.path.startswith('/materials') %}<a href="/materials" {% if request.url.path.startswith('/materials') %}class="active"{% endif %}>자료</a>{% endif %}
     <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
     {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
-    <a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>
+    {% if not simple or request.url.path.startswith('/logs') %}<a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>{% endif %}
     <a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>설정</a>
   </nav>
 </header>

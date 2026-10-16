@@ -66,6 +66,13 @@ from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
 MAX_MANUAL_RUNS = 10
+# 화면 모드(C13): 간단(일반 사용자, 기본) / 고급(개발자). 보이는 것만 다르고 기능은 같다
+UI_MODE_KEY = "ui_mode"
+UI_MODES = ("simple", "advanced")
+# 간단 모드 메뉴에서 빼는 화면(주소로는 그대로 열린다)
+ADVANCED_PATHS = ("/materials", "/logs")
+# 간단 모드 "오늘"의 지금 실행 버튼
+SIMPLE_JOBS = ("collect", "generate", "reply")
 
 
 @dataclass
@@ -171,6 +178,10 @@ def create_app(state: AppState) -> FastAPI:
             state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'approved'")[0][0]
         )
 
+    def ui_mode() -> str:
+        mode = state.repo.get_setting(UI_MODE_KEY, "simple")
+        return mode if mode in UI_MODES else "simple"
+
     def page(request: Request, name: str, **ctx: Any) -> HTMLResponse:
         cfg = state.get_config()
         return templates.TemplateResponse(
@@ -186,6 +197,7 @@ def create_app(state: AppState) -> FastAPI:
                 "has_reports": state.reports_dir is not None,
                 "js": job_status(),
                 "queue_count": queue_count(),
+                "simple": ui_mode() == "simple",
                 "bell": {
                     "unread": state.repo.unread_notification_count(),
                     "items": state.repo.list_notifications(15),
@@ -228,7 +240,24 @@ def create_app(state: AppState) -> FastAPI:
             failed_pubs=failed,
             first_run=not runs and state.repo.count_contents() == 0,
             cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
+            simple_jobs=[j for j in SIMPLE_JOBS if j in JOB_LABELS],
+            can_upload=state.uploads_dir is not None,
+            max_mb=MAX_FILE_BYTES // (1024 * 1024),
+            uploaded=request.query_params.get("uploaded"),
+            chars=request.query_params.get("chars"),
+            upload_error=request.query_params.get("error"),
         )
+
+    @app.post("/ui-mode", dependencies=[Depends(check_csrf)])
+    def set_ui_mode(request: Request, mode: str = Form(...)) -> RedirectResponse:
+        if mode not in UI_MODES:
+            raise HTTPException(400, f"알 수 없는 화면 모드: {mode}")
+        state.repo.set_setting(UI_MODE_KEY, mode)
+        path = _local_path(request.headers.get("referer")) or "/"
+        # 간단 모드로 바꿀 때 메뉴에서 사라지는 화면에 있었으면 "오늘"로
+        if mode == "simple" and path.startswith(ADVANCED_PATHS):
+            path = "/"
+        return back(path)
 
     @app.post("/persona/toggle", dependencies=[Depends(check_csrf)])
     def toggle_persona() -> RedirectResponse:
@@ -446,15 +475,19 @@ def create_app(state: AppState) -> FastAPI:
         )
 
     @app.post("/materials/upload", dependencies=[Depends(check_csrf)])
-    async def upload_material(file: UploadFile = File(...)) -> RedirectResponse:
+    async def upload_material(
+        file: UploadFile = File(...), next_path: str = Form("", alias="next")
+    ) -> RedirectResponse:
         if state.uploads_dir is None:
             raise HTTPException(503, "자료 폴더가 설정되지 않았습니다")
+        # 간단 모드 "오늘"에서 올리면 "오늘"로 돌아간다(C13). 그 밖의 값은 무시(열린 리다이렉트 방지)
+        dest = "/?" if next_path == "/" else "/materials?"
         data = await file.read(MAX_FILE_BYTES + 1)
         try:
             path, chars = save_material(state.uploads_dir, file.filename or "자료", data)
         except MaterialError as e:
-            return back("/materials?" + urlencode({"error": str(e)}))
-        return back("/materials?" + urlencode({"uploaded": path.name, "chars": chars}))
+            return back(dest + urlencode({"error": str(e)}))
+        return back(dest + urlencode({"uploaded": path.name, "chars": chars}))
 
     @app.post("/materials/files/delete", dependencies=[Depends(check_csrf)])
     def delete_material_file(name: str = Form(...)) -> RedirectResponse:
