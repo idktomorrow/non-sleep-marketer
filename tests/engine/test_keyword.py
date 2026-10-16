@@ -198,3 +198,49 @@ def test_collect_drops_excluded_and_generate_skips_old_excluded(ctx: JobContext,
     # 이미 모아 둔 극장판 자료는 원고에 쓰지 않는다
     run_generate(ctx, manual=True)
     assert "kw-5" not in _used(ctx) and "kw-6" in _used(ctx)
+
+
+def test_keyword_scores_stay_in_the_run_and_do_not_leak(ctx: JobContext, clock) -> None:
+    """키워드 기준 점수는 DB에 남기지 않는다: 안 쓴 글과 예전 미판정 자료는 평소 기준을 기다린다."""
+    backlog = _item(clock, 8, "핸드드립 기초")
+    ctx.repo.insert_source_item(backlog)  # 예전에 모았지만 아직 판정 전
+    run_keyword_draft(ctx, "치이카와 굿즈")
+    judged = [c[0] for c in ctx.relevance_classifier.calls]
+    assert not any("핸드드립 기초" in t for t in judged)  # 키워드 기준으로 판정하지 않음
+    rows = dict(ctx.repo.db.execute("SELECT id, relevance FROM source_items"))
+    assert rows["kw-8"] is None
+    unused = [i for i in ("kw-1", "kw-2", "kw-3") if i not in _used(ctx)]
+    assert all(rows[i] is None for i in unused)  # 다음 자료 모으기가 평소 기준으로
+
+
+def test_already_collected_low_score_article_is_rescored_for_keyword(
+    ctx: JobContext, goods
+) -> None:
+    for g in goods:
+        ctx.repo.insert_source_item(g)
+        ctx.repo.set_source_relevance(g.id, 0.3)  # 평소 기준으로는 관련 없음
+    r = run_keyword_draft(ctx, "치이카와 굿즈")
+    assert r.counts["created"] == 1
+    assert dict(ctx.repo.db.execute("SELECT id, relevance FROM source_items"))["kw-1"] == 0.3
+
+
+class BodySource(KeywordSource):
+    def __init__(self, name, by_query, body: str) -> None:
+        super().__init__(name, by_query)
+        self.body = body
+        self.fetched: list[str] = []
+
+    def fetch_body(self, url: str) -> str:
+        self.fetched.append(url)
+        return self.body
+
+
+def test_exclude_word_found_only_in_the_article_body_is_dropped(ctx: JobContext, goods) -> None:
+    _with_exclude(ctx, ["극장판"])
+    src = BodySource(
+        "naver", {"치이카와 굿즈": goods[:2]}, "본문을 열어 보니 극장판 특전 이야기" * 5
+    )
+    ctx.sources = [src]
+    r = run_keyword_draft(ctx, "치이카와 굿즈")
+    assert src.fetched and "쓸 만한 자료가 없어" in r.skipped
+    assert ctx.text_generator.briefs == []

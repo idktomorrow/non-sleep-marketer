@@ -76,10 +76,7 @@ def run_collect(ctx: JobContext) -> JobResult:
     return result
 
 
-def _classify_pending(
-    ctx: JobContext, result: JobResult, extra_topic: str | None = None
-) -> tuple[int, int]:
-    """extra_topic: 키워드 원고(C15)가 찾은 글은 그 키워드도 관심 주제로 보고 판정한다."""
+def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
     if ctx.relevance_classifier is None or ctx.topic_classifier is None:
         result.errors.append("분류기가 설정되지 않았습니다")
         return 0, 0
@@ -97,7 +94,7 @@ def _classify_pending(
             continue
         pending.append(item)
     texts = [f"{i.title}\n{i.text}" for i in pending]
-    instruction = relevance_instruction(ctx, extra_topic)
+    instruction = relevance_instruction(ctx)
     try:
         rel: list[Classification | None] = list(
             ctx.relevance_classifier.classify_many(texts, RELEVANCE_LABELS, instruction)
@@ -147,18 +144,18 @@ def _classify_pending(
     return relevant, len(pending) + result.counts.get("excluded_genre", 0)
 
 
-def _fetch_bodies(ctx: JobContext, result: JobResult, only: set[str] | None = None) -> int:
+def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | None = None) -> int:
     """관련 자료로 판정된 웹 글만 원문 본문을 가져온다(ADR 0022). 실패하면 검색 요약문을 그대로 쓴다.
 
-    only: 이 자료들만(키워드 원고가 고른 자료, C15).
+    items: 이 자료들만(키워드 원고가 고른 자료, C15). 이미 원문을 읽은 것은 건너뛴다.
     """
     by_name = {getattr(s, "name", ""): s for s in ctx.sources}
     fetched = 0
     threshold = ctx.config.settings.relevance_threshold
-    if only is None:
+    if items is None:
         todo = ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN)
     else:
-        todo = [i for i in ctx.repo.relevant_items_without_body(threshold, 500) if i.id in only]
+        todo = [i for i in items if not ctx.repo.body_done(i.id)]
     for item in todo:
         if not item.url or item.url.startswith("file:"):
             # 업로드 자료는 원문이 이미 본문이다

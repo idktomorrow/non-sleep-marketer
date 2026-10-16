@@ -143,6 +143,16 @@ class Repository:
     def set_source_text(self, item_id: str, text: str) -> None:
         self.db.execute("UPDATE source_items SET text = ? WHERE id = ?", [text, item_id])
 
+    def body_done(self, item_id: str) -> bool:
+        """원문을 이미 읽었거나(fetched) 읽을 필요가 없다고 기록한(skipped) 자료인가."""
+        return bool(
+            self.db.execute(
+                "SELECT 1 FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
+                "AND kind = 'body' AND label IN ('fetched', 'skipped') LIMIT 1",
+                [item_id],
+            )
+        )
+
     def relevant_items_without_body(self, threshold: float, limit: int) -> list[SourceItem]:
         """원문 본문을 아직 못 가져온 관련 자료(아직 콘텐츠에 쓰지 않은 것). 최근 것부터.
 

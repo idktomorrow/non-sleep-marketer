@@ -350,7 +350,12 @@ def create_app(state: AppState) -> FastAPI:
             kw = clean_keyword(keyword)
         except KeywordError as e:
             return back(path.split("?")[0] + "?" + urlencode({"kw_error": str(e)}))
-        _track("keyword", state.run_keyword_now(kw), detail=kw)
+        # 두 번 눌러도 같은 키워드를 두 번 돌리지 않는다(검색·판정 비용, 남은 자료로 두 번째 원고)
+        busy = any(
+            r.name == "keyword" and r.detail == kw and r.finished is None for r in state.manual_runs
+        )
+        if not busy:
+            _track("keyword", state.run_keyword_now(kw), detail=kw)
         return back(path)
 
     def _track(name: str, future: Future, detail: str = "") -> None:

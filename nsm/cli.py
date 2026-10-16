@@ -64,6 +64,8 @@ def run(
     if once:
         if not job:
             raise typer.BadParameter("--once에는 --job이 필요합니다")
+        if (job == "keyword") != bool(keyword.strip()):
+            raise typer.BadParameter("--keyword는 --job keyword와 함께, 그리고 함께만 씁니다")
         run_job_once(job, keyword or None)
     else:
         run_forever()

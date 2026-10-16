@@ -73,3 +73,21 @@ def test_settings_exclude_words_round_trip(env) -> None:  # noqa: F811
     del form["exclude_words"]
     assert apply_settings_form(new, form).settings.collect.exclude_words == ["극장판", "관객"]
     assert 'name="exclude_words"' in env["client"].get("/settings").text  # 간단 모드에서도 보임
+
+
+def test_same_keyword_twice_while_running_starts_once(env) -> None:  # noqa: F811
+    asked: list[str] = []
+    pending: Future = Future()
+
+    def run(kw: str) -> Future:
+        asked.append(kw)
+        return pending
+
+    env["state"].run_keyword_now = run
+    _post(env, "치이카와 굿즈")
+    _post(env, "치이카와  굿즈")  # 두 번 누름(공백만 다름)
+    _post(env, "먼작귀 굿즈")  # 다른 키워드는 따로
+    assert asked == ["치이카와 굿즈", "먼작귀 굿즈"]
+    pending.set_result(JobResult("keyword", counts={"keyword": "치이카와 굿즈"}))
+    _post(env, "치이카와 굿즈")  # 끝난 뒤에는 다시 할 수 있다
+    assert asked[-1] == "치이카와 굿즈" and len(asked) == 3

@@ -8,6 +8,7 @@
 - 자동 게시 여부는 평소 규칙(보호 모드·자동 게시 스위치·출처 검증)을 그대로 따른다.
 - 쓸 만한 자료가 없으면 만들지 않는다(Claude 생성 비용도 들지 않는다).
 - 수집 제외어는 지키되, 키워드 안에 든 제외어는 이번에만 풀어 준다("극장판"을 빼 두었어도 "극장판 굿즈"로 찾을 수 있게).
+- 키워드 기준 판정 점수는 이번 실행에서만 쓰고 DB에 남기지 않는다. 안 쓴 글은 다음 자료 모으기가 평소 기준으로 판정한다.
 """
 
 from __future__ import annotations
@@ -16,7 +17,13 @@ import logging
 
 from nsm.domain.models import SourceItem
 from nsm.domain.policy import local_day_bounds, should_act, under_cost_cap
-from nsm.engine.collect import _classify_pending, _fetch_bodies, excluded_word
+from nsm.domain.quality import excluded_genre
+from nsm.engine.collect import (
+    RELEVANCE_LABELS,
+    _fetch_bodies,
+    excluded_word,
+    relevance_instruction,
+)
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import (
     _RETRY_LATER,
@@ -77,28 +84,26 @@ def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
         return result
 
     hashes = _search(ctx, sources, keyword, result)
-    _classify_pending(ctx, result, extra_topic=keyword)
-    threshold = s.relevance_threshold
     words = _active_exclude_words(ctx, keyword)
-    candidates = [
-        (item, rel)
-        for item, rel, used in ctx.repo.items_by_url_hashes(hashes)
-        if not used and rel is not None and rel >= threshold and not excluded_word(item, words)
+    found = [
+        item
+        for item, _, used in ctx.repo.items_by_url_hashes(hashes)
+        if not used and not excluded_word(item, words) and not excluded_genre(item.title, item.text)
     ]
+    candidates = _score_for_keyword(ctx, found, keyword, result)
     result.counts["relevant"] = len(candidates)
     if not candidates:
-        found = len(hashes)
-        result.skipped = (
-            f"'{keyword}'(으)로 찾은 최근 글 {found}개 중 원고에 쓸 만한 자료가 없어 만들지 않음"
-            if found
-            else f"'{keyword}'(으)로 찾은 최근 글이 없어 만들지 않음"
-        )
+        result.skipped = _nothing_text(keyword, len(hashes))
         return result
 
     chosen = sorted(candidates, key=lambda x: -x[1])[:SOURCES_PER_CONTENT]
-    result.counts["bodies"] = _fetch_bodies(ctx, result, only={i.id for i, _ in chosen})
-    # 원문을 읽었으면 요약문 대신 원문으로 만든다
+    result.counts["bodies"] = _fetch_bodies(ctx, result, items=[i for i, _ in chosen])
+    # 원문을 읽었으면 요약문 대신 원문으로 만든다. 원문에만 제외어가 있던 글은 여기서 뺀다
     chosen = [(ctx.repo.get_source_item(i.id) or i, rel) for i, rel in chosen]
+    chosen = [(i, rel) for i, rel in chosen if not excluded_word(i, words)]
+    if not chosen:
+        result.skipped = _nothing_text(keyword, len(hashes))
+        return result
 
     made_today = ctx.repo.count_contents_between(start, end)
     cid = _make_one(ctx, (keyword, chosen), made_today, now, result, manual=True)
@@ -111,6 +116,42 @@ def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
     if pending:
         ctx.notifier.notify("검토 대기 콘텐츠", f"'{keyword}' 원고가 검토를 기다립니다", "info")
     return result
+
+
+def _nothing_text(keyword: str, found: int) -> str:
+    if found:
+        return f"'{keyword}'(으)로 찾은 최근 글 {found}개 중 원고에 쓸 만한 자료가 없어 만들지 않음"
+    return f"'{keyword}'(으)로 찾은 최근 글이 없어 만들지 않음"
+
+
+def _score_for_keyword(
+    ctx: JobContext, items: list[SourceItem], keyword: str, result: JobResult
+) -> list[tuple[SourceItem, float]]:
+    """이번에 찾은 글을 키워드 기준으로 판정한 점수(이번 실행에서만 쓴다).
+
+    DB의 관련성에는 쓰지 않는다. 키워드를 관심 주제로 더한 점수가 남으면, 안 쓴 글이 나중에
+    자동 원고에 섞이고 예전 자료도 키워드로 판정되기 때문이다(코드 리뷰 C15). 새로 찾은 글은
+    판정 전 상태로 남아 다음 자료 모으기가 평소 기준으로 판정한다.
+    """
+    if not items:
+        return []
+    if ctx.relevance_classifier is None:
+        result.errors.append("분류기가 설정되지 않았습니다")
+        return []
+    texts = [f"{i.title}\n{i.text}" for i in items]
+    instruction = relevance_instruction(ctx, keyword)
+    try:
+        rel = list(ctx.relevance_classifier.classify_many(texts, RELEVANCE_LABELS, instruction))
+    except Exception as e:  # noqa: BLE001  판정이 안 되면 만들지 않는다(다시 누르면 된다)
+        result.errors.append(f"관련성 분류 실패: {e}")
+        return []
+    threshold = ctx.config.settings.relevance_threshold
+    out = []
+    for item, c in zip(items, rel, strict=True):
+        score = c.confidence if c.label == "relevant" else 1.0 - c.confidence
+        if score >= threshold:
+            out.append((item, score))
+    return out
 
 
 def _active_exclude_words(ctx: JobContext, keyword: str) -> list[str]:
