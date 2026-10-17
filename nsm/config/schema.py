@@ -33,8 +33,9 @@ class BrandSettings(Brand):
     character: CharacterChoice = "parrot"
     character_cover: str | None = None  # custom일 때 표지 그림(<NSM_HOME>/brand/에 저장한 투명 PNG)
     character_outro: str | None = None  # custom일 때 마지막 장 그림. 비우면 표지 그림
-    # AI로 만든 그림이면 그 장에 "AI 생성 이미지" 표기(ADR 0007·0046). 기본 캐릭터도 기본은 켬(만든 방법 확인 전)
-    character_ai_made: bool = True
+    # 캐릭터가 있는 장에 "AI 생성 이미지" 표기(ADR 0046). 기본 캐릭터는 AI로 만든 만화 그림이지만 실제 사람·사진처럼
+    # 보이지 않아 표기하지 않는다(C19, 선웅제 결정). 실제처럼 보이는 그림을 올리면 켠다
+    character_ai_made: bool = False
 
 
 # 대시보드·마법사가 다시 저장할 때 지켜야 하는 카드 모양 설정

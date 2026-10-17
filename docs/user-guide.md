@@ -106,7 +106,7 @@ uv run nsm doctor
 | `classifier` | `auto` | MotherDuck 토큰이 있으면 jev, 없으면 Claude로 분류 |
 | `image_generation` | `off` | AI 배경 이미지(유료). `off`: 만들지 않고 코드로 그린 배경만(사진은 검토 화면에서 직접 올림). `auto`: OpenAI 키가 있으면 만듦. `on`: 항상 만듦(키가 없으면 경고 후 코드 배경). `nsm init`에서 OpenAI 키를 새로 넣으면 켤지 물어봄 (ADR 0036) |
 | `brand.character` | `parrot` | 일러스트형 카드 표지·마지막 장 캐릭터(설정 화면 "일러스트형 캐릭터"). `parrot` 앵무새, `hamster` 햄스터, `custom` 직접 올린 그림(`brand.character_cover`·`brand.character_outro`), `drawn` 도형 캐릭터, `none` 없음 (ADR 0046) |
-| `brand.character_ai_made` | `true` | 캐릭터 그림을 AI로 만들었으면 켬. 캐릭터가 있는 장에 "AI 생성 이미지" 표기. 사람이 직접 그렸으면 끄세요 |
+| `brand.character_ai_made` | `false` | 캐릭터가 있는 장에 "AI 생성 이미지" 표기. 기본 캐릭터(AI로 만든 만화 그림)는 실제처럼 보이지 않아 표기하지 않음. 사진처럼 실제 같은 그림을 AI로 만들어 올렸다면 켜세요 (ADR 0046) |
 | `brand.card_style` | `clean` | 카드 디자인 스타일(설정 화면 "카드 스타일"). `clean` 깔끔, `photo` 사진형, `illust` 일러스트형. 아래 "카드 스타일" 참고 |
 | `enabled_platforms` | 인스타그램·스레드 | 게시할 플랫폼. 여기에 `naver_blog`가 없으면 블로그 원고를 만들지 않음(원고 1건당 Claude 출력 비용 절약) |
 | `browser_driver` | `aside` | 실계정 게시·댓글에 쓸 브라우저(Aside). 자료 수집은 이 값과 상관없이 별도 수집 전용 브라우저(Playwright)로 함. 2026-10-13 전에 만든 config.yaml에는 `playwright`가 저장돼 있으니 Aside를 쓰려면 직접 `aside`로 바꾸세요 |
@@ -167,7 +167,7 @@ uv run nsm render-preview tests/fixtures/decks/info.json --out preview-cards --s
   - 캐릭터를 올리면 바로 "직접 올린 그림"으로 바뀝니다. 지우면 앵무새로 돌아갑니다.
   - 로고는 세 스타일 모두 표지·마지막 장의 이름 앞에 작게 들어갑니다. 로고는 새로 만드는 원고부터 들어가고, 이미 만든 원고는 예전 로고 그대로입니다.
 - **직접 만든 그림만** 올리세요. 다른 회사·작가의 캐릭터(예: 치이카와, 산리오)를 올리면 그대로 카드에 실려 게시되어 저작권 문제가 생깁니다.
-- **AI 표기**: "이 캐릭터 그림은 AI로 만들었어요"가 켜져 있으면 캐릭터가 있는 장에 "AI 생성 이미지"가 붙습니다(기본 켬). 사람이 직접 그린 그림이면 끄세요.
+- **AI 표기**: 기본은 꺼져 있습니다. 기본 캐릭터는 AI로 만든 만화 그림이지만 실제 사람이나 사진처럼 보이지 않아 표기하지 않습니다. 사진처럼 실제 같은 그림을 AI로 만들어 올렸다면 "캐릭터가 있는 장에 'AI 생성 이미지' 표기하기"를 켜세요. "가상인물" 배지는 이것과 상관없이 늘 붙습니다.
 - 저장하면 다시 켜지 않아도 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 일러스트형 원고도 올릴 때 새 캐릭터로 다시 그립니다. 샘플은 `docs/samples/characters/`에 있습니다.
 
 | 스타일 | 모양 | 어울리는 글 |
