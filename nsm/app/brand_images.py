@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import io
+import logging
 import secrets
 from pathlib import Path
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_SIDE = 900  # 카드에서 캐릭터는 300~400px라 이보다 크게 둘 필요가 없다
+MAX_PIXELS = 40_000_000  # 이보다 큰 그림은 받지 않는다(압축 폭탄·처리 시간)
 BG_TOLERANCE = 38  # 바탕색과 이만큼(0~255 채널 차이) 가까우면 바탕
 EDGE_SOFT = 110  # 바탕 가장자리에서 이 차이까지는 반투명으로(윤곽선 둘레 흰 테두리 줄이기)
 
@@ -23,18 +25,22 @@ class BrandImageError(ValueError):
 
 
 def _open(data: bytes):
-    from PIL import Image, UnidentifiedImageError
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
     if len(data) > MAX_BYTES:
         raise BrandImageError("이미지는 10MB 이하만 올릴 수 있습니다")
     try:
         img = Image.open(io.BytesIO(data))
+        fmt = img.format
+        if img.width * img.height > MAX_PIXELS:
+            raise BrandImageError("그림이 너무 큽니다(가로×세로 4천만 픽셀 이하)")
         img.load()
-    except (UnidentifiedImageError, OSError) as e:
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as e:
         raise BrandImageError("PNG·JPEG·WebP 이미지만 올릴 수 있습니다") from e
-    if img.format not in ("PNG", "JPEG", "WEBP"):
+    if fmt not in ("PNG", "JPEG", "WEBP"):
         raise BrandImageError("PNG·JPEG·WebP 이미지만 올릴 수 있습니다")
-    return img
+    # 휴대폰 사진은 회전 정보(EXIF)대로 돌려 둔다(옆으로 누운 그림 방지)
+    return ImageOps.exif_transpose(img)
 
 
 def has_transparency(img) -> bool:
@@ -95,6 +101,8 @@ def remove_background(img):
 def prepare_character(data: bytes, clear_background: bool = True):
     """캐릭터 그림: (필요하면) 바탕 지우기 → 그림만 남게 자르기 → 크기 줄이기. PIL 이미지(RGBA)."""
     img = _open(data)
+    # 바탕 지우기는 픽셀마다 도는 일이라, 먼저 넉넉히(최종 크기의 2배) 줄여 둔다
+    img.thumbnail((MAX_SIDE * 2, MAX_SIDE * 2))
     out = remove_background(img) if clear_background else img.convert("RGBA")
     box = out.getchannel("A").point(lambda v: 255 if v > 16 else 0).getbbox()
     if box is None:
@@ -127,4 +135,7 @@ def drop_old(folder: Path, old: str | None) -> None:
         return
     p = Path(old).resolve()
     if p.parent == folder.resolve() and p.is_file():
-        p.unlink()
+        try:
+            p.unlink()
+        except OSError as e:  # 다른 곳에서 열고 있으면(Windows) 남겨 둔다. 설정은 이미 바뀌었다
+            logging.getLogger(__name__).warning("예전 그림을 지우지 못했습니다 %s: %s", p, e)

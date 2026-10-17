@@ -108,3 +108,20 @@ def test_save_and_drop_only_inside_folder(tmp_path: Path) -> None:
     drop_old(folder, str(p))
     assert not p.exists()
     drop_old(folder, None)
+
+
+def test_phone_photo_is_rotated_upright() -> None:
+    img = Image.new("RGB", (400, 200), PAPER)
+    ImageDraw.Draw(img).ellipse((150, 50, 250, 150), outline=(30, 30, 30), width=8)
+    exif = Image.Exif()
+    exif[0x0112] = 6  # 오른쪽으로 90도 돌려 보라는 회전 정보
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", exif=exif.tobytes())
+    out = prepare_logo(buf.getvalue())
+    assert out.size[1] > out.size[0]  # 가로 사진이 세로로 바로 섬
+
+
+def test_big_drawing_is_shrunk_before_background_removal() -> None:
+    big = _drawing().resize((4000, 4000))
+    out = prepare_character(_png(big, "JPEG"))
+    assert max(out.size) <= 900 and out.getchannel("A").getpixel((0, 0)) < 255

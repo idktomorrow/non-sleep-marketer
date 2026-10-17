@@ -154,3 +154,40 @@ def test_old_form_without_character_keeps_values(benv) -> None:
     form.pop("character_ai_made")
     assert _post(benv, "/settings", **form).status_code == 303
     assert (_cfg(benv).brand.character, _cfg(benv).brand.character_ai_made) == ("none", False)
+
+
+def test_replacing_logo_keeps_old_file_for_existing_drafts(benv) -> None:
+    from pathlib import Path
+
+    _upload(benv, "logo_path", _drawing_png(), clear=False)
+    first = Path(_cfg(benv).brand.logo_path)
+    r = _upload(benv, "logo_path", _drawing_png(), clear=False)
+    assert first.exists() and Path(_cfg(benv).brand.logo_path) != first
+    assert "새로 만드는 원고부터" in benv["client"].get(r.headers["location"]).text
+
+
+def test_unchecked_ai_label_survives_validation_error(benv) -> None:
+    form = form_values(_cfg(benv))
+    form.update(card_character="custom")  # 올린 그림이 없어 저장 실패
+    form.pop("character_ai_made")
+    r = _post(benv, "/settings", **form)
+    assert r.status_code == 400
+    assert 'name="character_ai_made" checked' not in r.text
+
+
+def test_illust_preview_url_changes_with_character(benv) -> None:
+    import re
+
+    def illust_src() -> str:
+        html = benv["client"].get("/settings").text
+        return re.search(r'data-style="illust" data-n="1" src="([^"]+)"', html).group(1)
+
+    from types import SimpleNamespace
+
+    benv["state"].renderer = SimpleNamespace(render_sample=lambda *a: None)  # 견본 칸이 보이게
+    before = illust_src()
+    form = form_values(_cfg(benv))
+    form.update(card_character="hamster")
+    _post(benv, "/settings", **form)
+    after = illust_src()
+    assert "&amp;c=" in after and before != after

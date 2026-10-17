@@ -66,6 +66,7 @@ from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
 from nsm.engine.watchdog import STALLS_KEY
 from nsm.ports import CardRenderer, Clock, PlatformAdapter
+from nsm.render.character import character_art
 from nsm.store import queries
 from nsm.store.repo import InvalidTransitionError, Repository
 
@@ -306,6 +307,8 @@ def create_app(state: AppState) -> FastAPI:
             },
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
+            # 캐릭터를 바꾸면 일러스트형 견본 주소도 바뀌게(브라우저 캐시 때문에 옛 견본이 남지 않게)
+            "character_fp": character_art(b).fingerprint,
         }
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -375,11 +378,14 @@ def create_app(state: AppState) -> FastAPI:
                 "custom"  # 올리면 바로 그 그림을 쓴다(되돌리려면 위에서 다시 고름)
             )
         state.set_config(cfg.model_copy(update={"brand": cfg.brand.model_copy(update=update)}))
-        drop_old(state.brand_dir, str(old) if old else None)
+        if kind != "logo_path":
+            # 로고는 원고를 만들 때 덱에 경로가 들어가므로, 이미 만든 원고를 위해 예전 파일을 남긴다
+            drop_old(state.brand_dir, str(old) if old else None)
         return back("/settings?" + urlencode({"image_saved": kind}) + "#brand-images")
 
     @app.post("/settings/brand-image/delete", dependencies=[Depends(check_csrf)])
-    def delete_brand_image(kind: str = Form(...)) -> RedirectResponse:
+    async def delete_brand_image(kind: str = Form(...)) -> RedirectResponse:
+        # 올리기·설정 저장과 같은 이벤트 루프에서 돌려 설정 읽기→쓰기가 엇갈리지 않게(async)
         from nsm.app.brand_images import drop_old
 
         if state.brand_dir is None or kind not in BRAND_IMAGE_KINDS:
@@ -392,7 +398,8 @@ def create_app(state: AppState) -> FastAPI:
         if kind != "logo_path" and b.character == "custom" and not others:
             update["character"] = "parrot"  # 올린 그림이 하나도 안 남으면 기본 캐릭터로
         state.set_config(cfg.model_copy(update={"brand": b.model_copy(update=update)}))
-        drop_old(state.brand_dir, str(old) if old else None)
+        if kind != "logo_path":  # 로고 파일은 이미 만든 원고가 쓰므로 남긴다
+            drop_old(state.brand_dir, str(old) if old else None)
         return back("/settings?" + urlencode({"image_saved": "deleted"}) + "#brand-images")
 
     @app.get("/settings/style-preview/{style}/{n}.png")
@@ -421,7 +428,16 @@ def create_app(state: AppState) -> FastAPI:
                 request,
                 "settings.html",
                 **settings_extra(request),
-                v={**form_values(state.get_config()), **form},
+                v={
+                    **form_values(state.get_config()),
+                    **form,
+                    # 끈 체크 칸은 폼에 없으므로, 캐릭터 칸이 있었으면 끈 상태를 지킨다
+                    **(
+                        {"character_ai_made": form.get("character_ai_made", "")}
+                        if "card_character" in form
+                        else {}
+                    ),
+                },
                 error=str(e),
                 saved=False,
             )
