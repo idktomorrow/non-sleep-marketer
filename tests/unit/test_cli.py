@@ -33,7 +33,9 @@ def test_render_preview_style_option(nsm_home, tmp_path, monkeypatch) -> None:
         def render(self, deck, out_dir):
             return [out_dir / "slide-01.png"]
 
-    monkeypatch.setattr(render, "get_renderer", lambda style="clean": used.append(style) or Fake())
+    monkeypatch.setattr(
+        render, "get_renderer", lambda style="clean", character=None: used.append(style) or Fake()
+    )
     deck = Path(__file__).resolve().parents[1] / "fixtures" / "decks" / "info.json"
     out = str(tmp_path)
     assert (

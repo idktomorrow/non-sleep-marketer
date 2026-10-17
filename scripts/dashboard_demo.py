@@ -265,14 +265,19 @@ def main() -> None:
         cfg = cfg.model_copy(update={"persona": cfg.persona.model_copy(update={"enabled": True})})
     db = Database(home / "data.duckdb")
     repo = Repository(db, SystemClock())
+    holder = {"cfg": cfg}
     renderer = None
     if not args.no_render:
         from nsm.render import get_renderer
+        from nsm.render.character import character_art
 
-        renderer = get_renderer()
+        # 실제 nsm run처럼 카드 스타일·캐릭터를 지금 설정에서 읽는다(C17)
+        renderer = get_renderer(
+            style=lambda: holder["cfg"].brand.card_style,
+            character=lambda: character_art(holder["cfg"].brand),
+        )
     if not args.fresh and not repo.list_contents():
         seed(repo, cfg, home / "media", home / "reports", renderer)
-    holder = {"cfg": cfg}
     state = AppState(
         repo=repo,
         clock=SystemClock(),
@@ -286,6 +291,7 @@ def main() -> None:
         run_job_now=_demo_job,
         run_keyword_now=_demo_keyword,
         read_image=_demo_read_image,
+        brand_dir=home / "brand",
         job_names=frozenset(
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),

@@ -40,7 +40,13 @@
   <svg class="blob blob-b" viewBox="0 0 200 200"><path d="M150 30 C 190 60, 196 130, 150 170 C 104 206, 30 186, 16 130 C 2 74, 40 20, 96 14 C 118 12, 136 20, 150 30 Z"/></svg>
   {%- if s.kind in ('cover', 'outro') %}
   <svg class="ground" viewBox="0 0 1080 240" preserveAspectRatio="none"><path d="M0 120 C 220 40, 420 40, 600 96 C 780 150, 940 110, 1080 60 L1080 240 L0 240 Z"/></svg>
+  {#- 캐릭터(C17, ADR 0046): 기본·직접 올린 그림(투명 PNG)이면 그 그림, drawn이면 코드 캐릭터, none이면 없음 -#}
+  {%- set art = character.for_kind(s.kind) %}
+  {%- if art %}
+  <img class="mascot mascot-img mascot-{{ 'stand' if s.kind == 'cover' else 'wave' }}" src="{{ art | file_uri }}" alt="">
+  {%- elif character.drawn %}
   {{ mascot('stand' if s.kind == 'cover' else 'wave') }}
+  {%- endif %}
   {%- endif %}
 </div>
 {%- endif %}
@@ -66,7 +72,8 @@
   </div>
 </div>
 <div class="bottombar">
-  {%- if bg and deck.labels.ai_generated_image %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
+  {#- AI로 만든 캐릭터 그림이 들어간 장에도 같은 표기(C17, ADR 0046). 슬롯은 그대로다 -#}
+  {%- if (bg and deck.labels.ai_generated_image) or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
   <span class="page" data-page>{{ i }} / {{ n }}</span>
 </div>
 {%- endmacro %}

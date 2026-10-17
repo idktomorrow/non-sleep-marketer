@@ -51,11 +51,25 @@
     {% for k, label in card_styles.items() %}{% set name, desc = label.split(': ', 1) %}
       <label class="style-option">
         <span class="style-head"><input type="radio" name="card_style" value="{{ k }}" {% if v.card_style == k %}checked{% endif %}> <b>{{ name }}</b></span>
-        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
+        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}{% if k == 'illust' %}&amp;c={{ character_fp }}{% endif %}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
         <span class="hint">{{ desc }}</span>
       </label>
     {% endfor %}
     </div>
+  </fieldset>
+  <fieldset class="style-picker character-picker">
+    <legend>일러스트형 캐릭터 <span class="hint">일러스트형 카드의 표지·마지막 장 아래에 들어갑니다(가상인물 배지가 있는 장에만). 다른 스타일에는 들어가지 않습니다</span></legend>
+    <div class="style-options character-options">
+    {% for k, label in characters.items() %}{% set name, desc = label.split(': ', 1) %}
+      <label class="style-option">
+        <span class="style-head"><input type="radio" name="card_character" value="{{ k }}" {% if v.card_character == k %}checked{% endif %}> <b>{{ name }}</b></span>
+        {% if k in ('parrot', 'hamster') %}<img class="char-thumb" src="/settings/character/{{ k }}.png" alt="{{ name }}" loading="lazy">
+        {% elif k == 'custom' and (has_image.character_cover or has_image.character_outro) %}<img class="char-thumb" src="/settings/brand-image/{{ 'character_cover' if has_image.character_cover else 'character_outro' }}.png" alt="올린 캐릭터" loading="lazy">{% endif %}
+        <span class="hint">{{ desc }}</span>
+      </label>
+    {% endfor %}
+    </div>
+    <label class="check"><input type="checkbox" name="character_ai_made" {% if v.character_ai_made == 'on' %}checked{% endif %}> 이 캐릭터 그림은 AI로 만들었어요 <span class="hint">켜면 캐릭터가 있는 장에 "AI 생성 이미지"를 표기합니다. 사람이 직접 그렸으면 끄세요</span></label>
   </fieldset>
 </div>
 
@@ -90,6 +104,37 @@
 <div class="actionbar settings-bar"><span class="muted small grow">시간 형식: 09:00-12:00, 18:00-23:00 (쉼표로 여러 구간)</span><button class="btn-primary">저장</button></div>
 </form>
 
+{% if can_brand_images %}
+<h2 id="brand-images">캐릭터·로고 그림</h2>
+<div class="panel">
+  {% if image_saved == 'deleted' %}<div class="notice info">그림을 지웠습니다.</div>
+  {% elif image_saved == 'logo_path' %}<div class="notice info">로고를 올렸습니다. 새로 만드는 원고부터 들어갑니다(이미 만든 원고는 예전 로고 그대로).</div>
+  {% elif image_saved %}<div class="notice info">그림을 올렸습니다. 캐릭터를 "직접 올린 그림"으로 바꿨습니다. 다음에 그리는 카드부터 들어갑니다(게시 대기 중인 일러스트형 원고도 올릴 때 새 캐릭터로).</div>{% endif %}
+  {% if image_error %}<div class="notice bad">올리지 못했습니다. {{ image_error }}</div>{% endif %}
+  <p class="muted small"><b>직접 만든 그림만 올리세요.</b> 다른 회사·작가의 캐릭터(예: 치이카와, 산리오)를 올리면 그대로 카드에 실려 게시되어 저작권 문제가 생깁니다. PNG·JPEG·WebP, 10MB 이하.</p>
+  <div class="brand-image-grid">
+  {% for kind, title, hint in [
+      ('character_cover', '표지 캐릭터', '표지 왼쪽 아래. 흰 종이 같은 바탕은 자동으로 지우고 그림만 남깁니다'),
+      ('character_outro', '마지막 장 캐릭터', '마지막 장 오른쪽 아래. 비우면 표지 캐릭터를 씁니다'),
+      ('logo_path', '로고', '세 스타일 모두 표지·마지막 장의 이름 앞에 작게 들어갑니다. 바탕은 그대로 둡니다. 새로 만드는 원고부터 들어갑니다'),
+  ] %}
+    <div class="brand-image">
+      <b>{{ title }}</b>
+      <span class="hint">{{ hint }}</span>
+      {% if has_image[kind] %}<img class="char-thumb" src="/settings/brand-image/{{ kind }}.png" alt="{{ title }}">
+      <form method="post" action="/settings/brand-image/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}"><button class="btn-sm">지우기</button></form>
+      {% endif %}
+      <form method="post" action="/settings/brand-image" enctype="multipart/form-data" class="brand-image-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="{{ kind }}">
+        <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="{{ title }} 파일">
+        {% if kind != 'logo_path' %}<label class="check small"><input type="checkbox" name="clear_background" checked> 바탕 자동으로 지우기</label>{% endif %}
+        <button class="btn-sm">{{ '바꾸기' if has_image[kind] else '올리기' }}</button>
+      </form>
+    </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <form id="notify-test-form" method="post" action="/notify/test"><input type="hidden" name="csrf" value="{{ csrf }}"></form>
 
@@ -114,7 +159,8 @@
     var p = color('primary_color'), a = color('accent_color');
     if (!hex.test(p) || !hex.test(a)) return;
     thumbs.forEach(function (img) {
-      img.src = '/settings/style-preview/' + img.dataset.style + '/' + img.dataset.n + '.png?primary=' + encodeURIComponent(p) + '&accent=' + encodeURIComponent(a);
+      var c = img.dataset.style === 'illust' ? '&c={{ character_fp }}' : '';
+      img.src = '/settings/style-preview/' + img.dataset.style + '/' + img.dataset.n + '.png?primary=' + encodeURIComponent(p) + '&accent=' + encodeURIComponent(a) + c;
     });
   }
   ['primary_color', 'accent_color'].forEach(function (name) {

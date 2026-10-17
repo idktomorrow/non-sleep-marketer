@@ -22,8 +22,9 @@ def test_renderer_reads_card_style_from_current_config(
         def render(self, deck, out_dir):
             return []
 
-    def fake_get_renderer(style="clean"):
+    def fake_get_renderer(style="clean", character=None):
         seen["style"] = style
+        seen["character"] = character
         return Fake()
 
     monkeypatch.setattr(render, "get_renderer", fake_get_renderer)
@@ -50,5 +51,11 @@ def test_renderer_reads_card_style_from_current_config(
                 update={"brand": cfg.brand.model_copy(update={"card_style": "photo"})}
             )
             assert seen["style"]() == "photo"
+            # 캐릭터도 렌더할 때마다 지금 설정에서 읽는다(C17)
+            assert seen["character"]().cover.name == "parrot.png"
+            ctx.config = cfg.model_copy(
+                update={"brand": cfg.brand.model_copy(update={"character": "none"})}
+            )
+            assert seen["character"]().cover is None and not seen["character"]().drawn
     finally:
         db.close()

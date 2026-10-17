@@ -89,10 +89,13 @@ def render_preview(
 
     if style is None:
         style = _configured_card_style()
+    character = _configured_character()
     if style not in CARD_STYLES:
         raise typer.BadParameter(f"{', '.join(CARD_STYLES)} 중 하나", param_hint="--style")
     d = CardDeck.model_validate_json(deck.read_text(encoding="utf-8"))
-    paths = get_renderer(style=style).render(d, out or preview_dir() / "render")
+    paths = get_renderer(style=style, character=character).render(
+        d, out or preview_dir() / "render"
+    )
     for p in paths:
         typer.echo(str(p))
 
@@ -104,6 +107,16 @@ def _configured_card_style() -> str:
         return load_config().brand.card_style
     except Exception:  # noqa: BLE001  설정 전(nsm init 전)에도 미리보기는 된다
         return "clean"
+
+
+def _configured_character():
+    from nsm.config.store import load_config
+    from nsm.render.character import DRAWN, character_art
+
+    try:
+        return character_art(load_config().brand)
+    except Exception:  # noqa: BLE001  설정 전에는 코드 캐릭터
+        return DRAWN
 
 
 @app.command("install-autostart")

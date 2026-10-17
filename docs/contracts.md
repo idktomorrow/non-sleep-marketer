@@ -312,6 +312,8 @@ class Clock(Protocol):
 - **표기 슬롯(필수)**: 아래 요소가 DOM에 존재해야 하고 렌더 테스트가 이를 검사함.
   - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 페르소나 이름 바로 옆에 배경과 대비되는 색으로 표시. 이름(인물)과 배지는 cover·outro 슬라이드에만 함께 두고, 가운데 슬라이드에는 둘 다 두지 않음(ADR 0043, 그 전에는 모든 슬라이드). 덱 JSON은 그대로.
   - `[data-label="ai-generated"]`: "AI 생성 이미지" 작은 캡션. `labels.ai_generated_image`가 true일 때 배경 이미지가 있는 슬라이드에 표시.
+    - 일러스트형에서 AI로 만든 캐릭터 그림(설정 `brand.character_ai_made`)이 들어간 표지·마지막 장에도 같은 슬롯으로 표시한다(C17, ADR 0046).
+    - 캐릭터는 덱 JSON이 아니라 렌더러 옵션(설정 `brand.character`)이라 덱 계약은 그대로다. 팀원 확인 필요.
   - `[data-label="ad"]`: "광고" 배지. `labels.ad`가 true면 cover 슬라이드 상단에 크게 표시.
   - `[data-sources]`: outro 슬라이드의 출처 목록.
   - `[data-page]`: "n / N" 페이지 표시.
