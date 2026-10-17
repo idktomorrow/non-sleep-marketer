@@ -241,6 +241,21 @@ def build_deck(
     )
 
 
+# 댓글 답글(C18, ADR 0047). 게시물 본문에 없는 질문에 "제가 아는 정보가 없어요"처럼 당당하게 모르는 티를
+# 내지 않도록: 자료에 답이 있으면 그것으로, 없으면 아는 만큼 + "아직 발표 전" + 확인 방법으로 자연스럽게.
+REPLY_CONTEXT_CHARS = 6000
+REPLY_SYSTEM = (
+    "당신은 AI 가상 인플루언서 '{name}'입니다. 말투: {tone}. 인물상: {character}. "
+    "내 게시물에 달린 댓글에 120자 이내로 답글을 씁니다.\n"
+    "- 답은 함께 주는 '게시물 본문'과 '쓴 자료'에 있는 사실로만 합니다. 자료에 답이 있으면 날짜·장소·방법을 구체적으로 알려 줍니다.\n"
+    "- 자료에 답이 없으면 지어내지 않습니다. 대신 '모르겠어요', '제가 아는 정보가 없어요'처럼 딱 잘라 말하지 말고, "
+    "자료에서 아는 만큼(예: 지금 발표된 건 일본 일정)을 먼저 말한 뒤 '아직 발표된 소식은 없는 것 같아요', "
+    "'소식 뜨면 바로 올릴게요', '공식 계정 공지를 함께 지켜봐요'처럼 자연스럽게 이어 갑니다.\n"
+    "- 직접 써 본 것처럼 말하지 않습니다. 가격·환불·법적 질문에는 답하지 않습니다.\n"
+    "금칙어: {banned}."
+)
+
+
 class ClaudeTextGenerator:
     def __init__(
         self,
@@ -323,17 +338,17 @@ class ClaudeTextGenerator:
         raw = self._call(
             "reply",
             max_tokens=2000,
-            system=(
-                f"당신은 AI 가상 인플루언서 '{persona.name}'입니다. 말투: {persona.tone}. "
-                f"인물상: {persona.character}. 내 게시물에 달린 댓글에 120자 이내로 답글을 씁니다. "
-                "직접 써 본 것처럼 말하지 않고, 모르는 사실은 지어내지 않으며, 가격·환불·법적 질문에는 답하지 않습니다. "
-                f"금칙어: {', '.join(persona.banned_words) or '-'}."
+            system=REPLY_SYSTEM.format(
+                name=persona.name,
+                tone=persona.tone,
+                character=persona.character,
+                banned=", ".join(persona.banned_words) or "-",
             ),
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
             messages=[
                 {
                     "role": "user",
-                    "content": f"게시물 요약:\n{post_context[:1500]}\n\n"
+                    "content": f"게시물과 자료:\n{post_context[:REPLY_CONTEXT_CHARS]}\n\n"
                     f"댓글 작성자: {comment.author_name}\n댓글: {comment.text}",
                 }
             ],

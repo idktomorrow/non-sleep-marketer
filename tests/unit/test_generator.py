@@ -163,6 +163,23 @@ def test_generate_reply(app_config) -> None:
     assert comment.text in msgs.requests[0]["messages"][0]["content"]
 
 
+def test_reply_prompt_uses_sources_and_avoids_blunt_unknown(app_config) -> None:
+    """C18: 자료에 있는 사실로만 답하고, 없을 때 '모르겠어요'로 딱 자르지 않게 지시한다."""
+    client, msgs = _client({"reply": "아직 한국 일정은 발표 전인 것 같아요!"})
+    comment: Comment = load_comment_cases()[0][0]
+    context = "게시물 주제: t\n\n" + "[자료 1] 긴 자료 " + "가" * 7000
+    ClaudeTextGenerator(client, "claude-sonnet-5-5").generate_reply(
+        comment, app_config.persona, context
+    )
+    req = msgs.requests[0]
+    system = req["system"]
+    assert app_config.persona.name in system and app_config.persona.tone in system
+    assert "쓴 자료" in system and "지어내지 않습니다" in system
+    assert "딱 잘라 말하지 말고" in system
+    body = req["messages"][0]["content"]
+    assert "[자료 1]" in body and len(body) < 6000 + 500  # 자료는 6000자까지
+
+
 def test_openai_image_generator_writes_png(tmp_path: Path) -> None:
     calls = []
 

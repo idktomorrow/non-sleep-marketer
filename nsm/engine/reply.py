@@ -26,12 +26,29 @@ INSTRUCTION = (
 )
 
 
+SOURCE_CHARS = 1500  # 자료 하나에서 답글 근거로 넘기는 글자 수
+MAX_SOURCES = 3
+
+
 def _post_context(ctx: JobContext, c: Comment) -> str:
+    """답글을 쓸 때 보는 것: 게시물 주제·본문 + 그 원고를 만들 때 쓴 자료(C18, ADR 0047).
+
+    예전에는 게시물 본문만 넘겨, 본문에 없는 질문에는 "아는 정보가 없어요"라고 답했다. 원고에 쓴 기사
+    원문에 답이 있으면 그것으로 답하게 자료를 함께 넘긴다(새 검색은 하지 않는다).
+    """
     content = ctx.repo.content_for_post(c.platform, c.post_external_id)
     if content is None:
         return ""
     g = content.generated
-    return f"{g.topic}\n{g.threads_text}"
+    parts = [f"게시물 주제: {g.topic}", f"게시물 본문:\n{g.threads_text}"]
+    sources = ctx.repo.sources_for_content(content.id)[:MAX_SOURCES]
+    if sources:
+        parts.append("이 게시물을 만들 때 쓴 자료(답의 근거는 여기까지):")
+        for i, s in enumerate(sources, 1):
+            when = f", {s.published_at:%Y-%m-%d}" if s.published_at else ""
+            body = " ".join(s.text.split())[:SOURCE_CHARS]
+            parts.append(f"[자료 {i}] {s.title}{when}\n{body}")
+    return "\n\n".join(parts)
 
 
 CHECKED_KEY = "comments_checked_at"  # {플랫폼: 마지막으로 댓글을 확인한 시각}

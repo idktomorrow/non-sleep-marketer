@@ -248,6 +248,15 @@ class Repository:
             r[0] for r in self.db.execute(f"SELECT id FROM source_items WHERE id IN ({marks})", ids)
         }
 
+    def sources_for_content(self, content_id: str) -> list[SourceItem]:
+        """원고를 만들 때 쓴 자료(원문을 읽었으면 원문). 댓글 답글의 근거로 쓴다(C18)."""
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items WHERE used_in_content_id = ? "
+            "ORDER BY collected_at",
+            [content_id],
+        )
+        return [self._row_to_item(r) for r in rows]
+
     def mark_items_used(self, ids: list[str], content_id: str) -> None:
         if not ids:
             return

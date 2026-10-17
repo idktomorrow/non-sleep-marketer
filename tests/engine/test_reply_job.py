@@ -197,3 +197,39 @@ def test_fetch_failure_marks_run_not_ok(ctx: JobContext) -> None:
     ctx.adapters["instagram"].fetch_new_comments = boom
     r = run_reply(ctx)
     assert not r.ok and any("instagram" in e for e in r.errors)
+
+
+class _Capture(FakeTextGenerator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.contexts: list[str] = []
+
+    def generate_reply(self, comment, persona, post_context):
+        self.contexts.append(post_context)
+        return super().generate_reply(comment, persona, post_context)
+
+
+def test_reply_sees_sources_used_for_the_post(ctx: JobContext) -> None:
+    """C18: 답글은 게시물 본문뿐 아니라 원고에 쓴 자료(원문)까지 보고 쓴다."""
+    from tests.fakes import load_source_items
+
+    item = load_source_items()[0].model_copy(
+        update={"text": "한국 팝업은 11월 3일 성수동에서 열린다. " + "자세한 내용 " * 400}
+    )
+    ctx.repo.insert_source_item(item)
+    ctx.repo.mark_items_used([item.id], "c1")
+    gen = _Capture()
+    ctx.text_generator = gen
+    run_reply(ctx)
+    assert gen.contexts
+    text = gen.contexts[0]
+    assert "게시물 주제: 핸드드립" in text and "게시물 본문:" in text
+    assert "[자료 1]" in text and item.title in text and "11월 3일 성수동" in text
+    assert len(text) < 2500  # 자료는 앞부분만(1500자)
+
+
+def test_reply_without_sources_still_has_post(ctx: JobContext) -> None:
+    gen = _Capture()
+    ctx.text_generator = gen
+    run_reply(ctx)
+    assert "게시물 주제: 핸드드립" in gen.contexts[0] and "[자료" not in gen.contexts[0]
