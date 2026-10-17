@@ -73,6 +73,30 @@ CARD_STYLE_NAMES = {
 }
 
 
+# 일러스트형 캐릭터(C17, ADR 0046). 순서대로 화면에 보인다
+CHARACTER_NAMES = {
+    "parrot": "앵무새: 기본 캐릭터(팀원 그림)",
+    "hamster": "햄스터: 기본 캐릭터(팀원 그림)",
+    "custom": "직접 올린 그림: 아래에서 올린 캐릭터",
+    "drawn": "도형 캐릭터: 코드로 그린 동그란 캐릭터(브랜드 색)",
+    "none": "없음: 캐릭터 없이",
+}
+
+
+def _character(form: dict[str, Any], cfg_brand: Any) -> dict[str, Any]:
+    """캐릭터 선택과 AI 표기. 폼에 칸이 없으면(옛 화면·테스트) 지금 값을 지킨다."""
+    if "card_character" not in form:
+        return {"character": cfg_brand.character, "character_ai_made": cfg_brand.character_ai_made}
+    v = str(form["card_character"])
+    if v not in CHARACTER_NAMES:
+        raise SettingsError("캐릭터: 목록에 있는 것 중 하나를 고르세요")
+    if v == "custom" and not (cfg_brand.character_cover or cfg_brand.character_outro):
+        raise SettingsError(
+            '캐릭터: 직접 올린 그림이 아직 없습니다. 아래 "캐릭터·로고 그림"에서 먼저 올려 주세요'
+        )
+    return {"character": v, "character_ai_made": form.get("character_ai_made") == "on"}
+
+
 def _card_style(form: dict[str, Any], current: str) -> str:
     # 폼에 칸이 없으면(옛 화면·테스트) 지금 값을 지킨다
     v = str(form.get("card_style", current))
@@ -116,6 +140,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         primary_color=_text(form, "primary_color", "주 색"),
         accent_color=_text(form, "accent_color", "보조 색"),
         card_style=_card_style(form, cfg.brand.card_style),
+        **_character(form, cfg.brand),
     )
     settings = cfg.settings.model_dump()
     settings.update(
@@ -185,6 +210,8 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "primary_color": b.primary_color,
         "accent_color": b.accent_color,
         "card_style": b.card_style,
+        "card_character": b.character,
+        "character_ai_made": "on" if b.character_ai_made else "",
         "posting_hours": format_windows(s.posting_hours) if s.posting_hours else "",
         "quota_instagram": str(s.quotas.get("instagram", 0)),
         "quota_threads": str(s.quotas.get("threads", 0)),

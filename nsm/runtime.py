@@ -138,7 +138,14 @@ def build_context(
         backups_dir=paths.backups_dir(),
     )
     # 카드 스타일은 렌더할 때마다 현재 설정에서 읽는다: 대시보드 설정 저장이 재시작 없이 반영(S8)
-    ctx.renderer = get_renderer(style=lambda: ctx.config.brand.card_style)
+    from nsm.render.character import character_art
+
+    ctx.renderer = get_renderer(
+        style=lambda: ctx.config.brand.card_style,
+        character=lambda: character_art(
+            ctx.config.brand
+        ),  # 설정 화면에서 바꾸면 다음 렌더부터(C17)
+    )
     return ctx
 
 
@@ -239,6 +246,7 @@ def run_forever() -> None:
             run_job_now=scheduler.run_now,
             run_keyword_now=lambda kw: scheduler.run_now("keyword", kw),
             read_image=next((s.read_image for s in ctx.sources if s.name == "upload"), None),
+            brand_dir=paths.brand_dir(),
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,

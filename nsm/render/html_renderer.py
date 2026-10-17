@@ -28,6 +28,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
+from nsm.render.character import DRAWN, CharacterArt
 
 log = logging.getLogger(__name__)
 
@@ -199,8 +200,11 @@ def check_style(style: str) -> str:
     return style
 
 
-def build_html(deck: CardDeck, style: str = "clean") -> str:
-    """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다."""
+def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
+    """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다.
+
+    `character`는 일러스트형 표지·마지막 장의 캐릭터(C17). 다른 스타일에서는 쓰지 않는다.
+    """
     check_style(style)
     slides = []
     for s in deck.slides:
@@ -223,6 +227,7 @@ def build_html(deck: CardDeck, style: str = "clean") -> str:
             deck=deck,
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
             style=style,
+            character=character,
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),
         )
     )
@@ -241,7 +246,12 @@ class HtmlCardRenderer:
     재시작 없이 다음 렌더부터 적용된다(포트 `render(deck, out_dir)`는 동결이라 스타일을 인자로 받지 않는다).
     """
 
-    def __init__(self, timeout_ms: int = 30_000, style: str | Callable[[], str] = "clean") -> None:
+    def __init__(
+        self,
+        timeout_ms: int = 30_000,
+        style: str | Callable[[], str] = "clean",
+        character: CharacterArt | Callable[[], CharacterArt] = DRAWN,
+    ) -> None:
         self.timeout_ms = timeout_ms
         self.last_overflow: list[int] = []
         self._pool: ThreadPoolExecutor | None = None
@@ -249,6 +259,7 @@ class HtmlCardRenderer:
         self._browser = None
         self._lock = threading.Lock()
         self._style = style
+        self._character = character
         self._template_version = template_version()
 
     @property
@@ -256,9 +267,16 @@ class HtmlCardRenderer:
         return check_style(self._style() if callable(self._style) else self._style)
 
     @property
+    def character(self) -> CharacterArt:
+        return self._character() if callable(self._character) else self._character
+
+    @property
     def version(self) -> str:
-        """렌더 캐시 지문(publish.render_images): 템플릿 파일과 스타일 중 하나라도 바뀌면 다시 그린다."""
-        return f"{self._template_version}:{self.style}"
+        """렌더 캐시 지문(publish.render_images): 템플릿 파일·스타일·캐릭터 중 하나라도 바뀌면 다시 그린다.
+
+        캐릭터는 일러스트형에서만 그리므로 그때만 지문에 넣는다(다른 스타일 카드는 다시 그리지 않게)."""
+        tail = f":{self.character.fingerprint}" if self.style == "illust" else ""
+        return f"{self._template_version}:{self.style}{tail}"
 
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
         self.last_overflow = []  # 이전 덱의 값이 남지 않게
@@ -267,7 +285,9 @@ class HtmlCardRenderer:
                 self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
                 atexit.register(self.close)
             pool = self._pool
-        paths, overflow = pool.submit(self._render, deck, out_dir, self.style).result()
+        paths, overflow = pool.submit(
+            self._render, deck, out_dir, self.style, self.character
+        ).result()
         self.last_overflow = overflow
         return paths
 
@@ -279,7 +299,9 @@ class HtmlCardRenderer:
                 self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nsm-render")
                 atexit.register(self.close)
             pool = self._pool
-        paths, _overflow = pool.submit(self._render, deck, out_dir, check_style(style)).result()
+        paths, _overflow = pool.submit(
+            self._render, deck, out_dir, check_style(style), self.character
+        ).result()
         return paths
 
     def _ensure_browser(self):
@@ -290,13 +312,15 @@ class HtmlCardRenderer:
             self._browser = self._pw.chromium.launch()
         return self._browser
 
-    def _render(self, deck: CardDeck, out_dir: Path, style: str) -> tuple[list[Path], list[int]]:
+    def _render(
+        self, deck: CardDeck, out_dir: Path, style: str, character: CharacterArt = DRAWN
+    ) -> tuple[list[Path], list[int]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         browser = self._ensure_browser()
         # 로컬 절대 경로가 담긴 HTML은 결과 폴더에 남기지 않는다(임시 폴더에서 렌더 후 삭제)
         with tempfile.TemporaryDirectory(prefix="nsm-card-") as tmp:
             html_path = Path(tmp) / "deck.html"
-            html_path.write_text(build_html(deck, style), encoding="utf-8")
+            html_path.write_text(build_html(deck, style, character), encoding="utf-8")
             page = browser.new_page(
                 viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1
             )
