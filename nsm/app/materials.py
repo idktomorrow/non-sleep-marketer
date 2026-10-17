@@ -6,14 +6,17 @@
 from __future__ import annotations
 
 import re
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from nsm.adapters.sources.image_reader import IMAGE_SUFFIXES, MAX_IMAGE_BYTES, media_type
 from nsm.adapters.sources.upload import SUPPORTED, ImageReader, NoImageReader, extract_text
+from nsm.ports import AdapterError
 
 MAX_FILE_BYTES = 20 * 1024 * 1024  # 20MB
+_NAME_LOCK = threading.Lock()  # 동시에 올린 같은 이름 파일이 서로 덮어쓰지 않게
 _BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
@@ -30,8 +33,8 @@ def safe_name(name: str) -> str:
 
 def save_material(
     folder: Path, name: str, data: bytes, read_image: ImageReader | None = None
-) -> tuple[Path, int]:
-    """파일을 검사해 저장하고 (경로, 읽은 글자 수)를 돌려준다. 읽을 수 없으면 저장하지 않는다.
+) -> tuple[Path, str]:
+    """파일을 검사해 저장하고 (경로, 읽은 글)을 돌려준다. 읽을 수 없으면 저장하지 않는다.
 
     이미지는 이미지 읽기(Claude)로 정보를 옮겨 본다. 결과는 캐시에 남아 자료 모으기가 다시 쓴다(C16).
     """
@@ -58,20 +61,23 @@ def save_material(
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / clean
     n = 2
-    while path.exists():  # 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다
-        path = folder / f"{Path(clean).stem} ({n}){suffix}"
-        n += 1
-    path.write_bytes(data)
+    with _NAME_LOCK:
+        while path.exists():  # 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다
+            path = folder / f"{Path(clean).stem} ({n}){suffix}"
+            n += 1
+        path.write_bytes(data)
     try:
         text = extract_text(path, read_image)
     except NoImageReader as e:
         path.unlink(missing_ok=True)
         raise MaterialError(str(e)) from e
+    except AdapterError as e:  # 이미지 읽기 실패: 파일 탓이 아닐 수 있어 이유를 그대로
+        path.unlink(missing_ok=True)
+        raise MaterialError(f"이미지를 읽지 못해 올리지 않았습니다: {e}") from e
     except Exception as e:  # noqa: BLE001  깨진 파일·암호 걸린 PDF 등
         path.unlink(missing_ok=True)
         raise MaterialError(f"파일을 읽지 못해 올리지 않았습니다: {type(e).__name__}") from e
-    chars = len(text.strip())
-    if not chars:
+    if not text.strip():
         path.unlink(missing_ok=True)
         if image:
             raise MaterialError(
@@ -81,7 +87,7 @@ def save_material(
         raise MaterialError(
             "글자를 하나도 읽지 못해 올리지 않았습니다(스캔한 이미지 PDF는 글자를 읽을 수 없습니다)"
         )
-    return path, chars
+    return path, text
 
 
 def list_files(folder: Path, items: list[dict[str, Any]]) -> list[dict[str, Any]]:

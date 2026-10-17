@@ -106,13 +106,46 @@ def test_rejects_bad_files_without_calling(tmp_path: Path, data: bytes, msg: str
     assert msgs.calls == []
 
 
-def test_refusal_is_error_and_not_cached(tmp_path: Path) -> None:
+def test_refusal_is_remembered_and_not_resent(tmp_path: Path) -> None:
     img = tmp_path / "x.png"
     img.write_bytes(PNG)
-    r, _, _ = _reader(tmp_path, {"has_info": True, "text": "x"}, stop_reason="refusal")
-    with pytest.raises(AdapterError):
-        r(img)
-    assert not (tmp_path / "c").exists() or not list((tmp_path / "c").iterdir())
+    r, msgs, _ = _reader(tmp_path, {"has_info": True, "text": "x"}, stop_reason="refusal")
+    for _ in range(3):  # 자료 모으기가 여러 번 돌아도
+        with pytest.raises(AdapterError, match="refusal"):
+            r(img)
+    assert len(msgs.calls) == 1  # 한 번만 보낸다(다시 돈을 쓰지 않음)
+    assert not list((tmp_path / "c").glob("*.txt"))
+
+
+class Broken:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def create(self, **kw):
+        self.calls += 1
+        raise ConnectionError("network down")
+
+
+def test_sdk_error_is_friendly_and_retried_next_time(tmp_path: Path) -> None:
+    img = tmp_path / "x.png"
+    img.write_bytes(PNG)
+    msgs = Broken()
+    r = ClaudeImageReader(SimpleNamespace(messages=msgs), "claude-haiku-5-5", None, tmp_path / "c")
+    for _ in range(2):
+        with pytest.raises(AdapterError, match="API 키와 인터넷 연결"):
+            r(img)
+    assert msgs.calls == 2  # 키·네트워크 문제는 고치면 될 수 있어 남기지 않는다
+
+
+def test_cache_dir_inside_upload_folder_is_not_material(tmp_path: Path, clock) -> None:
+    img = tmp_path / "공지.png"
+    img.write_bytes(PNG)
+    r, msgs, _ = _reader(tmp_path, {"has_info": True, "text": "팝업 10/20"})
+    r.cache_dir = tmp_path / "upload-text"  # 자료 폴더를 NSM_HOME으로 잡은 경우
+    items = UploadSource(tmp_path, clock, read_image=r).collect([], 10)
+    assert [i.title for i in items] == ["공지"]
+    assert len(UploadSource(tmp_path, clock, read_image=r).collect([], 10)) == 1
+    assert len(msgs.calls) == 1
 
 
 def test_media_type_sniffing() -> None:

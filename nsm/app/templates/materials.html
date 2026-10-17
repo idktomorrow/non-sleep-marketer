@@ -3,7 +3,7 @@
 <h1>자료</h1>
 <p class="muted small">원고를 만들 때 쓰는 자료입니다. 네이버 블로그·뉴스와 구글 트렌드는 자동으로 모으고, 브랜드 자료(제품 정보, 보도자료, 고객 후기 엑셀 등)는 여기서 올립니다. 모든 자료는 관심 주제와 관련 있는지 판정을 거치고, "관련 있음"만 원고에 쓰입니다.</p>
 
-{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. {% if preview is not none %}이미지에서 정보 {{ chars }}자를 글로 옮겼습니다: <span class="muted">“{{ preview }}{% if (chars|int) > 200 %}…{% endif %}”</span> {% else %}글자 {{ chars }}자를 읽었습니다. {% endif %}다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
+{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. {% if preview is not none %}이미지에서 정보 {{ chars }}자를 글로 옮겼습니다: <span class="muted">“{{ preview }}”</span> {% else %}글자 {{ chars }}자를 읽었습니다. {% endif %}다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 {% if deleted %}<div class="notice info"><b>{{ deleted }}</b> 파일을 지웠습니다. 이미 자료로 들어간 내용은 목록에 남습니다.</div>{% endif %}
 

@@ -145,3 +145,72 @@ def test_unusable_images_are_not_kept(menv, reader, data: bytes, msg: str) -> No
 
 def test_upload_form_accepts_images(menv) -> None:
     assert ".png,.jpg,.jpeg,.webp" in menv["client"].get("/materials").text
+
+
+def test_upload_then_collect_calls_claude_once(menv, tmp_path) -> None:
+    """올릴 때 읽은 결과를 자료 모으기가 다시 쓴다(이 기능의 핵심 약속)."""
+    import json
+    from types import SimpleNamespace
+
+    from nsm.adapters.sources.image_reader import ClaudeImageReader
+
+    calls = []
+
+    def create(**kw):
+        calls.append(kw)
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=[
+                SimpleNamespace(
+                    type="text", text=json.dumps({"has_info": True, "text": "팝콘통 예약판매"})
+                )
+            ],
+            usage=SimpleNamespace(input_tokens=1600, output_tokens=20),
+        )
+
+    reader = ClaudeImageReader(
+        SimpleNamespace(messages=SimpleNamespace(create=create)),
+        "claude-haiku-5-5",
+        menv["repo"],
+        tmp_path / "upload-text",
+    )
+    menv["state"].read_image = reader
+    r = _upload(menv, "팝콘통.png", PNG)
+    assert "preview=" in r.headers["location"]
+    items = UploadSource(menv["dir"], menv["state"].clock, read_image=reader).collect([], 10)
+    assert [i.text for i in items] == ["팝콘통 예약판매"]
+    assert len(calls) == 1
+
+
+def test_reader_failure_message_is_not_broken_file(menv) -> None:
+    from nsm.ports import AdapterError
+
+    def boom(_p):
+        raise AdapterError(
+            "Claude 호출 실패(AuthenticationError). API 키와 인터넷 연결을 확인하세요"
+        )
+
+    menv["state"].read_image = boom
+    r = _upload(menv, "공지.png", PNG)
+    html = menv["client"].get(r.headers["location"]).text
+    assert "이미지를 읽지 못해 올리지 않았습니다" in html and "API 키와 인터넷 연결" in html
+    assert not (menv["dir"] / "공지.png").exists()
+
+
+def test_preview_and_name_are_escaped(menv) -> None:
+    menv["state"].read_image = lambda p: "<script>alert(1)</script> 팝업"
+    r = _upload(menv, "<b>x</b>.png", PNG)
+    html = menv["client"].get(r.headers["location"]).text
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_long_preview_is_cut_with_ellipsis(menv) -> None:
+    menv["state"].read_image = lambda p: "가" * 150 + "\n\n\n" + "나" * 150
+    r = _upload(menv, "긴 공지.png", PNG)
+    html = menv["client"].get(r.headers["location"]).text
+    assert "…”" in html
+    menv["state"].read_image = lambda p: "짧은 줄\n" * 40  # 줄바꿈이 많아도 자르지 않았으면 … 없음
+    r = _upload(menv, "줄 많은 공지.png", PNG)
+    html = menv["client"].get(r.headers["location"]).text
+    assert "짧은 줄 짧은 줄" in html and "…”" not in html

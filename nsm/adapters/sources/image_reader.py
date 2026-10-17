@@ -18,6 +18,7 @@ from typing import Any
 from nsm.adapters.pricing import claude_cost
 from nsm.ports import AdapterError, CostSink
 
+CACHE_DIR_NAME = "upload-text"  # 자료 폴더를 NSM_HOME으로 잡아도 캐시를 자료로 읽지 않게
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 # Claude API는 이미지 한 장에 5MB까지 받는다
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -78,17 +79,31 @@ class ClaudeImageReader:
         self.cache_dir = cache_dir
 
     def __call__(self, path: Path) -> str:
-        cache = self.cache_dir / f"{file_key(path)}.txt"
+        key = file_key(path)
+        cache = self.cache_dir / f"{key}.txt"
         if cache.is_file():
             return cache.read_text(encoding="utf-8")
+        failed = self.cache_dir / f"{key}.err"
+        if failed.is_file():
+            # 한 번 못 읽은 파일은 자료 모으기 때마다 다시 보내지 않는다(고치면 키가 바뀌어 다시 읽음)
+            raise AdapterError(failed.read_text(encoding="utf-8"))
         data = path.read_bytes()
         if len(data) > MAX_IMAGE_BYTES:
             raise AdapterError("이미지는 5MB 이하만 읽을 수 있습니다")
         mtype = media_type(data)
         if mtype is None:
             raise AdapterError("PNG·JPEG·WebP 이미지가 아닙니다")
-        text = self._read(data, mtype, path.stem)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            text = self._read(data, mtype, path.stem)
+        except AdapterError as e:
+            failed.write_text(str(e), encoding="utf-8")
+            raise
+        except Exception as e:  # noqa: BLE001  키 오류·연결 끊김·요청 제한 등 SDK 예외
+            # 키·네트워크 문제는 고치면 다시 될 수 있으므로 실패로 남기지 않는다
+            raise AdapterError(
+                f"Claude 호출 실패({type(e).__name__}). API 키와 인터넷 연결을 확인하세요"
+            ) from e
         cache.write_text(text, encoding="utf-8")
         return text
 
@@ -148,7 +163,8 @@ def make_image_reader(cfg: Any, secrets: Any, cost_sink: CostSink, cache_dir: Pa
     import anthropic
 
     return ClaudeImageReader(
-        anthropic.Anthropic(max_retries=5, api_key=key),
+        # 사람이 올리고 기다리는 경로라 오래 붙잡지 않는다(SDK 기본은 10분)
+        anthropic.Anthropic(max_retries=2, timeout=60.0, api_key=key),
         cfg.settings.models.classifier,
         cost_sink,
         cache_dir,

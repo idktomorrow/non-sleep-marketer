@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nsm.adapters.sources.common import clip, url_hash
-from nsm.adapters.sources.image_reader import IMAGE_SUFFIXES, is_image
+from nsm.adapters.sources.image_reader import CACHE_DIR_NAME, IMAGE_SUFFIXES, is_image
 from nsm.domain.clock import new_id
 from nsm.domain.models import SourceItem
 from nsm.ports import Clock
@@ -84,6 +84,8 @@ class UploadSource:
                 break
             if not path.is_file() or path.suffix.lower() not in SUPPORTED:
                 continue
+            if CACHE_DIR_NAME in path.relative_to(self.folder).parts:
+                continue  # 이미지에서 옮긴 글 캐시는 자료가 아니다
             st = path.stat()
             uri = path.resolve().as_uri()
             h = url_hash(f"{uri}#{st.st_size}-{int(st.st_mtime)}")

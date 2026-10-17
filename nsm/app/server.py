@@ -521,16 +521,16 @@ def create_app(state: AppState) -> FastAPI:
         data = await file.read(MAX_FILE_BYTES + 1)
         try:
             # 이미지는 Claude가 읽느라 몇 초 걸린다: 이벤트 루프를 막지 않게 스레드에서
-            path, chars = await run_in_threadpool(
+            path, text = await run_in_threadpool(
                 save_material, state.uploads_dir, file.filename or "자료", data, state.read_image
             )
         except MaterialError as e:
             return back(dest + urlencode({"error": str(e)}))
-        done = {"uploaded": path.name, "chars": chars}
-        if is_image(path) and state.read_image is not None:
-            # 무엇을 읽었는지 바로 보여 준다(캐시에서 읽으므로 다시 돈이 들지 않음)
-            text = await run_in_threadpool(state.read_image, path)
-            done["preview"] = " ".join(text.split())[:PREVIEW_CHARS]
+        done = {"uploaded": path.name, "chars": len(text.strip())}
+        if is_image(path):
+            # 무엇을 읽었는지 바로 보여 준다
+            flat = " ".join(text.split())
+            done["preview"] = flat[:PREVIEW_CHARS] + ("…" if len(flat) > PREVIEW_CHARS else "")
         return back(dest + urlencode(done))
 
     @app.post("/materials/files/delete", dependencies=[Depends(check_csrf)])
