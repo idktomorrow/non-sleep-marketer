@@ -27,6 +27,11 @@ def uploads_dir() -> Path:
     return nsm_home() / "uploads"
 
 
+def upload_text_dir() -> Path:
+    """올린 이미지에서 옮긴 글 캐시(같은 이미지를 두 번 읽지 않게, C16)."""
+    return nsm_home() / "upload-text"  # image_reader.CACHE_DIR_NAME
+
+
 def media_dir() -> Path:
     return nsm_home() / "media"
 
