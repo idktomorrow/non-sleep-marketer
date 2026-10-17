@@ -190,3 +190,14 @@ def test_illust_preview_url_changes_with_character(benv) -> None:
     _post(benv, "/settings", **form)
     after = illust_src()
     assert "&amp;c=" in after and before != after
+
+
+def test_static_files_are_versioned_by_content(benv) -> None:
+    """C20: CSS 주소에 내용 지문이 붙어, CSS가 바뀌면 브라우저가 옛 파일을 쓰지 않는다."""
+    import re
+
+    html = benv["client"].get("/settings").text
+    m = re.search(r'href="/static/app\.css\?v=([0-9a-f]{10})"', html)
+    assert m and re.search(r'src="/static/htmx\.min\.js\?v=[0-9a-f]{10}"', html)
+    r = benv["client"].get(f"/static/app.css?v={m.group(1)}")
+    assert r.status_code == 200 and ".char-thumb" in r.text

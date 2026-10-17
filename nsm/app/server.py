@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -135,6 +136,25 @@ class AppState:
     brand_dir: Path | None = None  # 로고·캐릭터 그림 저장 폴더(C17). 없으면 올리기 칸이 안 보인다
 
 
+_ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
+
+
+def asset_url(name: str) -> str:
+    """정적 파일 주소에 내용 지문을 붙인다. 파일이 바뀌면 주소가 바뀌어 브라우저가 옛 CSS를 쓰지 않는다
+    (C20: 새 화면 규칙이 안 먹고 올린 그림이 원래 크기로 보였던 일)."""
+    path = HERE / "static" / name
+    try:
+        st = path.stat()
+    except OSError:
+        return f"/static/{name}"
+    key = (st.st_mtime, st.st_size)
+    hit = _ASSET_CACHE.get(name)
+    if hit is None or hit[0] != key:
+        hit = (key, hashlib.sha256(path.read_bytes()).hexdigest()[:10])
+        _ASSET_CACHE[name] = hit
+    return f"/static/{name}?v={hit[1]}"
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
     # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
@@ -142,6 +162,7 @@ def create_app(state: AppState) -> FastAPI:
         TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
     )
     templates = Jinja2Templates(directory=str(HERE / "templates"))
+    templates.env.globals["asset"] = asset_url
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     # 카드 렌더러와 같은 Pretendard를 대시보드도 쓴다(nsm/templates/fonts)
     app.mount(

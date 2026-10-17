@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}논슬립 마케터{% endblock %}</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="{{ asset('app.css') }}">
 <style>:root { --accent: {{ theme.accent }}; --accent-soft: {{ theme.accent_soft }}; }</style>
-<script src="/static/htmx.min.js" defer></script>
+<script src="{{ asset('htmx.min.js') }}" defer></script>
 </head>
 <body>
 <header class="topbar">
