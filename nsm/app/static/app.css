@@ -165,7 +165,10 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 .style-thumb { width: 128px; height: 160px; border-radius: 6px; background: var(--line); object-fit: cover; box-shadow: var(--shadow); }
 .style-option .hint { color: var(--muted); }
 /* 캐릭터 고르기·그림 올리기(C17) */
-.character-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.character-options { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+.character-options .style-option { padding: 8px 10px; gap: 4px; }
+.character-options .style-option:has(input:checked) { padding: 7px 9px; }
+.character-options .char-thumb { width: 64px; height: 64px; }
 .char-thumb { width: 96px; height: 96px; object-fit: contain; border-radius: 6px; background: var(--line); padding: 4px; }
 .character-picker .check { margin-top: 10px; }
 .brand-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

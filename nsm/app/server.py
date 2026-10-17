@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -135,6 +136,25 @@ class AppState:
     brand_dir: Path | None = None  # 로고·캐릭터 그림 저장 폴더(C17). 없으면 올리기 칸이 안 보인다
 
 
+_ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
+
+
+def asset_url(name: str) -> str:
+    """정적 파일 주소에 내용 지문을 붙인다. 파일이 바뀌면 주소가 바뀌어 브라우저가 옛 CSS를 쓰지 않는다
+    (C20: 새 화면 규칙이 안 먹고 올린 그림이 원래 크기로 보였던 일)."""
+    path = HERE / "static" / name
+    try:
+        st = path.stat()
+    except OSError:
+        return f"/static/{name}"
+    key = (st.st_mtime, st.st_size)
+    hit = _ASSET_CACHE.get(name)
+    if hit is None or hit[0] != key:
+        hit = (key, hashlib.sha256(path.read_bytes()).hexdigest()[:10])
+        _ASSET_CACHE[name] = hit
+    return f"/static/{name}?v={hit[1]}"
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
     # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
@@ -142,6 +162,7 @@ def create_app(state: AppState) -> FastAPI:
         TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
     )
     templates = Jinja2Templates(directory=str(HERE / "templates"))
+    templates.env.globals["asset"] = asset_url
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     # 카드 렌더러와 같은 Pretendard를 대시보드도 쓴다(nsm/templates/fonts)
     app.mount(
@@ -322,15 +343,6 @@ def create_app(state: AppState) -> FastAPI:
             saved=bool(saved),
         )
 
-    @app.get("/settings/character/{name}.png")
-    def character_png(name: str) -> FileResponse:
-        """설정 화면 캐릭터 견본: 기본 캐릭터 그림(패키지 안 파일만)."""
-        from nsm.render.character import BUNDLED, CHARACTERS_DIR
-
-        if name not in BUNDLED:
-            raise HTTPException(404)
-        return FileResponse(CHARACTERS_DIR / BUNDLED[name], media_type="image/png")
-
     @app.get("/settings/brand-image/{kind}.png")
     def brand_image_png(kind: str) -> FileResponse:
         """올린 로고·캐릭터 그림 보기. 설정에 적힌 경로만 보낸다(경로를 요청으로 받지 않음)."""
@@ -396,7 +408,7 @@ def create_app(state: AppState) -> FastAPI:
         b = cfg.brand
         others = [k for k in ("character_cover", "character_outro") if k != kind and getattr(b, k)]
         if kind != "logo_path" and b.character == "custom" and not others:
-            update["character"] = "parrot"  # 올린 그림이 하나도 안 남으면 기본 캐릭터로
+            update["character"] = "none"  # 올린 그림이 하나도 안 남으면 캐릭터 없음으로
         state.set_config(cfg.model_copy(update={"brand": b.model_copy(update=update)}))
         if kind != "logo_path":  # 로고 파일은 이미 만든 원고가 쓰므로 남긴다
             drop_old(state.brand_dir, str(old) if old else None)
