@@ -46,15 +46,11 @@ def _cfg(e):
 
 def test_settings_shows_character_picker_and_upload(benv) -> None:
     html = benv["client"].get("/settings").text
-    assert 'name="card_character" value="parrot" checked' in html  # 기본은 앵무새
-    assert "/settings/character/hamster.png" in html
+    assert 'name="card_character" value="none" checked' in html  # 기본은 캐릭터 없음(C20)
+    assert "parrot" not in html and "hamster" not in html
     assert 'name="character_ai_made"' in html
     assert 'id="brand-images"' in html and "직접 만든 그림만 올리세요" in html
-    assert (
-        benv["client"].get("/settings/character/parrot.png").headers["content-type"] == "image/png"
-    )
-    assert benv["client"].get("/settings/character/../../x.png").status_code == 404
-    assert benv["client"].get("/settings/character/bogus.png").status_code == 404
+    assert benv["client"].get("/settings/character/parrot.png").status_code == 404  # 동봉 그림 없음
 
 
 def test_upload_section_hidden_without_folder(env) -> None:  # noqa: F811
@@ -81,7 +77,7 @@ def test_upload_character_switches_to_custom_and_clears_background(benv) -> None
     assert not Path(old).exists() and Path(_cfg(benv).brand.character_cover).exists()
 
 
-def test_delete_last_custom_image_goes_back_to_parrot(benv) -> None:
+def test_delete_last_custom_image_goes_back_to_none(benv) -> None:
     from pathlib import Path
 
     _upload(benv, "character_cover", _drawing_png())
@@ -89,14 +85,14 @@ def test_delete_last_custom_image_goes_back_to_parrot(benv) -> None:
     r = _post(benv, "/settings/brand-image/delete", kind="character_cover")
     assert r.status_code == 303
     b = _cfg(benv).brand
-    assert b.character_cover is None and b.character == "parrot" and not Path(path).exists()
+    assert b.character_cover is None and b.character == "none" and not Path(path).exists()
     assert benv["client"].get("/settings/brand-image/character_cover.png").status_code == 404
 
 
 def test_logo_upload_keeps_character(benv) -> None:
     _upload(benv, "logo_path", _drawing_png(), clear=False)
     b = _cfg(benv).brand
-    assert b.logo_path and b.character == "parrot"
+    assert b.logo_path and b.character == "none"
     assert Image.open(b.logo_path).getchannel("A").getpixel((0, 0)) == 255  # 로고 바탕은 그대로
 
 
@@ -104,7 +100,7 @@ def test_bad_upload_shows_reason(benv) -> None:
     r = _upload(benv, "character_cover", b"not an image")
     assert "image_error=" in r.headers["location"]
     assert "PNG·JPEG·WebP" in benv["client"].get(r.headers["location"]).text
-    assert _cfg(benv).brand.character == "parrot"
+    assert _cfg(benv).brand.character == "none"
     bad = benv["client"].post(
         "/settings/brand-image",
         data={"csrf": benv["state"].csrf_token, "kind": "../x"},
@@ -128,11 +124,14 @@ def test_upload_needs_csrf(benv) -> None:
 def test_choose_character_and_ai_label_in_settings_form(benv) -> None:
     cfg = _cfg(benv)
     form = form_values(cfg)
-    form.update(card_character="hamster")
+    form.update(card_character="drawn", character_ai_made="on")
+    assert _post(benv, "/settings", **form).status_code == 303
+    assert _cfg(benv).brand.character_ai_made is True
+    form = form_values(_cfg(benv))
     form.pop("character_ai_made")  # 체크를 끈 상태
     assert _post(benv, "/settings", **form).status_code == 303
     b = _cfg(benv).brand
-    assert b.character == "hamster" and b.character_ai_made is False
+    assert b.character == "drawn" and b.character_ai_made is False
     assert _cfg(benv).persona.character == cfg.persona.character  # 인물상 칸과 섞이지 않는다
 
     form = form_values(_cfg(benv))
@@ -187,7 +186,7 @@ def test_illust_preview_url_changes_with_character(benv) -> None:
     benv["state"].renderer = SimpleNamespace(render_sample=lambda *a: None)  # 견본 칸이 보이게
     before = illust_src()
     form = form_values(_cfg(benv))
-    form.update(card_character="hamster")
+    form.update(card_character="drawn")
     _post(benv, "/settings", **form)
     after = illust_src()
     assert "&amp;c=" in after and before != after

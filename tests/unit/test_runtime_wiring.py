@@ -52,10 +52,10 @@ def test_renderer_reads_card_style_from_current_config(
             )
             assert seen["style"]() == "photo"
             # 캐릭터도 렌더할 때마다 지금 설정에서 읽는다(C17)
-            assert seen["character"]().cover.name == "parrot.png"
+            assert seen["character"]().cover is None and not seen["character"]().drawn  # 기본 없음
             ctx.config = cfg.model_copy(
-                update={"brand": cfg.brand.model_copy(update={"character": "none"})}
+                update={"brand": cfg.brand.model_copy(update={"character": "drawn"})}
             )
-            assert seen["character"]().cover is None and not seen["character"]().drawn
+            assert seen["character"]().drawn
     finally:
         db.close()

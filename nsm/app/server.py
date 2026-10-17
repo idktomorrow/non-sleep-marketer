@@ -322,15 +322,6 @@ def create_app(state: AppState) -> FastAPI:
             saved=bool(saved),
         )
 
-    @app.get("/settings/character/{name}.png")
-    def character_png(name: str) -> FileResponse:
-        """설정 화면 캐릭터 견본: 기본 캐릭터 그림(패키지 안 파일만)."""
-        from nsm.render.character import BUNDLED, CHARACTERS_DIR
-
-        if name not in BUNDLED:
-            raise HTTPException(404)
-        return FileResponse(CHARACTERS_DIR / BUNDLED[name], media_type="image/png")
-
     @app.get("/settings/brand-image/{kind}.png")
     def brand_image_png(kind: str) -> FileResponse:
         """올린 로고·캐릭터 그림 보기. 설정에 적힌 경로만 보낸다(경로를 요청으로 받지 않음)."""
@@ -396,7 +387,7 @@ def create_app(state: AppState) -> FastAPI:
         b = cfg.brand
         others = [k for k in ("character_cover", "character_outro") if k != kind and getattr(b, k)]
         if kind != "logo_path" and b.character == "custom" and not others:
-            update["character"] = "parrot"  # 올린 그림이 하나도 안 남으면 기본 캐릭터로
+            update["character"] = "none"  # 올린 그림이 하나도 안 남으면 캐릭터 없음으로
         state.set_config(cfg.model_copy(update={"brand": b.model_copy(update=update)}))
         if kind != "logo_path":  # 로고 파일은 이미 만든 원고가 쓰므로 남긴다
             drop_old(state.brand_dir, str(old) if old else None)

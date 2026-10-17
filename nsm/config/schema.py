@@ -22,20 +22,26 @@ CardStyle = Literal["clean", "photo", "illust"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 
-# 일러스트형 카드 캐릭터(C17, ADR 0046): 기본 앵무새·햄스터, 직접 올린 그림, 코드로 그린 캐릭터, 없음
-CharacterChoice = Literal["parrot", "hamster", "custom", "drawn", "none"]
+# 일러스트형 카드 캐릭터(C17·C20, ADR 0046): 없음(기본), 직접 올린 그림, 코드로 그린 캐릭터
+CharacterChoice = Literal["none", "custom", "drawn"]
 
 
 class BrandSettings(Brand):
     """설정 파일의 brand. 도메인 Brand(동결)에 카드 모양 설정만 더한다. 덱 JSON 계약은 그대로다."""
 
     card_style: CardStyle = "clean"
-    character: CharacterChoice = "parrot"
+    character: CharacterChoice = "none"
     character_cover: str | None = None  # custom일 때 표지 그림(<NSM_HOME>/brand/에 저장한 투명 PNG)
     character_outro: str | None = None  # custom일 때 마지막 장 그림. 비우면 표지 그림
-    # 캐릭터가 있는 장에 "AI 생성 이미지" 표기(ADR 0046). 기본 캐릭터는 AI로 만든 만화 그림이지만 실제 사람·사진처럼
-    # 보이지 않아 표기하지 않는다(C19, 선웅제 결정). 실제처럼 보이는 그림을 올리면 켠다
+    # 캐릭터가 있는 장에 "AI 생성 이미지" 표기(ADR 0046). AI로 만든 그림이라도 실제 사람·사진처럼 보이지 않는
+    # 만화 캐릭터면 표기하지 않는다(C19, 선웅제 결정). 실제처럼 보이는 그림을 올리면 켠다
     character_ai_made: bool = False
+
+    @field_validator("character", mode="before")
+    @classmethod
+    def _old_bundled(cls, v: object) -> object:
+        # C17의 기본 캐릭터(앵무새·햄스터)는 C20에서 뺐다. 예전 설정 파일은 "없음"으로 읽는다
+        return "none" if v in ("parrot", "hamster") else v
 
 
 # 대시보드·마법사가 다시 저장할 때 지켜야 하는 카드 모양 설정
