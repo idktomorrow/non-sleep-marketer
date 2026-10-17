@@ -64,8 +64,8 @@ class JobScheduler:
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 900},
         )
 
-    def _run(self, name: str, manual: bool = False) -> JobResult:
-        result = run_job(name, self._ctx(), manual=manual)
+    def _run(self, name: str, manual: bool = False, arg: str | None = None) -> JobResult:
+        result = run_job(name, self._ctx(), manual=manual, arg=arg)
         log.info("%s: %s", name, result.summary())
         return result
 
@@ -122,6 +122,9 @@ class JobScheduler:
         self.scheduler.add_job(wrapper, DateTrigger(run_date=datetime.now().astimezone()))
         return fut
 
-    def run_now(self, name: str) -> Future:
-        """대시보드 "지금 실행": 사람이 부른 실행(manual). Future 결과는 JobResult."""
-        return self.submit(lambda: self._run(name, manual=True))
+    def run_now(self, name: str, arg: str | None = None) -> Future:
+        """대시보드 "지금 실행": 사람이 부른 실행(manual). Future 결과는 JobResult.
+
+        arg: 값을 받는 잡(키워드 원고의 키워드, C15).
+        """
+        return self.submit(lambda: self._run(name, manual=True, arg=arg))

@@ -23,6 +23,7 @@
     <label>관심 주제(한 줄에 하나, 1~10개) <span class="hint">이 낱말로 자료를 모으고 원고 주제를 고릅니다</span><textarea name="topics" rows="4" required>{{ v.topics }}</textarea></label>
     <label>금칙어(한 줄에 하나) <span class="hint">들어가면 자동 게시하지 않습니다</span><textarea name="banned_words" rows="4">{{ v.banned_words }}</textarea></label>
   </div>
+  <label>수집 제외어(한 줄에 하나) <span class="hint">제목·본문에 이 낱말이 든 글은 모으지 않고, 이미 모은 것도 원고에 쓰지 않습니다. 예: 극장판. "키워드로 원고 만들기"에서 키워드에 이 낱말을 넣으면 그때만 풀립니다</span><textarea name="exclude_words" rows="2">{{ v.exclude_words }}</textarea></label>
   <details {% if simple %}hidden{% endif %}><summary>고급: 금칙 패턴(정규식, 한 줄에 하나)</summary>
     <textarea name="banned_patterns" rows="5" aria-label="금칙 패턴">{{ v.banned_patterns }}</textarea>
     <p class="muted small">가상인물의 체험 표현("써봤는데" 등)을 막는 기본 패턴입니다. 지우기 전에 한 번 더 생각해 주세요.</p>

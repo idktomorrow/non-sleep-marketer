@@ -46,3 +46,19 @@ def test_render_preview_style_option(nsm_home, tmp_path, monkeypatch) -> None:
     bad = runner.invoke(app, ["render-preview", str(deck), "--out", out, "--style", "neon"])
     assert bad.exit_code != 0
     assert used == ["photo", "clean"]
+
+
+def test_keyword_option_only_with_keyword_job(nsm_home, monkeypatch) -> None:
+    """C15: --job keyword에는 --keyword가 필요하고, 다른 잡에는 붙일 수 없다(조용히 무시하지 않음)."""
+    import nsm.runtime as runtime
+
+    called: list = []
+    monkeypatch.setattr(runtime, "run_job_once", lambda job, arg=None: called.append((job, arg)))
+    assert runner.invoke(app, ["run", "--once", "--job", "keyword"]).exit_code != 0
+    assert (
+        runner.invoke(app, ["run", "--once", "--job", "collect", "--keyword", "굿즈"]).exit_code
+        != 0
+    )
+    assert called == []
+    ok = runner.invoke(app, ["run", "--once", "--job", "keyword", "--keyword", "치이카와 굿즈"])
+    assert ok.exit_code == 0 and called == [("keyword", "치이카와 굿즈")]

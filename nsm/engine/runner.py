@@ -9,6 +9,7 @@ from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
+from nsm.engine.keyword import run_keyword_draft
 from nsm.engine.maintenance import run_maintenance
 from nsm.engine.publish import run_publish
 from nsm.engine.reply import run_reply
@@ -37,11 +38,22 @@ MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 }
 
 
-def run_job(name: str, ctx: JobContext, manual: bool = False) -> JobResult:
-    if name not in JOBS:
-        raise KeyError(f"알 수 없는 잡: {name} (가능: {', '.join(JOBS)})")
+# 사람이 값을 넘겨 부르는 잡(예약하지 않음). 키워드 원고는 키워드를 받는다(C15)
+ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
+    "keyword": run_keyword_draft,
+}
+
+
+def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = None) -> JobResult:
+    if name in ARG_JOBS:
+        if arg is None:
+            raise ValueError(f"{name} 잡에는 값이 필요합니다(예: --keyword)")
+        fn: Callable[[JobContext], JobResult] = lambda c: ARG_JOBS[name](c, arg)  # noqa: E731
+    elif name not in JOBS:
+        raise KeyError(f"알 수 없는 잡: {name} (가능: {', '.join([*JOBS, *ARG_JOBS])})")
+    else:
+        fn = MANUAL_JOBS.get(name, JOBS[name]) if manual else JOBS[name]
     run_id = ctx.repo.start_run(name)
-    fn = MANUAL_JOBS.get(name, JOBS[name]) if manual else JOBS[name]
     try:
         result = fn(ctx)
     except Exception as e:

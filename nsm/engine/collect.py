@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from nsm.domain.models import Classification
+from nsm.domain.models import Classification, SourceItem
 from nsm.domain.policy import should_act
 from nsm.domain.quality import excluded_genre
 from nsm.engine.context import JobContext, JobResult
@@ -15,13 +15,20 @@ RELEVANCE_LABELS = ["relevant", "irrelevant"]
 MAX_BODIES_PER_RUN = 6  # 한 번에 원문을 여는 글 수(사이트 부담·시간 상한)
 
 
-def relevance_instruction(ctx: JobContext) -> str:
+def excluded_word(item: SourceItem, words: list[str]) -> str | None:
+    """수집 제외어(설정) 중 제목·본문에 든 첫 낱말. 대소문자는 가리지 않는다(C15)."""
+    hay = f"{item.title}\n{item.text}".lower()
+    return next((w for w in words if w.strip() and w.lower() in hay), None)
+
+
+def relevance_instruction(ctx: JobContext, extra_topic: str | None = None) -> str:
     b, p = ctx.config.brand, ctx.config.persona
+    topics = [*p.topics, extra_topic] if extra_topic else p.topics
     # jev·Claude 분류기가 같은 지시를 쓴다(ADR 0003). 2026-10-12 드라이런에서 카페 방문 후기가
     # 관련 0.93으로 통과해, "정보성 글만"과 제외 장르를 명시한다.
     return (
         f"이 자료가 브랜드 '{b.name}'({b.industry})의 SNS 정보 콘텐츠 소재로 쓸 수 있는가? "
-        f"관심 주제: {', '.join(p.topics)}. "
+        f"관심 주제: {', '.join(topics)}. "
         "관심 주제와 직접 관련된 정보성 글(방법, 기준, 원리, 비교, 정리, 소식)만 relevant다. "
         "주제 낱말이 나와도 방문 후기, 맛집·카페 리뷰, 여행기, 개인 일기·일상 기록, 구매·사용 후기, "
         "광고 홍보 글은 irrelevant다. relevant 또는 irrelevant로 답하라."
@@ -41,7 +48,8 @@ def run_collect(ctx: JobContext) -> JobResult:
 
     s = ctx.config.settings
     topics = ctx.config.persona.topics
-    new = dup = 0
+    words = s.collect.exclude_words
+    new = dup = excluded = 0
     for source in ctx.sources:
         try:
             items = source.collect(topics, s.collect.per_source_limit)
@@ -50,11 +58,16 @@ def run_collect(ctx: JobContext) -> JobResult:
             result.errors.append(f"{getattr(source, 'name', source)}: {e}")
             continue
         for item in items:
+            if excluded_word(item, words):
+                excluded += 1  # 제외어가 든 글은 저장하지 않는다(분류 비용도 들지 않음)
+                continue
             if ctx.repo.insert_source_item(item):
                 new += 1
             else:
                 dup += 1
     result.counts.update(new=new, duplicate=dup)
+    if excluded:
+        result.counts["excluded_word"] = excluded
 
     relevant, classified = _classify_pending(ctx, result)
     result.counts.update(classified=classified, relevant=relevant)
@@ -131,12 +144,19 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
     return relevant, len(pending) + result.counts.get("excluded_genre", 0)
 
 
-def _fetch_bodies(ctx: JobContext, result: JobResult) -> int:
-    """관련 자료로 판정된 웹 글만 원문 본문을 가져온다(ADR 0022). 실패하면 검색 요약문을 그대로 쓴다."""
+def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | None = None) -> int:
+    """관련 자료로 판정된 웹 글만 원문 본문을 가져온다(ADR 0022). 실패하면 검색 요약문을 그대로 쓴다.
+
+    items: 이 자료들만(키워드 원고가 고른 자료, C15). 이미 원문을 읽은 것은 건너뛴다.
+    """
     by_name = {getattr(s, "name", ""): s for s in ctx.sources}
     fetched = 0
     threshold = ctx.config.settings.relevance_threshold
-    for item in ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN):
+    if items is None:
+        todo = ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN)
+    else:
+        todo = [i for i in items if not ctx.repo.body_done(i.id)]
+    for item in todo:
         if not item.url or item.url.startswith("file:"):
             # 업로드 자료는 원문이 이미 본문이다
             ctx.repo.record_classification(

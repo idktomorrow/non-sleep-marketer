@@ -47,6 +47,19 @@ def _demo_job(name: str) -> Future:
     return _DEMO_POOL.submit(work)
 
 
+def _demo_keyword(keyword: str) -> Future:
+    """키워드 원고 흉내(C15): 3초 뒤 결과(API·검색 없음)."""
+
+    def work() -> JobResult:
+        time.sleep(3)
+        return JobResult(
+            "keyword",
+            counts={"keyword": keyword, "new": 8, "relevant": 3, "created": 1, "pending_review": 1},
+        )
+
+    return _DEMO_POOL.submit(work)
+
+
 def _now(fn) -> Future:
     f: Future = Future()
     try:
@@ -266,6 +279,7 @@ def main() -> None:
         uploads_dir=home / "uploads",
         reports_dir=home / "reports",
         run_job_now=_demo_job,
+        run_keyword_now=_demo_keyword,
         job_names=frozenset(
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),

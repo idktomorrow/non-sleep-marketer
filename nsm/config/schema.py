@@ -37,6 +37,8 @@ class CollectSettings(_Model):
     # 네이버 검색 기간: 최신순으로 최근 1d/1w/1m만, all은 기간 없이 정확도순(ADR 0032)
     recent_period: Literal["1d", "1w", "1m", "all"] = "1w"
     per_source_limit: int = 30  # 소스마다 한 번에 모을 최대 건수(주제×탭으로 나눔)
+    # 제목·본문에 이 낱말이 든 글은 모으지 않고, 이미 모은 것도 원고에 쓰지 않는다(C15, ADR 0044)
+    exclude_words: list[str] = Field(default_factory=list)
     min_delay_seconds: float = 3.0
     max_delay_seconds: float = 9.0
 

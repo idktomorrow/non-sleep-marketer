@@ -143,6 +143,16 @@ class Repository:
     def set_source_text(self, item_id: str, text: str) -> None:
         self.db.execute("UPDATE source_items SET text = ? WHERE id = ?", [text, item_id])
 
+    def body_done(self, item_id: str) -> bool:
+        """원문을 이미 읽었거나(fetched) 읽을 필요가 없다고 기록한(skipped) 자료인가."""
+        return bool(
+            self.db.execute(
+                "SELECT 1 FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
+                "AND kind = 'body' AND label IN ('fetched', 'skipped') LIMIT 1",
+                [item_id],
+            )
+        )
+
     def relevant_items_without_body(self, threshold: float, limit: int) -> list[SourceItem]:
         """원문 본문을 아직 못 가져온 관련 자료(아직 콘텐츠에 쓰지 않은 것). 최근 것부터.
 
@@ -191,6 +201,21 @@ class Repository:
             [threshold, limit],
         )
         return [(self._row_to_item(r[:8]), float(r[8]), r[9]) for r in rows]
+
+    def items_by_url_hashes(self, hashes: list[str]) -> list[tuple[SourceItem, float | None, bool]]:
+        """URL 해시로 찾은 자료: (자료, 관련성, 이미 원고에 썼나). 키워드 원고(C15)가 이번에 찾은 글을 고를 때."""
+        if not hashes:
+            return []
+        marks = ",".join("?" * len(hashes))
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS}, relevance, used_in_content_id FROM source_items "
+            f"WHERE url_hash IN ({marks}) ORDER BY collected_at DESC",
+            hashes,
+        )
+        return [
+            (self._row_to_item(r[:8]), None if r[8] is None else float(r[8]), r[9] is not None)
+            for r in rows
+        ]
 
     def unclassified_items(self, limit: int = 200) -> list[SourceItem]:
         rows = self.db.execute(
