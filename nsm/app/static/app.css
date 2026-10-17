@@ -164,6 +164,20 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 .style-thumbs { display: flex; gap: 6px; }
 .style-thumb { width: 128px; height: 160px; border-radius: 6px; background: var(--line); object-fit: cover; box-shadow: var(--shadow); }
 .style-option .hint { color: var(--muted); }
+/* 캐릭터 고르기·그림 올리기(C17) */
+.character-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.char-thumb { width: 96px; height: 96px; object-fit: contain; border-radius: 6px; background: var(--line); padding: 4px; }
+.character-picker .check { margin-top: 10px; }
+.brand-image-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.brand-image { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); min-width: 0; }
+.brand-image .hint { color: var(--muted); font-size: 12px; }
+.brand-image-form { display: flex; flex-direction: column; gap: 6px; }
+.brand-image-form input[type=file] { max-width: 100%; }
+.brand-image button, .brand-image .check { align-self: flex-start; }
+@media (max-width: 720px) {
+  .character-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand-image-grid { grid-template-columns: 1fr; }
+}
 
 /* ---------------------------------------------------------------- 지금 실행 진행 표시 */
 .jobstatus { position: fixed; right: 16px; bottom: 16px; z-index: 20; display: flex; flex-direction: column; gap: 8px; max-width: min(380px, calc(100vw - 32px)); }

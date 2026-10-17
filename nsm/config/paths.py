@@ -32,6 +32,11 @@ def upload_text_dir() -> Path:
     return nsm_home() / "upload-text"  # image_reader.CACHE_DIR_NAME
 
 
+def brand_dir() -> Path:
+    """설정 화면에서 올린 로고·캐릭터 그림(C17)."""
+    return nsm_home() / "brand"
+
+
 def media_dir() -> Path:
     return nsm_home() / "media"
 

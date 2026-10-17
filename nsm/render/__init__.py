@@ -10,19 +10,22 @@ from __future__ import annotations
 import importlib.util
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from nsm.ports import CardRenderer
 
 log = logging.getLogger(__name__)
 
 
-def get_renderer(style: str | Callable[[], str] = "clean") -> CardRenderer:
-    """`style`: 카드 스타일 이름이나, 렌더할 때마다 현재 설정의 스타일을 돌려주는 함수(S8)."""
+def get_renderer(style: str | Callable[[], str] = "clean", character: Any = None) -> CardRenderer:
+    """`style`: 카드 스타일 이름이나, 렌더할 때마다 현재 설정의 스타일을 돌려주는 함수(S8).
+    `character`: 일러스트형 캐릭터(`CharacterArt`)나 그것을 돌려주는 함수(C17). 없으면 코드 캐릭터."""
     if importlib.util.find_spec("playwright") is not None:
+        from nsm.render.character import DRAWN
         from nsm.render.html_renderer import HtmlCardRenderer, chromium_available
 
         if chromium_available():
-            return HtmlCardRenderer(style=style)
+            return HtmlCardRenderer(style=style, character=character or DRAWN)
     from nsm.render.placeholder import PlaceholderRenderer
 
     log.warning(

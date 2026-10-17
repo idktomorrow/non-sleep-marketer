@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from nsm.config.paths import config_path, uploads_dir
-from nsm.config.schema import AppConfig, BrandSettings, Settings
+from nsm.config.schema import CARD_LOOK_FIELDS, AppConfig, BrandSettings, Settings
 from nsm.config.secrets import KEYS, KeyringSecretStore, SecretStore, mask
 from nsm.config.store import (
     ConfigNotFoundError,
@@ -144,7 +144,8 @@ def wizard(
         primary_color=_ask_color(io, "브랜드 주 색 (#RRGGBB)", b.primary_color if b else "#1E40AF"),
         accent_color=_ask_color(io, "강조 색 (#RRGGBB)", b.accent_color if b else "#F59E0B"),
         logo_path=b.logo_path if b else None,
-        card_style=b.card_style if b else "clean",  # 대시보드에서 고른 스타일을 지키기
+        # 대시보드에서 고른 카드 스타일·캐릭터를 지키기
+        **({k: getattr(b, k) for k in CARD_LOOK_FIELDS} if b else {}),
     )
 
     # 3. 페르소나

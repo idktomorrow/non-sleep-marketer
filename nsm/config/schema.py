@@ -22,10 +22,29 @@ CardStyle = Literal["clean", "photo", "illust"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 
+# 일러스트형 카드 캐릭터(C17, ADR 0046): 기본 앵무새·햄스터, 직접 올린 그림, 코드로 그린 캐릭터, 없음
+CharacterChoice = Literal["parrot", "hamster", "custom", "drawn", "none"]
+
+
 class BrandSettings(Brand):
-    """설정 파일의 brand. 도메인 Brand(동결)에 카드 스타일 선택만 더한다. 덱 JSON 계약은 그대로다."""
+    """설정 파일의 brand. 도메인 Brand(동결)에 카드 모양 설정만 더한다. 덱 JSON 계약은 그대로다."""
 
     card_style: CardStyle = "clean"
+    character: CharacterChoice = "parrot"
+    character_cover: str | None = None  # custom일 때 표지 그림(<NSM_HOME>/brand/에 저장한 투명 PNG)
+    character_outro: str | None = None  # custom일 때 마지막 장 그림. 비우면 표지 그림
+    # AI로 만든 그림이면 그 장에 "AI 생성 이미지" 표기(ADR 0007·0046). 기본 캐릭터도 기본은 켬(만든 방법 확인 전)
+    character_ai_made: bool = True
+
+
+# 대시보드·마법사가 다시 저장할 때 지켜야 하는 카드 모양 설정
+CARD_LOOK_FIELDS = (
+    "card_style",
+    "character",
+    "character_cover",
+    "character_outro",
+    "character_ai_made",
+)
 
 
 class CollectSettings(_Model):

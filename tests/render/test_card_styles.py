@@ -143,7 +143,8 @@ def test_style_source_is_read_at_render_time() -> None:
     v = template_version()
     assert (r.style, r.version) == ("clean", f"{v}:clean")
     current["style"] = "illust"
-    assert (r.style, r.version) == ("illust", f"{v}:illust")
+    # 일러스트형은 캐릭터 그림까지 지문에 들어간다(C17): 캐릭터를 바꾸면 다시 그린다
+    assert r.style == "illust" and r.version == f"{v}:illust:{r.character.fingerprint}"
 
 
 @pytest.mark.parametrize("primary", ["#FFD84D", "#1E3A5F", "#F59E0B", "#22C55E", "#FFFFFF"])

@@ -92,6 +92,9 @@ def style_preview_png(
         raise StylePreviewError("색은 #RRGGBB 형식이어야 합니다")
     deck = sample_deck(cfg, primary.upper(), accent.upper())
     version = str(getattr(renderer, "version", "")).split(":")[0]
+    if style == "illust":  # 캐릭터를 바꾸면 일러스트형 견본도 다시 그린다(C17)
+        art = getattr(renderer, "character", None)
+        version += ":" + str(getattr(art, "fingerprint", ""))
     key = hashlib.sha256(f"{style}|{version}|{deck.model_dump_json()}".encode()).hexdigest()[:16]
     root = media_dir / "style-previews"
     out = root / key

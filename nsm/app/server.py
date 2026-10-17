@@ -52,6 +52,7 @@ from nsm.app.materials import (
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
+    CHARACTER_NAMES,
     PERIODS,
     SettingsError,
     apply_settings_form,
@@ -70,6 +71,11 @@ from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
 MAX_MANUAL_RUNS = 10
+BRAND_IMAGE_KINDS = (
+    "logo_path",
+    "character_cover",
+    "character_outro",
+)  # 설정 화면에서 올리는 그림(C17)
 PREVIEW_CHARS = 200  # 올린 이미지에서 옮긴 글을 올림 안내에 이만큼 보여 준다(C16)
 # 화면 모드(C13): 간단(일반 사용자, 기본) / 고급(개발자). 보이는 것만 다르고 기능은 같다
 UI_MODE_KEY = "ui_mode"
@@ -125,6 +131,7 @@ class AppState:
     manual_runs: list[ManualRun] = field(default_factory=list)
     run_keyword_now: Callable[[str], Future] | None = None  # 키워드 원고(C15)
     read_image: Callable[[Path], str] | None = None  # 올린 이미지 읽기(C16). 없으면 이미지는 거절
+    brand_dir: Path | None = None  # 로고·캐릭터 그림 저장 폴더(C17). 없으면 올리기 칸이 안 보인다
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -285,18 +292,108 @@ def create_app(state: AppState) -> FastAPI:
 
     # ------------------------------------------------------------------ 설정 (M17)
 
+    def settings_extra(request: Request) -> dict[str, Any]:
+        b = state.get_config().brand
+        q = request.query_params
+        return {
+            "periods": PERIODS,
+            "card_styles": CARD_STYLE_NAMES,
+            "characters": CHARACTER_NAMES,
+            "style_previews": hasattr(state.renderer, "render_sample"),
+            "can_brand_images": state.brand_dir is not None,
+            "has_image": {
+                k: bool(getattr(b, k) and Path(getattr(b, k)).is_file()) for k in BRAND_IMAGE_KINDS
+            },
+            "image_saved": q.get("image_saved"),
+            "image_error": q.get("image_error"),
+        }
+
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, saved: int = 0) -> HTMLResponse:
         return page(
             request,
             "settings.html",
-            periods=PERIODS,
-            card_styles=CARD_STYLE_NAMES,
-            style_previews=hasattr(state.renderer, "render_sample"),
+            **settings_extra(request),
             v=form_values(state.get_config()),
             error=None,
             saved=bool(saved),
         )
+
+    @app.get("/settings/character/{name}.png")
+    def character_png(name: str) -> FileResponse:
+        """설정 화면 캐릭터 견본: 기본 캐릭터 그림(패키지 안 파일만)."""
+        from nsm.render.character import BUNDLED, CHARACTERS_DIR
+
+        if name not in BUNDLED:
+            raise HTTPException(404)
+        return FileResponse(CHARACTERS_DIR / BUNDLED[name], media_type="image/png")
+
+    @app.get("/settings/brand-image/{kind}.png")
+    def brand_image_png(kind: str) -> FileResponse:
+        """올린 로고·캐릭터 그림 보기. 설정에 적힌 경로만 보낸다(경로를 요청으로 받지 않음)."""
+        if kind not in BRAND_IMAGE_KINDS:
+            raise HTTPException(404)
+        p = getattr(state.get_config().brand, kind)
+        if not p or not Path(p).is_file():
+            raise HTTPException(404)
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})
+
+    @app.post("/settings/brand-image", dependencies=[Depends(check_csrf)])
+    async def upload_brand_image(
+        kind: str = Form(...),
+        file: UploadFile = File(...),
+        clear_background: str = Form(""),
+    ) -> RedirectResponse:
+        """로고·캐릭터 그림 올리기(C17, ADR 0046). 캐릭터는 바탕을 지우고 그림만 남게 자른다."""
+        from nsm.app.brand_images import (
+            MAX_BYTES,
+            BrandImageError,
+            drop_old,
+            prepare_character,
+            prepare_logo,
+            save_png,
+        )
+
+        if state.brand_dir is None:
+            raise HTTPException(503, "그림 저장 폴더가 설정되지 않았습니다")
+        if kind not in BRAND_IMAGE_KINDS:
+            raise HTTPException(400, "알 수 없는 그림 종류")
+        data = await file.read(MAX_BYTES + 1)
+        try:
+            if kind == "logo_path":
+                img = await run_in_threadpool(prepare_logo, data)
+            else:
+                img = await run_in_threadpool(prepare_character, data, clear_background == "on")
+        except BrandImageError as e:
+            return back("/settings?" + urlencode({"image_error": str(e)}) + "#brand-images")
+        path = await run_in_threadpool(save_png, img, state.brand_dir, kind.removesuffix("_path"))
+        cfg = state.get_config()
+        old = getattr(cfg.brand, kind)
+        update: dict[str, Any] = {kind: path if kind == "logo_path" else str(path)}
+        if kind != "logo_path":
+            update["character"] = (
+                "custom"  # 올리면 바로 그 그림을 쓴다(되돌리려면 위에서 다시 고름)
+            )
+        state.set_config(cfg.model_copy(update={"brand": cfg.brand.model_copy(update=update)}))
+        drop_old(state.brand_dir, str(old) if old else None)
+        return back("/settings?" + urlencode({"image_saved": kind}) + "#brand-images")
+
+    @app.post("/settings/brand-image/delete", dependencies=[Depends(check_csrf)])
+    def delete_brand_image(kind: str = Form(...)) -> RedirectResponse:
+        from nsm.app.brand_images import drop_old
+
+        if state.brand_dir is None or kind not in BRAND_IMAGE_KINDS:
+            raise HTTPException(400, "지울 수 없는 그림")
+        cfg = state.get_config()
+        old = getattr(cfg.brand, kind)
+        update: dict[str, Any] = {kind: None}
+        b = cfg.brand
+        others = [k for k in ("character_cover", "character_outro") if k != kind and getattr(b, k)]
+        if kind != "logo_path" and b.character == "custom" and not others:
+            update["character"] = "parrot"  # 올린 그림이 하나도 안 남으면 기본 캐릭터로
+        state.set_config(cfg.model_copy(update={"brand": b.model_copy(update=update)}))
+        drop_old(state.brand_dir, str(old) if old else None)
+        return back("/settings?" + urlencode({"image_saved": "deleted"}) + "#brand-images")
 
     @app.get("/settings/style-preview/{style}/{n}.png")
     def style_preview(style: str, n: int, primary: str = "", accent: str = "") -> FileResponse:
@@ -323,9 +420,7 @@ def create_app(state: AppState) -> FastAPI:
             resp = page(
                 request,
                 "settings.html",
-                periods=PERIODS,
-                card_styles=CARD_STYLE_NAMES,
-                style_previews=hasattr(state.renderer, "render_sample"),
+                **settings_extra(request),
                 v={**form_values(state.get_config()), **form},
                 error=str(e),
                 saved=False,
