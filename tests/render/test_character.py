@@ -49,6 +49,9 @@ def test_character_art_choices(tmp_path: Path) -> None:
     gone = character_art(_brand(character="custom", character_cover=str(tmp_path / "x.png")))
     assert gone == DRAWN  # 올린 파일이 사라지면 코드 캐릭터로
     assert character_art(_brand(character_ai_made=False)).ai_made is False
+    # C19: 기본 캐릭터(AI로 만든 만화 그림)는 기본으로 "AI 생성 이미지"를 붙이지 않는다
+    assert character_art(_brand()).ai_made is False
+    assert character_art(_brand(character_ai_made=True)).ai_made is True
 
 
 def test_image_character_on_cover_and_outro_only() -> None:
