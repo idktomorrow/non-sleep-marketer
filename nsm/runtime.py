@@ -97,6 +97,7 @@ def build_context(
 ) -> JobContext:
     from nsm.adapters.classifier import make_classifiers
     from nsm.adapters.sources.google_trends import GoogleTrendsSource
+    from nsm.adapters.sources.image_reader import make_image_reader
     from nsm.adapters.sources.upload import UploadSource
 
     secrets = secrets or KeyringSecretStore()
@@ -108,6 +109,7 @@ def build_context(
             Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(),
             clock,
             is_known=repo.has_url_hash,
+            read_image=make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
         )
     ]
     if c.google_trends:
@@ -236,6 +238,7 @@ def run_forever() -> None:
             reports_dir=ctx.reports_dir,
             run_job_now=scheduler.run_now,
             run_keyword_now=lambda kw: scheduler.run_now("keyword", kw),
+            read_image=next((s.read_image for s in ctx.sources if s.name == "upload"), None),
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,

@@ -60,6 +60,11 @@ def _demo_keyword(keyword: str) -> Future:
     return _DEMO_POOL.submit(work)
 
 
+def _demo_read_image(path: Path) -> str:
+    """이미지 읽기 흉내(C16): API 없이 정해진 글."""
+    return "CGV 먼작귀 팝콘통 예약판매 오픈\n구매처: 네이버에서 [CGV 스토어] 검색\n디자인 3종"
+
+
 def _now(fn) -> Future:
     f: Future = Future()
     try:
@@ -280,6 +285,7 @@ def main() -> None:
         reports_dir=home / "reports",
         run_job_now=_demo_job,
         run_keyword_now=_demo_keyword,
+        read_image=_demo_read_image,
         job_names=frozenset(
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),

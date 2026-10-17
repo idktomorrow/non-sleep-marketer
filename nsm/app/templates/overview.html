@@ -2,7 +2,7 @@
 {% from "_run_badge.html" import run_badge %}
 {% block content %}
 <h1>오늘 해야 할 일</h1>
-{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. 글자 {{ chars }}자를 읽었습니다. 다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
+{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. {% if preview is not none %}이미지에서 정보 {{ chars }}자를 글로 옮겼습니다: <span class="muted">“{{ preview }}{% if (chars|int) > 200 %}…{% endif %}”</span> {% else %}글자 {{ chars }}자를 읽었습니다. {% endif %}다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
 {% if upload_error %}<div class="notice bad">{{ upload_error }}</div>{% endif %}
 
 {% if first_run %}
@@ -104,10 +104,10 @@
 <h2>자료 올리기</h2>
 <div class="panel">
   <form method="post" action="/materials/upload" enctype="multipart/form-data" class="quick-upload"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/">
-    <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf" required aria-label="올릴 자료 파일">
+    <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp" required aria-label="올릴 자료 파일">
     <button class="btn-primary btn-sm">올리기</button>
   </form>
-  <p class="muted small" style="margin-bottom:0">제품 정보, 보도자료, 고객 후기 엑셀 같은 브랜드 자료를 올리면 원고에 씁니다. txt·md·csv·xlsx·pdf, {{ max_mb }}MB 이하.</p>
+  <p class="muted small" style="margin-bottom:0">제품 정보, 보도자료, 고객 후기 엑셀 같은 브랜드 자료를 올리면 원고에 씁니다. txt·md·csv·xlsx·pdf, {{ max_mb }}MB 이하. 공지 캡처·포스터 같은 이미지(png·jpg·webp)도 읽어 글로 옮깁니다.</p>
 </div>
 {% endif %}
 {% if simple %}

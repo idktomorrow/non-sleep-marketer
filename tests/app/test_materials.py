@@ -94,3 +94,54 @@ def test_verdict_texts() -> None:
     assert M.verdict({"relevance": None}, 0.8)[0] == "판정 전"
     assert M.verdict({"relevance": 0.5, "classifier": "jev"}, 0.8) == ("관련 없음 0.50", "gray")
     assert M.source_label("community:cafe.example.com") == "커뮤니티(cafe.example.com)"
+
+
+# ---- 이미지 자료(C16, ADR 0045)
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def test_image_upload_is_read_and_preview_shown(menv) -> None:
+    seen = []
+
+    def read(path):
+        seen.append(path.name)
+        return "CGV 먼작귀 팝콘통 예약판매 오픈\n구매처: 네이버에서 [CGV 스토어] 검색"
+
+    menv["state"].read_image = read
+    r = _upload(menv, "cgv 팝콘통.png", PNG)
+    assert "uploaded=" in r.headers["location"] and "preview=" in r.headers["location"]
+    html = menv["client"].get(r.headers["location"]).text
+    assert "이미지에서 정보" in html and "CGV 먼작귀 팝콘통 예약판매 오픈 구매처" in html
+    assert (menv["dir"] / "cgv 팝콘통.png").is_file() and seen
+    # 간단 모드 "오늘"에서 올려도 같은 안내
+    r = menv["client"].post(
+        "/materials/upload",
+        data={"csrf": menv["state"].csrf_token, "next": "/"},
+        files={"file": ("포스터.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 16)},
+        follow_redirects=False,
+    )
+    assert r.headers["location"].startswith("/?")
+    assert "이미지에서 정보" in menv["client"].get(r.headers["location"]).text
+
+
+@pytest.mark.parametrize(
+    ("reader", "data", "msg"),
+    [
+        (None, PNG, "Claude API 키가 필요"),
+        (lambda p: "", PNG, "읽을 정보(글자·날짜·가격 등)를 찾지 못해"),
+        (lambda p: "x", b"plain text", "PNG·JPEG·WebP 이미지가 아닙니다"),
+        (lambda p: "x", PNG + b"\x00" * (5 * 1024 * 1024), "5MB 이하"),
+    ],
+    ids=["no-key", "no-info", "fake-png", "too-big"],
+)
+def test_unusable_images_are_not_kept(menv, reader, data: bytes, msg: str) -> None:
+    menv["state"].read_image = reader
+    r = _upload(menv, "사진.png", data)
+    assert "error=" in r.headers["location"]
+    assert msg in menv["client"].get(r.headers["location"]).text
+    assert not (menv["dir"] / "사진.png").exists()
+
+
+def test_upload_form_accepts_images(menv) -> None:
+    assert ".png,.jpg,.jpeg,.webp" in menv["client"].get("/materials").text

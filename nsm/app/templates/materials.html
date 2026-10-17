@@ -3,17 +3,17 @@
 <h1>자료</h1>
 <p class="muted small">원고를 만들 때 쓰는 자료입니다. 네이버 블로그·뉴스와 구글 트렌드는 자동으로 모으고, 브랜드 자료(제품 정보, 보도자료, 고객 후기 엑셀 등)는 여기서 올립니다. 모든 자료는 관심 주제와 관련 있는지 판정을 거치고, "관련 있음"만 원고에 쓰입니다.</p>
 
-{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. 글자 {{ chars }}자를 읽었습니다. 다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
+{% if uploaded %}<div class="notice info"><b>{{ uploaded }}</b>을(를) 올렸습니다. {% if preview is not none %}이미지에서 정보 {{ chars }}자를 글로 옮겼습니다: <span class="muted">“{{ preview }}{% if (chars|int) > 200 %}…{% endif %}”</span> {% else %}글자 {{ chars }}자를 읽었습니다. {% endif %}다음 자료 모으기 때 자료로 들어갑니다. 지금 바로 넣으려면 아래 <b>자료 모으기</b>를 누르세요.</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 {% if deleted %}<div class="notice info"><b>{{ deleted }}</b> 파일을 지웠습니다. 이미 자료로 들어간 내용은 목록에 남습니다.</div>{% endif %}
 
 <h2>파일 올리기</h2>
 <div class="panel">
   <form method="post" action="/materials/upload" enctype="multipart/form-data" class="actions"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf" required>
+    <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp" required>
     <button class="btn-primary btn-sm">올리기</button>
   </form>
-  <p class="muted small" style="margin-bottom:0">txt·md·csv·xlsx(엑셀)·pdf, {{ max_mb }}MB 이하. 워드·한글 문서는 PDF로 저장해서 올리세요. 스캔한 이미지 PDF는 글자를 읽을 수 없습니다. 올리면 바로 글을 읽어 보고, 읽지 못하면 올리지 않습니다. 저장 위치: <code>{{ uploads_dir }}</code> (폴더에 직접 넣어도 됩니다)</p>
+  <p class="muted small" style="margin-bottom:0">txt·md·csv·xlsx(엑셀)·pdf, {{ max_mb }}MB 이하. 워드·한글 문서는 PDF로 저장해서 올리세요. 스캔한 이미지 PDF는 글자를 읽을 수 없습니다. 이미지(png·jpg·webp, 5MB 이하)는 공지 캡처·포스터·가격표처럼 글자나 정보가 있는 것을 올리면 Claude가 읽어 글로 옮깁니다(한 장에 1센트 미만, 카드에는 이미지를 넣지 않음). 올리면 바로 글을 읽어 보고, 읽지 못하면 올리지 않습니다. 저장 위치: <code>{{ uploads_dir }}</code> (폴더에 직접 넣어도 됩니다)</p>
   <div class="actions" style="margin-top:10px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">자료 모으기 지금 실행</button></form><span class="muted small">올린 파일과 네이버 새 자료를 바로 읽고 판정합니다</span></div>
 </div>
 

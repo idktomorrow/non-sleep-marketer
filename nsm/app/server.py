@@ -23,8 +23,10 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from nsm.adapters.sources.image_reader import is_image
 from nsm.app.card_editor import (
     MAX_UPLOAD_BYTES,
     EditError,
@@ -68,6 +70,7 @@ from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
 MAX_MANUAL_RUNS = 10
+PREVIEW_CHARS = 200  # 올린 이미지에서 옮긴 글을 올림 안내에 이만큼 보여 준다(C16)
 # 화면 모드(C13): 간단(일반 사용자, 기본) / 고급(개발자). 보이는 것만 다르고 기능은 같다
 UI_MODE_KEY = "ui_mode"
 UI_MODES = ("simple", "advanced")
@@ -121,6 +124,7 @@ class AppState:
     uploads_dir: Path | None = None  # 직접 올린 자료 폴더(자료 화면, M18)
     manual_runs: list[ManualRun] = field(default_factory=list)
     run_keyword_now: Callable[[str], Future] | None = None  # 키워드 원고(C15)
+    read_image: Callable[[Path], str] | None = None  # 올린 이미지 읽기(C16). 없으면 이미지는 거절
 
 
 def create_app(state: AppState) -> FastAPI:
@@ -249,6 +253,7 @@ def create_app(state: AppState) -> FastAPI:
             max_mb=MAX_FILE_BYTES // (1024 * 1024),
             uploaded=request.query_params.get("uploaded"),
             chars=request.query_params.get("chars"),
+            preview=request.query_params.get("preview"),
             upload_error=request.query_params.get("error"),
             kw_error=request.query_params.get("kw_error"),
             can_keyword=state.run_keyword_now is not None,
@@ -500,6 +505,7 @@ def create_app(state: AppState) -> FastAPI:
             max_mb=MAX_FILE_BYTES // (1024 * 1024),
             uploaded=q.get("uploaded"),
             chars=q.get("chars"),
+            preview=q.get("preview"),
             error=q.get("error"),
             deleted=q.get("deleted"),
         )
@@ -514,10 +520,18 @@ def create_app(state: AppState) -> FastAPI:
         dest = "/?" if next_path == "/" else "/materials?"
         data = await file.read(MAX_FILE_BYTES + 1)
         try:
-            path, chars = save_material(state.uploads_dir, file.filename or "자료", data)
+            # 이미지는 Claude가 읽느라 몇 초 걸린다: 이벤트 루프를 막지 않게 스레드에서
+            path, chars = await run_in_threadpool(
+                save_material, state.uploads_dir, file.filename or "자료", data, state.read_image
+            )
         except MaterialError as e:
             return back(dest + urlencode({"error": str(e)}))
-        return back(dest + urlencode({"uploaded": path.name, "chars": chars}))
+        done = {"uploaded": path.name, "chars": chars}
+        if is_image(path) and state.read_image is not None:
+            # 무엇을 읽었는지 바로 보여 준다(캐시에서 읽으므로 다시 돈이 들지 않음)
+            text = await run_in_threadpool(state.read_image, path)
+            done["preview"] = " ".join(text.split())[:PREVIEW_CHARS]
+        return back(dest + urlencode(done))
 
     @app.post("/materials/files/delete", dependencies=[Depends(check_csrf)])
     def delete_material_file(name: str = Form(...)) -> RedirectResponse:
