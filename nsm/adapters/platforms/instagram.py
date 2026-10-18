@@ -315,9 +315,15 @@ const ok = await pg.evaluate(([author, cid, key]) => {
 }, [ARGS.author, ARGS.cid, key]);
 if (!ok) throw new NsmError('script', '댓글의 "답글 달기" 없음');
 await pg.locator('[data-nsm-mark="' + key + '"]').click();
+// "답글 달기"를 누르면 입력창에 "@작성자 "가 채워지고 초점이 거기 간다. 그 상태가 "이 댓글의 답글"이라는 표시다.
+// 여기서 입력창을 다시 클릭하면 인스타그램이 답글 대상을 잊어 새 댓글로 올라간다(2026-10-19 실험으로 확인).
+// 그래서 클릭하지 않고, 채워진 뒤 그대로 이어서 쓴다.
 const box = await nsmWait(pg.locator('main textarea, main [contenteditable="true"]'), 15000);
-await box.click();
-await pg.keyboard.press('End');
+const readBox = async () => await box.evaluate(e => e.value !== undefined ? e.value : (e.innerText || ''));
+const prefilled = await nsmUntil(async () => (await readBox()).startsWith('@' + ARGS.author), 8000, 300);
+if (!prefilled) throw new NsmError('script', '답글 입력창에 "@' + ARGS.author + '"가 채워지지 않음');
+const focused = await box.evaluate(e => document.activeElement === e);
+if (!focused) await box.evaluate(e => e.focus());  // 마우스 클릭이 아니라 focus()만(답글 대상 유지)
 await pg.keyboard.insertText(ARGS.text);
 await sleep(500);
 const sent = await nsmClickText(pg.locator('main'), '게시');
