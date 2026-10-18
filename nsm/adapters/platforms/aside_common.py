@@ -169,7 +169,8 @@ async function nsmMarkIcon(pg, scopeSel, name, nth) {
   const ok = await pg.evaluate(([scopeSel, name, nth, key]) => {
     const scopes = scopeSel ? Array.from(document.querySelectorAll(scopeSel)) : [document];
     if (!scopes.length) return false;
-    const svgs = scopes.flatMap(sc => Array.from(sc.querySelectorAll('svg')));
+    // 겹치는 scope(안쪽 요소도 선택자에 맞는 경우)에서 같은 svg가 두 번 세어지지 않게 중복을 뺀다
+    const svgs = Array.from(new Set(scopes.flatMap(sc => Array.from(sc.querySelectorAll('svg')))));
     const hits = svgs.filter(s => {
       const t = s.querySelector('title');
       return s.getAttribute('aria-label') === name || (t && t.textContent === name);
@@ -189,7 +190,9 @@ async function nsmDismissPrompts(pg) {
   for (let round = 0; round < 3; round++) {
     const clicked = await pg.evaluate((labels) => {
       for (const d of document.querySelectorAll('[role="dialog"]')) {
-        const heading = (d.querySelector('h1, h2, h3') || {}).textContent || '';
+        // 제목 요소가 없으면(div로 그린 제목) 첫 줄 글을 제목으로 본다
+        const h = d.querySelector('h1, h2, h3, [role="heading"]');
+        const heading = h ? (h.textContent || '') : ((d.innerText || '').trim().split('\n')[0] || '');
         if (!/알림|Notification/i.test(heading)) continue;
         for (const b of d.querySelectorAll('button, [role="button"]')) {
           if (labels.includes((b.innerText || '').trim())) { b.click(); return true; }
