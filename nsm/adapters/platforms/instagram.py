@@ -86,6 +86,7 @@ async function clickDialogButton(pg, label) {
 async function nextStep(pg, from) {
   const end = Date.now() + Math.min(60000, nsmLeft() - 30000);
   while (Date.now() < end) {
+    await nsmDismissPrompts(pg);
     // 비활성('busy')이면 누르지 않고 짧게 기다렸다 다시 본다
     const r = await clickDialogButton(pg, '다음');
     const moved = await nsmUntil(async () => (await dialogName(pg)) !== from, r === true ? 8000 : 2000, 800);
@@ -171,11 +172,13 @@ if (!np) throw new NsmError('script', '"새로운 게시물" 메뉴 없음');
 await np.click();
 const postItem = await nsmUntil(() => nsmMarkIcon(pg, null, '게시물', 0), 10000);
 if (postItem) await postItem.click();
+// "알림 설정" 안내가 업로드 창 앞에 겹치면 닫는다(2026-10-18부터 뜸)
+await nsmDismissPrompts(pg);
 const fi = pg.locator('[role="dialog"] input[type="file"]').first();
 await fi.waitFor({ state: 'attached', timeout: Math.max(1000, Math.min(20000, nsmLeft())) });
 await fi.setInputFiles(files);
-// 자르기: 반드시 4:5
-const crop = await nsmUntil(() => nsmMarkIcon(pg, '[role="dialog"]', '자르기 선택', 0), 30000);
+// 자르기: 반드시 4:5. 안내 창이 뒤늦게 떠도 닫고 찾는다
+const crop = await nsmUntil(async () => { await nsmDismissPrompts(pg); return nsmMarkIcon(pg, '[role="dialog"]', '자르기 선택', 0); }, 30000);
 if (!crop) throw new NsmError('script', '자르기 단계가 나오지 않음');
 await crop.click();
 await sleep(800);
