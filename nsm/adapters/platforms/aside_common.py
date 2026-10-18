@@ -162,13 +162,16 @@ async function nsmClickText(scope, text) {
   }
   return false;
 }
-// 아이콘 버튼 찾기: svg의 aria-label 또는 <title>이 name인 것 중 scope 안의 nth번째 버튼에 표시를 단다
+// 아이콘 버튼 찾기: svg의 aria-label 또는 <title>이 name인 것 중 scope 안의 nth번째 버튼에 표시를 단다.
+// scope 선택자에 맞는 요소가 여럿이면(예: 알림 안내 대화상자 + 업로드 대화상자) 전부 본다(2026-10-18 인스타그램).
 async function nsmMarkIcon(pg, scopeSel, name, nth) {
   const key = 'k' + Math.random().toString(36).slice(2);
   const ok = await pg.evaluate(([scopeSel, name, nth, key]) => {
-    const scope = scopeSel ? document.querySelector(scopeSel) : document;
-    if (!scope) return false;
-    const hits = Array.from(scope.querySelectorAll('svg')).filter(s => {
+    const scopes = scopeSel ? Array.from(document.querySelectorAll(scopeSel)) : [document];
+    if (!scopes.length) return false;
+    // 겹치는 scope(안쪽 요소도 선택자에 맞는 경우)에서 같은 svg가 두 번 세어지지 않게 중복을 뺀다
+    const svgs = Array.from(new Set(scopes.flatMap(sc => Array.from(sc.querySelectorAll('svg')))));
+    const hits = svgs.filter(s => {
       const t = s.querySelector('title');
       return s.getAttribute('aria-label') === name || (t && t.textContent === name);
     }).map(s => s.closest('[role="button"], button, a')).filter(Boolean);
@@ -178,6 +181,30 @@ async function nsmMarkIcon(pg, scopeSel, name, nth) {
     return true;
   }, [scopeSel, name, nth || 0, key]);
   return ok ? pg.locator('[data-nsm-mark="' + key + '"]') : null;
+}
+// 플랫폼이 띄우는 안내 대화상자("알림 설정 → 나중에 하기" 등)를 닫는다. 안내 창이 앞에 겹치면
+// 업로드 대화상자 안의 버튼을 찾지 못한다(2026-10-18 인스타그램 "자르기 단계가 나오지 않음"). 닫은 수를 돌려준다.
+const NSM_DISMISS = ['나중에 하기', 'Not Now', '나중에', '취소하기'];
+async function nsmDismissPrompts(pg) {
+  let n = 0;
+  for (let round = 0; round < 3; round++) {
+    const clicked = await pg.evaluate((labels) => {
+      for (const d of document.querySelectorAll('[role="dialog"]')) {
+        // 제목 요소가 없으면(div로 그린 제목) 첫 줄 글을 제목으로 본다
+        const h = d.querySelector('h1, h2, h3, [role="heading"]');
+        const heading = h ? (h.textContent || '') : ((d.innerText || '').trim().split('\n')[0] || '');
+        if (!/알림|Notification/i.test(heading)) continue;
+        for (const b of d.querySelectorAll('button, [role="button"]')) {
+          if (labels.includes((b.innerText || '').trim())) { b.click(); return true; }
+        }
+      }
+      return false;
+    }, NSM_DISMISS);
+    if (!clicked) break;
+    n++;
+    await sleep(600);
+  }
+  return n;
 }
 async function nsmUntil(fn, ms, step) {
   const end = Date.now() + Math.min(ms || 30000, nsmLeft());
