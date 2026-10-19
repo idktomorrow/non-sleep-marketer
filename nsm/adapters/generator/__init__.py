@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from nsm.adapters.claude_common import GENERATION_TIMEOUT_S, MAX_RETRIES
 from nsm.adapters.generator.image_api import NullImageGenerator, OpenAIImageGenerator
 from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
@@ -22,7 +23,8 @@ def make_text_generator(
     from nsm.adapters.generator.claude_text import ClaudeTextGenerator
 
     return ClaudeTextGenerator(
-        anthropic.Anthropic(max_retries=5, api_key=key),
+        # 작업 스레드가 하나라 생성이 멈추면 게시·답글도 멈춘다. SDK 기본 대기(10분)는 너무 길다(C24). 재시도 5번은 순간 끊김용
+        anthropic.Anthropic(max_retries=MAX_RETRIES, timeout=GENERATION_TIMEOUT_S, api_key=key),
         cfg.settings.models.generation,
         cost_sink,
         include_blog="naver_blog" in cfg.settings.enabled_platforms,

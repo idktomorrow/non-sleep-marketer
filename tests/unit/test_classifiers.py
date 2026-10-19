@@ -174,3 +174,24 @@ def test_jev_confidence_is_choice_probability_not_margin() -> None:
     hit, no_probs = c.classify_many(["a", "b"], ["relevant", "irrelevant"], "q")
     assert hit.confidence == pytest.approx(0.7)
     assert no_probs.confidence == pytest.approx(0.75)  # 확률이 없으면 (1 + 차이) / 2
+
+
+def test_claude_clients_have_timeouts(app_config, monkeypatch) -> None:
+    """C24: 작업 스레드가 하나라 Claude 호출이 멈추면 다른 작업도 멈춘다. 기본(10분×5번)을 쓰지 않는다."""
+    import anthropic
+
+    from nsm.adapters.generator import make_text_generator
+
+    seen: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, **kw):
+            seen.append(kw)
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeClient)
+    secrets = MemorySecretStore({"anthropic_api_key": "k"})
+    make_classifiers(app_config, secrets, FakeCostSink())
+    make_text_generator(app_config, secrets, FakeCostSink())
+    assert len(seen) == 2
+    for kw in seen:
+        assert 0 < kw["timeout"] <= 180 and kw["max_retries"] <= 5

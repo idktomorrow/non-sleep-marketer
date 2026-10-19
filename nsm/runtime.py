@@ -161,9 +161,11 @@ def run_job_once(job: str, arg: str | None = None) -> None:
         with ExitStack() as stack:
             ctx = build_context(cfg, db, stack)
             from nsm.engine.publish import recover_interrupted
+            from nsm.engine.reply import recover_interrupted_replies
 
             # 이 프로세스가 DB를 연 유일한 프로세스이므로(DuckDB 잠금), 남은 publishing은 중단된 것이다
             recover_interrupted(ctx)
+            recover_interrupted_replies(ctx)
             result = run_job(job, ctx, arg=arg)
             print(f"{result.job}: {result.summary()}")
             if not result.ok:
@@ -194,6 +196,7 @@ def run_forever() -> None:
     from nsm.app.server import AppState, create_app
     from nsm.config.store import save_config
     from nsm.engine.publish import recover_interrupted
+    from nsm.engine.reply import recover_interrupted_replies
     from nsm.engine.runner import JOBS
     from nsm.scheduler.app import JobScheduler
 
@@ -214,6 +217,7 @@ def run_forever() -> None:
 
         ctx.notifier = RecordingNotifier(ctx.repo, notifier)
         recover_interrupted(ctx)
+        recover_interrupted_replies(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
         scheduler.start()

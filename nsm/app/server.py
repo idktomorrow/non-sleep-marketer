@@ -60,7 +60,7 @@ from nsm.app.settings_form import (
     form_values,
 )
 from nsm.config.schema import AppConfig
-from nsm.domain.models import Platform
+from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
@@ -798,6 +798,13 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(409, str(e)) from e
         return back("/queue" if was_queued else "/review")
 
+    def _save_edit(cid: str, g: GeneratedContent) -> None:
+        """검토 대기일 때만 저장된다. 검사 뒤 승인이 끼어들었으면 409(C24)."""
+        try:
+            state.repo.update_generated(cid, g)
+        except InvalidTransitionError as e:
+            raise HTTPException(409, str(e)) from e
+
     def _editable(cid: str):
         c = _content_or_404(cid)
         if c.status != "pending_review":
@@ -820,7 +827,7 @@ def create_app(state: AppState) -> FastAPI:
         for f in ("instagram_caption", "threads_text", "blog_title", "blog_markdown"):
             if f in form:
                 updates[f] = str(form[f])
-        state.repo.update_generated(cid, g.model_copy(update=updates))
+        _save_edit(cid, g.model_copy(update=updates))
         # 고친 뒤 이미 렌더된 카드·미리보기는 버린다(다음 게시 때 다시 렌더)
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
@@ -838,7 +845,7 @@ def create_app(state: AppState) -> FastAPI:
             new = set_background(c.generated, index, str(path), state.media_dir)
         except EditError as e:
             raise HTTPException(400, str(e)) from e
-        state.repo.update_generated(cid, new)
+        _save_edit(cid, new)
         drop_old_upload(state.media_dir, cid, c.generated.deck.slides[index].background)
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
@@ -850,7 +857,7 @@ def create_app(state: AppState) -> FastAPI:
             new = set_background(c.generated, index, None, state.media_dir)
         except EditError as e:
             raise HTTPException(400, str(e)) from e
-        state.repo.update_generated(cid, new)
+        _save_edit(cid, new)
         drop_old_upload(state.media_dir, cid, c.generated.deck.slides[index].background)
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")

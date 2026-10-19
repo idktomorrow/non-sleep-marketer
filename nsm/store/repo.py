@@ -401,11 +401,20 @@ class Repository:
             raise InvalidTransitionError(f"콘텐츠 {content_id}: {rows[0][0]} → {new_status} 불가")
 
     def update_generated(self, content_id: str, generated: GeneratedContent) -> None:
-        """검토 대기열에서 사람이 고친 원고 저장."""
-        self.db.execute(
-            "UPDATE contents SET generated = ?, updated_at = ? WHERE id = ?",
-            [generated.model_dump_json(), self._now(), content_id],
+        """검토 대기열에서 사람이 고친 원고 저장. 검토 대기 상태일 때만 바뀐다(C24).
+
+        화면의 상태 검사와 저장 사이에 승인이 끼어들면(동시 요청) 승인된 원고가 검사 없이 바뀔 수 있다.
+        읽고-쓰기를 한 문장으로 묶어, 그 틈에 상태가 바뀌었으면 저장하지 않고 알린다.
+        """
+        changed = self._count(
+            self.db.execute(
+                "UPDATE contents SET generated = ?, updated_at = ? "
+                "WHERE id = ? AND status = 'pending_review'",
+                [generated.model_dump_json(), self._now(), content_id],
+            )
         )
+        if not changed:
+            raise InvalidTransitionError("검토 대기 중인 콘텐츠만 고칠 수 있습니다")
 
     def count_contents_between(self, start: datetime, end: datetime) -> int:
         return int(

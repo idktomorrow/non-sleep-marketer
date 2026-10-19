@@ -20,6 +20,9 @@ from nsm.engine.rate_limit import blocked_until, resting, retry_at
 log = logging.getLogger(__name__)
 
 MIN_CONFIDENCE = 0.6
+INTERRUPTED_REASON = (
+    "답글을 보내는 중 프로그램이 중단됨. 실제로 달렸는지 보고, 없으면 직접 답글을 보내세요"
+)
 UNCONFIRMED_REASON = (
     "답글을 보냈지만 플랫폼에서 확인하지 못함. 실제로 달렸는지 보고, 없으면 직접 답글을 보내세요"
 )
@@ -98,6 +101,23 @@ def _mark_checked(ctx: JobContext, platform: str, now: datetime) -> None:
     seen = dict(ctx.repo.get_setting(CHECKED_KEY, {}) or {})
     seen[platform] = now.isoformat()
     ctx.repo.set_setting(CHECKED_KEY, seen)
+
+
+def recover_interrupted_replies(ctx: JobContext) -> int:
+    """프로세스가 답글을 보내는 도중 죽었을 때(C24): 실제로 달렸는지 모르므로 다시 보내지 않고 사람에게 넘긴다.
+
+    게시의 `recover_interrupted`와 같은 원칙이다. 켤 때 한 번 부른다(작업 스레드가 하나라 켜진 뒤에는
+    '보내는 중'이 남아 있을 수 없다).
+    """
+    n = 0
+    for s in ctx.repo.list_comments("replying"):
+        ctx.repo.update_comment(s.id, status="escalated", reason=INTERRUPTED_REASON)
+        n += 1
+    if n:
+        ctx.notifier.notify(
+            "답글 중단 복구", f"보내는 도중 중단된 답글 {n}건을 사람 확인으로 넘겼습니다", "warn"
+        )
+    return n
 
 
 def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
@@ -223,7 +243,16 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
             else "답글 초안이 비어 있음",
             reply_text=text or None,
         )
-    reply_id = adapter.reply(c, text)
+    # 먼저 '보내는 중'으로 적는다(C24). 보낸 직후 프로그램이 죽으면 다음 실행이 'new'로 보고 다시 보내
+    # 두 번 달릴 수 있다. 'replying'은 시작할 때 사람에게 넘긴다(recover_interrupted_replies)
+    ctx.repo.update_comment(key, status="replying", reply_text=text)
+    try:
+        reply_id = adapter.reply(c, text)
+    except Exception as e:
+        if retry_at(e):
+            # 요청 제한은 글 페이지를 열기도 전에 막힌 것이라 보내지 않았다: 'new'로 되돌려 쉬고 나서 처리
+            ctx.repo.update_comment(key, status="new")
+        raise
     # 보냈을 수 있으므로 작성자별 하루 한도는 센다(확인 실패여도)
     ctx.repo.increment_reply_count(c.platform, c.author_id, local(ctx.clock.now(), ctx.tz).date())
     if not reply_id:

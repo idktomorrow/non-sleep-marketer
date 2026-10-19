@@ -21,6 +21,18 @@ S-β(#21)·S-γ(#23)·S8(#34)은 2026-10-14에 메인이 끝냈고(ADR 0034), 20
 | **Aside 로그인 유지** | 로그인이 풀리면 그 플랫폼을 멈추고 알림을 보낸다(30분마다 점검). 다시 로그인하기 전까지는 게시·답글이 없다 | 알림이 오면 Aside 브라우저에서 다시 로그인 |
 | **장기 무인 운영 미검증** | 실계정은 2026-10-13부터 운영했다. 며칠 연속 켜 두었을 때 브라우저 세션·메모리·로그 크기는 아직 지켜보지 않았다 | 첫 주는 매일 확인 |
 
+## 2-1. 실패 상황 검증 결과 (2026-10-19, C24)
+
+외부 피드백의 질문 5개를 코드·테스트로 확인했다. 근거는 테스트 이름이다.
+
+| 질문 | 지금 동작 | 근거 |
+|---|---|---|
+| 게시는 됐는데 응답만 실패하면 중복 게시되지 않나 | 올리기 전에 내 최근 글을 읽어 같은 글이 있으면 올리지 않고 그 글로 처리(멱등). 게시 도중 프로그램이 죽으면 다시 켤 때 "중단됨, 플랫폼 확인 필요"로 검토 대기열에 보내고 자동으로 다시 올리지 않음 | `test_publish_is_idempotent_and_never_errors_after_posting`, `test_restart_recovery_sends_interrupted_to_review`, `test_retry_schedule_then_abandon` |
+| 승인과 수정이 동시에 오면 어떤 판이 게시되나 | 수정은 검토 대기 상태에서만 되고, 저장 자체가 `status='pending_review'` 조건부 UPDATE라 승인이 끼어들면 409. 승인된 원고는 승인 시점의 판이 게시되고, 수정된 원고는 게시 때 다시 그림 | `test_edit_after_approval_is_refused_at_the_database`, `test_only_pending_review_is_editable`, `test_edited_deck_is_rerendered` |
+| 답글 보낸 직후 프로그램이 죽으면 | 보내기 전에 '보내는 중'으로 적고, 다시 켤 때 '보내는 중'은 재전송 없이 "확인 필요"로 넘김(두 번 달리는 것보다 한 번 빠지는 쪽). 보냈지만 화면에서 확인 못 한 답글도 같은 처리(C23). 대시보드 "직접 답글"을 누른 직후 프로그램을 끄면 보내기 전인데도 "중단됨"으로 넘어올 수 있음(보수적) | `test_reply_marks_replying_before_sending_and_recovers_after_crash`, `test_unconfirmed_reply_goes_to_human_without_resend` |
+| AI 생성이 오래 걸리면 다른 작업은 | 작업 스레드가 하나라 순서대로 기다린다(설계: 브라우저 하나를 두 작업이 같이 쓰지 않게). Claude 호출은 원고 180초·분류 60초로 제한. 재시도 5번(순간 끊김용)이 시간 초과에도 적용되므로 최악은 원고 18분·분류 6분(전에는 60분). 브라우저 동작은 120초(Aside). 밀린 실행은 하나로 합쳐 돈다(coalesce) | `test_claude_clients_have_timeouts`, `scheduler/app.py` `max_workers=1, coalesce, misfire_grace_time=900` |
+| AI 비용이 상한을 넘지 않나 | 원고·키워드 원고는 만들기 전마다 오늘 비용을 확인해 상한이면 만들지 않음. 마지막 1건이 상한을 조금 넘길 수는 있음(최대 원고 1건 값 3~6센트). 답글(1건 0.3센트)·이미지 읽기(0.02센트)는 상한 검사 없음, 작성자당 하루 3건으로 묶임. 6일 실측 $0.61(상한 $2) | `test_cost_cap_stops_generation`, `tests/engine/test_keyword.py`, 운영 DB |
+
 ## 3. 품질·기능 (중간)
 
 | 빈틈 | 설명 |
