@@ -146,7 +146,7 @@ def _comment() -> Comment:
 
 def test_reply_targets_comment_by_id(tmp_path, clock) -> None:
     a, _ = _adapter(tmp_path, clock, data={"ok": True})
-    assert a.reply(_comment(), "고마워요") == ""
+    assert a.reply(_comment(), "고마워요") == "seen:fan:111"  # 화면에서 확인됨(C23)
     _, args, _ = a.repl.calls[-1]
     assert (args["parent"], args["author"], args["cid"], args["text"]) == (
         "P1",
@@ -320,3 +320,9 @@ def test_login_check_success_does_not_reset_backoff(tmp_path, clock) -> None:
     with pytest.raises(RateLimitedError) as e:
         a.read_account_metrics()
     assert e.value.retry_at - clock.now() == timedelta(hours=4)
+
+
+def test_reply_unconfirmed_returns_empty(tmp_path, clock) -> None:
+    """C23: 보냈지만 화면에서 확인 못 하면 빈 값(엔진이 사람에게 넘김). 오류는 아니다(다시 보내면 중복)."""
+    a, _ = _adapter(tmp_path, clock, data={"ok": False})
+    assert a.reply(_comment(), "고마워요") == ""

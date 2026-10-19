@@ -35,7 +35,7 @@ flowchart LR
 | collect | 하루 2회 ±30분 | 소스 → `source_items`(중복 제거) → 관련성·주제 `classifications` |
 | generate | 하루 1회 | 주제 선정(14일 중복 제외) → `contents`(draft → pending_review / approved) |
 | publish | 게시 슬롯 | approved 1건 → publishing → 렌더 → 어댑터 → published + `publications` |
-| reply | 5분 ±1분(설정) | 새 댓글 → 6분류 → 답글 / 숨김 / 에스컬레이션, `reply_counts`. 인스타그램은 30분마다·최근 3일 글만(ADR 0038). 답글 근거는 게시물 본문 + 그 원고에 쓴 자료 최대 3개(`repo.sources_for_content`, C18, ADR 0047) |
+| reply | 5분 ±1분(설정) | 새 댓글 → 6분류 → 답글 / 숨김 / 에스컬레이션, `reply_counts`. 답글을 보냈지만 어댑터가 확인 못 하면(빈 ID) 재시도 없이 에스컬레이션(C23). 인스타그램은 30분마다·최근 3일 글만(ADR 0038). 답글 근거는 게시물 본문 + 그 원고에 쓴 자료 최대 3개(`repo.sources_for_content`, C18, ADR 0047) |
 | metrics | 하루 1회 | 최근 7일 게시물·계정 지표 스냅샷 |
 | weekly_report | 주 1회 | 성과 요약·추천 주제 → 대시보드 + md |
 | maintenance | 매일 04:30 | 데이터 백업(`backups/data-날짜.duckdb`, 최근 7개, `COPY FROM DATABASE`) + 90일 넘은 실행 기록 정리(C12) |

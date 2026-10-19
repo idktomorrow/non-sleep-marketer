@@ -512,7 +512,9 @@ class InstagramAdapter(AsideAdapterBase):
         d = self._run(_REPLY, args) or {}
         if not d.get("ok"):
             log.warning("인스타그램: 답글은 보냈지만 확인하지 못함(%s)", comment.external_id)
-        return ""  # 웹 화면에서 답글 ID를 안정적으로 얻을 수 없다
+            return ""  # 빈 값 = 확인 못 함. 엔진이 사람에게 넘긴다(C23)
+        # 웹 화면에서 답글 ID를 안정적으로 얻을 수 없다. "화면에서 확인됨"을 뜻하는 표지만 돌려준다
+        return f"seen:{comment.external_id}"
 
     def hide_comment(self, comment: Comment) -> None:
         self._need("hide_comment")  # 미지원(ADR 0018) → NotSupportedError
