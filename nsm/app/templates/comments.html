@@ -28,7 +28,7 @@
 {% for s in recent %}<tr><td class="small">{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform|ko_platform }}</td><td>{{ s.comment.author_name }}</td>
 <td style="min-width:220px">{{ s.comment.text }}</td>
 <td><span class="badge {{ 'warn' if s.status == 'escalated' else ('ok' if s.status in ('auto_replied', 'resolved') else 'gray') }}">{{ s.status|ko_comment }}</span></td>
-<td class="small" style="min-width:160px">{{ s.reply_text or '' }}</td></tr>{% endfor %}
+<td class="small" style="min-width:160px">{% if s.status in ('auto_replied', 'resolved', 'escalated', 'replying') %}{{ s.reply_text or '' }}{% endif %}</td></tr>{% endfor %}
 </table></div>
 {% else %}<p class="muted">아직 댓글이 없습니다.</p>{% endif %}
 {% endblock %}
