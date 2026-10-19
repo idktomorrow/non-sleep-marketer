@@ -14,7 +14,7 @@
 |---|---|---|
 | [0001](0001-local-browser-automation.md) | 사용자별 로컬 설치 + 브라우저 자동화(공식 API 미사용) | 채택 |
 | [0002](0002-aside-default-driver-split.md) | Aside 기본 드라이버, Playwright 대안, 드라이버 분리 | 채택 |
-| [0003](0003-classifier-jev-and-claude.md) | 분류기는 MotherDuck jev, Claude를 동등 구현으로 | 채택 |
+| [0003](0003-classifier-jev-and-claude.md) | 분류기는 MotherDuck jev, Claude를 동등 구현으로 | 대체됨(0048) |
 | [0004](0004-three-platforms-in-mvp.md) | 인스타그램·스레드·네이버 블로그를 MVP부터 | 대체됨(0016) |
 | [0005](0005-dry-run-first.md) | 드라이런 MVP를 먼저 | 채택 |
 | [0006](0006-single-process-duckdb-fastapi.md) | 단일 프로세스 + DuckDB + FastAPI 대시보드 | 채택 |
@@ -59,3 +59,4 @@
 | [0045](0045-image-materials.md) | 올린 이미지(png·jpg·webp)는 Claude가 보이는 글자·사실만 옮겨 자료로 쓴다(한 번만 읽고 캐시, 정보 없으면 거절). 카드에는 이미지를 넣지 않음 | 제안 |
 | [0046](0046-persona-character-images.md) | 일러스트형 카드 캐릭터는 설정 `brand.character`(기본 앵무새, 햄스터, 직접 올린 그림, 도형, 없음). 올린 캐릭터는 바탕을 자동으로 지우고, 로고도 설정 화면에서 올림. AI로 만든 그림이면 그 장에 "AI 생성 이미지"(기본 켬) | 제안 |
 | [0047](0047-replies-grounded-in-post-sources.md) | 댓글 답글은 게시물 본문 + 그 원고에 쓴 자료(최대 3개, 원문 앞 1500자)를 보고 쓴다. 자료에 없으면 지어내지 않되 "모르겠어요"로 딱 자르지 않고 아는 만큼 + "아직 발표 전인 것 같아요". 댓글마다 새 검색은 하지 않음 | 제안 |
+| [0048](0048-gemini-classifier-replaces-jev.md) | 분류기는 Gemini 무료 구간(Flash-Lite, 10건 묶음)을 기본으로, jev·MotherDuck은 제거. 자동 선택 Gemini → Claude → 낱말 규칙, 실패하면 다음으로 넘어가며 알림 | 제안 |

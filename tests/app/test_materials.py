@@ -90,9 +90,9 @@ def test_materials_page_lists_collected_items_with_filter(menv) -> None:
 
 def test_verdict_texts() -> None:
     assert M.verdict({"classifier": "rule:다녀왔어"}, 0.8)[0] == '후기·일기 제외("다녀왔어")'
-    assert M.verdict({"label": "error", "classifier": "jev"}, 0.8)[0] == "판정 실패"
+    assert M.verdict({"label": "error", "classifier": "gemini"}, 0.8)[0] == "판정 실패"
     assert M.verdict({"relevance": None}, 0.8)[0] == "판정 전"
-    assert M.verdict({"relevance": 0.5, "classifier": "jev"}, 0.8) == ("관련 없음 0.50", "gray")
+    assert M.verdict({"relevance": 0.5, "classifier": "gemini"}, 0.8) == ("관련 없음 0.50", "gray")
     assert M.source_label("community:cafe.example.com") == "커뮤니티(cafe.example.com)"
 
 

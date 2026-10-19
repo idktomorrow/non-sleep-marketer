@@ -137,6 +137,12 @@ def build_context(
         reports_dir=paths.reports_dir(),
         backups_dir=paths.backups_dir(),
     )
+    # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
+    classifiers.set_on_switch(
+        lambda a, b, e: ctx.notifier.notify(
+            "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
+        )
+    )
     # 카드 스타일은 렌더할 때마다 현재 설정에서 읽는다: 대시보드 설정 저장이 재시작 없이 반영(S8)
     from nsm.render.character import character_art
 

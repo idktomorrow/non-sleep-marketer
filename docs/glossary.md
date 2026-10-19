@@ -24,7 +24,8 @@
 | **보호 모드** | 설치 직후 첫 20건을 무조건 사람이 검토하는 모드 | ADR 0008 |
 | **쿼터** | 하루에 허용되는 최대 횟수 | 플랫폼별 게시 수 |
 | **DuckDB** | 파일 하나로 동작하는 무료 오픈소스 DB. 한 프로세스만 쓰기 가능 | `data.duckdb`, ADR 0006 |
-| **MotherDuck / jev** | DuckDB 클라우드 서비스 / 그 안에서 SQL로 부르는 분류 전용 모델 | 분류기, ADR 0003 |
+| **MotherDuck / jev** | DuckDB 클라우드 서비스 / 그 안에서 SQL로 부르는 분류 전용 모델. 체험 종료로 2026-10-20에 뺌 | ADR 0003 → 0048 |
+| **Gemini 무료 구간** | 구글 Gemini API의 무료 사용 한도(Flash 계열, 분당·하루 요청 수 제한). 자료·댓글 분류에 씀 | 분류기, ADR 0048 |
 | **keyring** | OS 자격 증명 저장소(Windows 자격 증명 관리자)를 쓰는 Python 라이브러리 | API 키 보관 |
 | **uv** | 빠른 Python 패키지·가상환경 관리 도구. `uv.lock`으로 버전 고정 | `uv sync`, `uv run` |
 | **ruff** | Python 린터·포매터 | DoD 1번 |

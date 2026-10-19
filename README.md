@@ -45,7 +45,7 @@
 - Windows 11 PC (프로그램이 도는 동안 켜 두기)
 - [uv](https://docs.astral.sh/uv/), Python 3.12
 - Claude API 키 (원고·답글, 필수)
-- MotherDuck 토큰 (자료·댓글 분류, Lite 요금제 이상. 없으면 Claude로 분류)
+- Gemini API 키 (자료·댓글 분류, 무료 구간이면 0원. 없으면 Claude로 분류)
 - [Aside](https://docs.aside.com/help/developers) 브라우저와 CLI (실계정 게시·댓글). 게시할 인스타그램(프로페셔널 계정)·스레드 계정으로 로그인해 둡니다
 - OpenAI API 키 (카드 배경 이미지 생성, 선택. 없으면 브랜드 색 배경)
 
@@ -102,7 +102,7 @@ uv run nsm run       # 실행. 대시보드: http://127.0.0.1:8765 (끄기: Ctrl
 |---|---|
 | 원고 1건 (Claude) | 약 3~6센트 |
 | 자동 답글 1개 (Claude) | 약 0.5센트 |
-| 자료·댓글 분류 (jev) | 1건에 약 0.0005센트 |
+| 자료·댓글 분류 (Gemini 무료 구간) | 0원 (하루 한도 안. 없으면 Claude Haiku 1건 약 0.01센트) |
 | 게시·댓글 확인·지표 (Aside 브라우저) | 0원 |
 | 배경 이미지 1장 (OpenAI, 선택) | 약 5센트 |
 

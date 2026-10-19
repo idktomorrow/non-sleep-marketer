@@ -1,6 +1,6 @@
 # 0003. 분류기는 MotherDuck jev를 기본으로, Claude 분류기를 같은 포트의 동등 구현으로 둔다
 
-- 상태: 채택 · 날짜: 2026-10-11 · 결정: 선웅제 · 관련: [mvp-review](../mvp-review.md) #10, 이슈 #7
+- 상태: 대체됨([ADR 0048](0048-gemini-classifier-replaces-jev.md), 2026-10-20: MotherDuck 체험 종료로 jev를 빼고 Gemini 무료 구간을 기본으로) · 날짜: 2026-10-11 · 결정: 선웅제 · 관련: [mvp-review](../mvp-review.md) #10, 이슈 #7
 
 ## 배경
 

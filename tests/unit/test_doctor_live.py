@@ -74,18 +74,18 @@ def test_env_key_source_is_reported(fake_anthropic, monkeypatch) -> None:
 def test_optional_failures_are_warn(monkeypatch) -> None:
     import httpx
 
-    from nsm.adapters.classifier import jev
+    from nsm.adapters.classifier import gemini
 
-    def bad_connect(self):
-        raise RuntimeError("bad token")
+    def bad_post(self, body):
+        raise RuntimeError("bad key")
 
-    monkeypatch.setattr(jev.JevClassifier, "_db", bad_connect)
+    monkeypatch.setattr(gemini.GeminiClassifier, "_post", bad_post)
     monkeypatch.setattr(
         httpx,
         "post",
         lambda *a, **k: SimpleNamespace(status_code=401, text="unauthorized", json=dict),
     )
-    secrets = MemorySecretStore({"motherduck_token": "t", "openai_api_key": "o"})
+    secrets = MemorySecretStore({"gemini_api_key": "g", "openai_api_key": "o"})
     checks = run_live_checks(secrets, with_image=True, models=ModelSettings())
     assert [c.status for c in checks[1:]] == ["WARN", "WARN"]
 

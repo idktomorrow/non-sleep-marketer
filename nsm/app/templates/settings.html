@@ -143,7 +143,7 @@
   <ul style="margin-bottom:0">
     <li>모드: <b>{{ '드라이런(실제로 올리지 않음)' if cfg.settings.dry_run else '실계정' }}</b></li>
     <li>게시 계정: {% for p, h in cfg.settings.accounts.items() %}{{ p|ko_platform }} {{ h }}{% if not loop.last %}, {% endif %}{% else %}없음{% endfor %}</li>
-    <li>API 키(Claude, MotherDuck, OpenAI): Windows 자격 증명 관리자에 저장</li>
+    <li>API 키(Claude, Gemini, OpenAI): Windows 자격 증명 관리자에 저장</li>
   </ul>
 </div>
 
