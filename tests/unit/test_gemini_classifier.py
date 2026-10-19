@@ -48,7 +48,7 @@ def test_batches_texts_and_maps_labels_back() -> None:
     assert "지시" in seen[0]["contents"][0]["parts"][0]["text"]
 
 
-def test_rate_limit_waits_then_succeeds() -> None:
+def test_rate_limit_overload_and_network_errors_wait_then_succeed() -> None:
     calls = {"n": 0}
     waits: list[int] = []
 
@@ -56,11 +56,26 @@ def test_rate_limit_waits_then_succeeds() -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             return httpx.Response(429, text="quota")
+        if calls["n"] == 2:
+            return httpx.Response(503, text="overloaded")
+        if calls["n"] == 3:
+            raise httpx.ReadTimeout("slow")
         return _ok([{"i": 0, "label": "irrelevant", "confidence": 0.8}])
 
     c = GeminiClassifier("K", "m", client=_client(handler), sleep=waits.append)
     assert c.classify("x", ["relevant", "irrelevant"], "q").label == "irrelevant"
-    assert calls["n"] == 2 and waits == [20]
+    assert calls["n"] == 4 and waits == [20, 40, 60]
+    # 4xx(키 오류 등)는 기다리지 않고 바로 실패. retry_waits=()면(doctor) 429도 바로 실패
+    calls["n"] = 0
+    bad = GeminiClassifier(
+        "K", "m", client=_client(lambda r: httpx.Response(400, text="key")), sleep=waits.append
+    )
+    with pytest.raises(AdapterError, match="400"):
+        bad.classify("x", ["a", "b"], "q")
+    probe = GeminiClassifier("K", "m", client=_client(handler), sleep=waits.append, retry_waits=())
+    with pytest.raises(AdapterError, match="429"):
+        probe.classify("x", ["a", "b"], "q")
+    assert waits == [20, 40, 60]
 
 
 def test_persistent_rate_limit_and_bad_responses_raise() -> None:
@@ -74,7 +89,7 @@ def test_persistent_rate_limit_and_bad_responses_raise() -> None:
     )
     with pytest.raises(AdapterError):
         c.classify("x", ["a", "b"], "q")
-    # 빠진 번호 → 오류, 모르는 라벨 → 마지막 라벨
+    # 빠진 번호 → 오류, 모르는 라벨 → 오류(엉뚱한 라벨에 신뢰도를 붙여 저장하지 않는다)
     c = GeminiClassifier(
         "K", "m", client=_client(lambda r: _ok([{"i": 5, "label": "a", "confidence": 1}]))
     )
@@ -83,5 +98,9 @@ def test_persistent_rate_limit_and_bad_responses_raise() -> None:
     c = GeminiClassifier(
         "K", "m", client=_client(lambda r: _ok([{"i": 0, "label": "zzz", "confidence": 2}]))
     )
-    r = c.classify("x", ["a", "b"], "q")
-    assert r.label == "b" and r.confidence == 1.0
+    with pytest.raises(AdapterError, match="허용되지 않은 라벨"):
+        c.classify("x", ["a", "b"], "q")
+    c = GeminiClassifier(
+        "K", "m", client=_client(lambda r: _ok([{"i": 0, "label": "b", "confidence": 2}]))
+    )
+    assert c.classify("x", ["a", "b"], "q").confidence == 1.0  # 신뢰도는 0~1로 자른다

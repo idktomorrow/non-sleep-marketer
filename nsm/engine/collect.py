@@ -79,9 +79,9 @@ def run_collect(ctx: JobContext) -> JobResult:
     return result
 
 
-def _who(ctx: JobContext) -> str:
+def _who(ctx: JobContext, clf: object) -> str:
     """분류 기록에 적을 분류기 이름. 대체 분류기로 넘어갔으면 넘어간 쪽(C27)."""
-    return str(getattr(ctx.relevance_classifier, "name", None) or ctx.classifier_name)
+    return str(getattr(clf, "name", None) or ctx.classifier_name)
 
 
 def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
@@ -123,31 +123,52 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
             # 같은 항목이 매 실행마다 실패하며 비용만 쓰지 않도록 관련성 0으로 닫는다
             ctx.repo.set_source_relevance(item.id, 0.0)
             ctx.repo.record_classification(
-                "source_item", item.id, "relevance", "error", 0.0, _who(ctx)
+                "source_item",
+                item.id,
+                "relevance",
+                "error",
+                0.0,
+                _who(ctx, ctx.relevance_classifier),
             )
             continue
         # "relevant일 확률"로 통일해서 저장한다
         score = c.confidence if c.label == "relevant" else 1.0 - c.confidence
         ctx.repo.set_source_relevance(item.id, score)
         ctx.repo.record_classification(
-            "source_item", item.id, "relevance", c.label, c.confidence, _who(ctx)
+            "source_item",
+            item.id,
+            "relevance",
+            c.label,
+            c.confidence,
+            _who(ctx, ctx.relevance_classifier),
         )
         if score >= threshold:
             relevant += 1
 
     # 관련 자료 중 주제가 아직 없는 것(이번 것 + 지난번 주제 분류 실패분)
     topics = ctx.config.persona.topics
-    for item in ctx.repo.relevant_items_without_topic(threshold):
-        try:
-            t = ctx.topic_classifier.classify(
-                f"{item.title}\n{item.text}", topics, topic_instruction(ctx)
-            )
-        except Exception as e:  # noqa: BLE001  다음 실행에서 다시 시도된다
-            result.errors.append(f"주제 분류 실패({item.id}): {e}")
+    todo = ctx.repo.relevant_items_without_topic(threshold)
+    todo_texts = [f"{i.title}\n{i.text}" for i in todo]
+    # 관련성처럼 묶어서 보낸다(Gemini 무료 구간은 분당 요청 수가 작다, C27). 묶음이 실패하면 한 건씩
+    try:
+        ts: list[Classification | None] = list(
+            ctx.topic_classifier.classify_many(todo_texts, topics, topic_instruction(ctx))
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("주제 일괄 분류 실패, 한 건씩 재시도: %s", e)
+        ts = []
+        for item, text in zip(todo, todo_texts, strict=True):
+            try:
+                ts.append(ctx.topic_classifier.classify(text, topics, topic_instruction(ctx)))
+            except Exception as e2:  # noqa: BLE001  다음 실행에서 다시 시도된다
+                result.errors.append(f"주제 분류 실패({item.id}): {e2}")
+                ts.append(None)
+    for item, t in zip(todo, ts, strict=True):
+        if t is None:
             continue
         ctx.repo.set_source_topic(item.id, t.label, t.confidence)
         ctx.repo.record_classification(
-            "source_item", item.id, "topic", t.label, t.confidence, _who(ctx)
+            "source_item", item.id, "topic", t.label, t.confidence, _who(ctx, ctx.topic_classifier)
         )
     return relevant, len(pending) + result.counts.get("excluded_genre", 0)
 

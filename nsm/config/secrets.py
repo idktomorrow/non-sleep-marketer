@@ -14,7 +14,10 @@ KEYS = ("anthropic_api_key", "gemini_api_key", "openai_api_key")
 ENV_NAMES = {
     "anthropic_api_key": ("NSM_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
     "openai_api_key": ("NSM_OPENAI_API_KEY", "OPENAI_API_KEY"),
-    "gemini_api_key": ("NSM_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "gemini_api_key": (
+        "NSM_GEMINI_API_KEY",
+        "GEMINI_API_KEY",
+    ),  # GOOGLE_API_KEY는 다른 구글 키일 수 있어 안 읽음
 }
 
 

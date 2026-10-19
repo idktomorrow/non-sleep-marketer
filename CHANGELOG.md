@@ -5,7 +5,7 @@
 ## [Unreleased]
 
 ### Added
-- 분류기를 Gemini 무료 구간으로(C27, ADR 0048): MotherDuck 체험 종료로 자료 분류가 전부 실패하던 것을 Gemini 3.5 Flash-Lite(무료, 10건 묶음)로 바꿈. 운영 자료 294건으로 jev와 비교해 약 97% 일치, 댓글 9/9. 자동 선택 Gemini → Claude → 낱말 규칙, 고른 분류기가 실패하면 다음으로 넘어가며 "분류기 대체" 알림. 관련성 지시에 "흥행·판매·행사 뉴스 기사도 relevant" 추가
+- 분류기를 Gemini 무료 구간으로(C27, ADR 0048): MotherDuck 체험 종료로 자료 분류가 전부 실패하던 것을 Gemini 3.5 Flash-Lite(무료, 10건 묶음)로 바꿈. 운영 자료 294건으로 jev와 비교해 약 97% 일치, 댓글 9/9. 자동 선택 Gemini → Claude → 낱말 규칙, 고른 분류기가 실패하면 다음으로 넘어가며 "분류기 대체" 알림(30분 뒤 다시 시도, 알림은 6시간에 한 번). 관련성 지시에 "흥행·판매·행사 뉴스 기사도 relevant" 추가
 
 ### Removed
 - jev·MotherDuck(C27): 분류기 코드, `motherduck_token` 키, `nsm init` 질문, `nsm doctor --live` 점검, 가격표 줄. 예전 설정의 `classifier: jev`는 `auto`로 읽음

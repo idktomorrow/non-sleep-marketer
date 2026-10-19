@@ -1,13 +1,16 @@
 """분류기 선택 (ADR 0048): auto = Gemini 키 → gemini, Anthropic 키 → claude, 둘 다 없으면 keyword.
 
-고른 분류기가 호출에 실패하면 다음 분류기로 넘어간다(FallbackClassifier). jev(MotherDuck)는 C27에서 뺐다.
+고른 분류기가 호출에 실패하면 다음 분류기로 넘어간다(FallbackClassifier). 관련성·주제·댓글 세 분류기가
+상태(ChainState)를 함께 써서 한 번만 넘어가고 알림도 한 번만 간다. 넘어간 뒤 일정 시간이 지나면 첫 분류기를
+다시 시도한다(잠깐의 오류로 유료 Claude에 눌러앉지 않게). jev(MotherDuck)는 C27에서 뺐다.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from nsm.adapters.classifier.keyword import COMMENT_VOCAB, KeywordClassifier
 from nsm.config.schema import AppConfig
@@ -18,44 +21,68 @@ from nsm.ports import Classifier, CostSink
 log = logging.getLogger(__name__)
 
 OnSwitch = Callable[[str, str, Exception], None]
+RETRY_PRIMARY_AFTER_S = 30 * 60  # 대체한 뒤 이만큼 지나면 첫 분류기부터 다시 시도
+NOTIFY_EVERY_S = 6 * 3600  # 같은 대체 알림은 이 간격으로만
+
+
+class ChainState:
+    """세 FallbackClassifier가 함께 쓰는 상태: 지금 몇 번째 분류기인지, 언제 넘어갔는지, 언제 알렸는지."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self.index = 0
+        self.switched_at: float | None = None
+        self.notified_at: float | None = None
+        self.on_switch: OnSwitch | None = None
+        self.clock = clock
 
 
 class FallbackClassifier:
-    """순서대로 시도하는 분류기. 앞의 것이 예외를 내면 다음 것으로 넘어가고, 처음 넘어갈 때 `on_switch`를 부른다.
+    """순서대로 시도하는 분류기. 앞의 것이 예외를 내면 다음 것으로 넘어간다.
 
-    넘어간 뒤에는 그대로 뒤의 것을 쓴다(실패한 분류기를 매번 다시 두드리지 않게). `name`은 지금 쓰는 분류기 이름이라,
-    분류 기록에 실제로 판정한 분류기가 남는다.
+    `name`은 지금 쓰는 분류기 이름이라 분류 기록에 실제로 판정한 분류기가 남는다.
     """
 
     def __init__(
-        self, chain: list[tuple[str, Classifier]], on_switch: OnSwitch | None = None
+        self, chain: list[tuple[str, Classifier]], state: ChainState | None = None
     ) -> None:
         if not chain:
             raise ValueError("분류기가 하나도 없습니다")
         self.chain = chain
-        self.index = 0
-        self.on_switch = on_switch
+        self.state = state or ChainState()
 
     @property
     def name(self) -> str:
-        return self.chain[self.index][0]
+        return self.chain[self.state.index][0]
 
     def _call(self, method: str, *args):
+        st = self.state
+        now = st.clock()
+        if (
+            st.index > 0
+            and st.switched_at is not None
+            and now - st.switched_at >= RETRY_PRIMARY_AFTER_S
+        ):
+            log.info("분류기 %s를 다시 시도", self.chain[0][0])
+            st.index, st.switched_at = 0, None
         while True:
-            name, clf = self.chain[self.index]
+            name, clf = self.chain[st.index]
             try:
                 return getattr(clf, method)(*args)
             except Exception as e:  # noqa: BLE001  다음 분류기로
-                if self.index + 1 >= len(self.chain):
+                if st.index + 1 >= len(self.chain):
                     raise
-                nxt = self.chain[self.index + 1][0]
+                nxt = self.chain[st.index + 1][0]
                 log.warning("분류기 %s 실패, %s로 대체: %s", name, nxt, e)
-                if self.on_switch:
+                st.index += 1
+                if st.switched_at is None:
+                    st.switched_at = now
+                due = st.notified_at is None or now - st.notified_at >= NOTIFY_EVERY_S
+                if st.on_switch and due:
+                    st.notified_at = now
                     try:
-                        self.on_switch(name, nxt, e)
+                        st.on_switch(name, nxt, e)
                     except Exception:  # noqa: BLE001  알림 실패가 분류를 막지 않게
                         log.exception("분류기 대체 알림 실패")
-                self.index += 1
 
     def classify(self, text: str, labels: list[str], instruction: str) -> Classification:
         return self._call("classify", text, labels, instruction)
@@ -74,11 +101,11 @@ class ClassifierSet:
     relevance: Classifier
     topic: Classifier
     comment: Classifier
-    fallbacks: list[FallbackClassifier] = field(default_factory=list)
+    state: ChainState | None = None
 
     def set_on_switch(self, cb: OnSwitch) -> None:
-        for f in self.fallbacks:
-            f.on_switch = cb
+        if self.state is not None:
+            self.state.on_switch = cb
 
 
 def _keyword_set(cfg: AppConfig) -> tuple[Classifier, Classifier, Classifier]:
@@ -130,8 +157,9 @@ def make_classifiers(cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink) 
     if not chain or choice == "keyword":
         return ClassifierSet("keyword", kw_rel, kw_topic, kw_comment)
 
-    # 낱말 규칙은 맨 끝 대체(키가 있는 분류기가 모두 실패했을 때)
-    rel = FallbackClassifier([*chain, ("keyword", kw_rel)])
-    topic = FallbackClassifier([*chain, ("keyword", kw_topic)])
-    comment = FallbackClassifier([*chain, ("keyword", kw_comment)])
-    return ClassifierSet(chain[0][0], rel, topic, comment, fallbacks=[rel, topic, comment])
+    # 낱말 규칙은 맨 끝 대체(키가 있는 분류기가 모두 실패했을 때). 상태는 셋이 공유
+    state = ChainState()
+    rel = FallbackClassifier([*chain, ("keyword", kw_rel)], state)
+    topic = FallbackClassifier([*chain, ("keyword", kw_topic)], state)
+    comment = FallbackClassifier([*chain, ("keyword", kw_comment)], state)
+    return ClassifierSet(chain[0][0], rel, topic, comment, state=state)

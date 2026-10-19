@@ -90,11 +90,15 @@ def _gemini(secrets: SecretStore, model: str, sink: CostSink | None = None) -> C
         return Check(name, "WARN", "키 없음: Claude 분류기로 대신 동작")
     src = key_source("gemini_api_key")
     try:
+        import httpx
+
         from nsm.adapters.classifier.gemini import GeminiClassifier
 
-        c = GeminiClassifier(key, model, cost_sink=sink).classify(
-            PROBE_TEXT, PROBE_LABELS, PROBE_INSTRUCTION
-        )
+        # 점검은 한 번만 보내고 429여도 기다리지 않는다(마법사가 2분 멈춘 것처럼 보이지 않게)
+        with httpx.Client(timeout=30.0) as client:
+            c = GeminiClassifier(
+                key, model, cost_sink=sink, client=client, retry_waits=()
+            ).classify(PROBE_TEXT, PROBE_LABELS, PROBE_INSTRUCTION)
         return Check(name, "OK", f"{model} → {c.label} ({c.confidence:.2f}) · 키: {src}")
     except Exception as e:  # noqa: BLE001  (키는 헤더로만 보내 오류 문구에 없다)
         return Check(name, "WARN", f"실패, Claude 분류기로 대신 동작: {str(e)[:160]} · 키: {src}")

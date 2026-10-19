@@ -88,7 +88,12 @@ def test_make_classifiers_auto_selection(app_config) -> None:
 
 
 def test_fallback_switches_once_and_records_who_answered() -> None:
-    from nsm.adapters.classifier import FallbackClassifier
+    from nsm.adapters.classifier import (
+        NOTIFY_EVERY_S,
+        RETRY_PRIMARY_AFTER_S,
+        ChainState,
+        FallbackClassifier,
+    )
     from nsm.domain.models import Classification
 
     calls: list[str] = []
@@ -112,15 +117,27 @@ def test_fallback_switches_once_and_records_who_answered() -> None:
             return [Classification(label=labels[0], confidence=0.9) for _ in texts]
 
     switched: list[tuple[str, str]] = []
-    f = FallbackClassifier(
-        [("gemini", Boom()), ("claude", Ok())], on_switch=lambda a, b, e: switched.append((a, b))
-    )
+    now = {"t": 0.0}
+    state = ChainState(clock=lambda: now["t"])
+    state.on_switch = lambda a, b, e: switched.append((a, b))
+    f = FallbackClassifier([("gemini", Boom()), ("claude", Ok())], state)
+    g = FallbackClassifier([("gemini", Boom()), ("claude", Ok())], state)  # 주제용, 상태 공유
     assert f.name == "gemini"
     assert [c.label for c in f.classify_many(["x", "y"], ["r", "i"], "q")] == ["r", "r"]
-    assert switched == [("gemini", "claude")] and f.name == "claude"
+    assert switched == [("gemini", "claude")] and f.name == "claude" and g.name == "claude"
+    g.classify("z", ["r", "i"], "q")
+    assert calls == [
+        "boom",
+        "ok",
+        "ok",
+    ]  # 넘어간 뒤에는 실패한 쪽을 다시 두드리지 않는다(다른 용도도)
+    # 30분 지나면 첫 분류기를 다시 시도한다. 또 실패해도 알림은 6시간에 한 번
+    now["t"] += RETRY_PRIMARY_AFTER_S
     f.classify("z", ["r", "i"], "q")
-    assert calls == ["boom", "ok", "ok"]  # 넘어간 뒤에는 실패한 쪽을 다시 두드리지 않는다
-    assert switched == [("gemini", "claude")]
+    assert calls[-2:] == ["boom", "ok"] and switched == [("gemini", "claude")]
+    now["t"] += NOTIFY_EVERY_S
+    f.classify("z", ["r", "i"], "q")
+    assert switched == [("gemini", "claude")] * 2
     with pytest.raises(AdapterError):
         FallbackClassifier([("gemini", Boom())]).classify("z", ["r", "i"], "q")
 
