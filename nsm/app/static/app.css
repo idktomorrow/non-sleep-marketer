@@ -86,7 +86,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 @media (max-width: 640px) { .job-status .col-every { display: none; } }
 
 /* ---------------------------------------------------------------- 개요 */
-.today { display: grid; gap: 12px; grid-template-columns: 1.6fr 1fr; align-items: start; }
+.today { display: grid; gap: 12px; grid-template-columns: 1.25fr 1fr; align-items: start; }
 .todo h2 { margin-top: 0; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
 .todo-item { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--fg); }
@@ -99,6 +99,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .stat .label { color: var(--muted); font-size: 13px; } .stat b { display: block; font-size: 22px; font-weight: 800; }
+.next-pubs span { display: block; white-space: nowrap; }  /* 플랫폼마다 한 줄(C28) */
 .progress { height: 8px; background: #eceff3; border-radius: 999px; overflow: hidden; margin-top: 6px; }
 .progress > i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .progress.warn > i { background: var(--warn); } .progress.bad > i { background: var(--bad); }
