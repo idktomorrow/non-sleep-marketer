@@ -70,12 +70,15 @@ def next_publishes(
         if s.posting_hours is not None:
             sets.append(s.posting_hours)
         opened: datetime | None = at
+        converged = False
         for _ in range(3):
             for windows in sets:
                 opened = next_window_start(opened, windows, tz) if opened is not None else None
             if opened is None or all(next_window_start(opened, w, tz) == opened for w in sets):
+                converged = True
                 break
-        if opened is None:
+        # 두 구간이 겹치지 않으면(활동 09-12, 게시 13-18) 영원히 안 맞는다. 엉뚱한 시각을 보여 주지 않는다
+        if opened is None or not converged:
             out.append(NextPublish(platform, None, "게시 시간 없음"))
             continue
         out.append(NextPublish(platform, local(opened, tz)))

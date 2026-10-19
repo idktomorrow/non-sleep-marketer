@@ -133,6 +133,14 @@ def test_posting_hours_and_active_hours_both_apply() -> None:
     assert rows[0].at == _at(9)
 
 
+def test_disjoint_posting_and_active_hours_means_no_time() -> None:
+    # 활동 09-12, 게시 13-18이면 게시 잡이 영원히 안 돌므로 엉뚱한 시각 대신 "게시 시간 없음"
+    cfg = _cfg(posting_hours=[ActiveWindow(start=time(13, 0), end=time(18, 0))])
+    cfg.persona.active_hours = [ActiveWindow(start=time(9, 0), end=time(12, 0))]
+    rows = next_publishes(_Repo(queued=[_pub("threads")]), cfg, _at(10), {"threads": object()})
+    assert rows[0].at is None and rows[0].reason == "게시 시간 없음"
+
+
 def test_paused_disabled_and_rate_limited() -> None:
     now = _at(10)
     rows = next_publishes(_Repo(queued=[_pub("threads")], paused=["threads"]), _cfg(), now)
