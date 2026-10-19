@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from nsm import app_version
 from nsm.adapters.sources.image_reader import is_image
 from nsm.app.card_editor import (
     MAX_UPLOAD_BYTES,
@@ -50,6 +51,7 @@ from nsm.app.materials import (
     source_label,
     verdict,
 )
+from nsm.app.next_publish import next_publishes
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
@@ -234,6 +236,7 @@ def create_app(state: AppState) -> FastAPI:
                 "has_reports": state.reports_dir is not None,
                 "js": job_status(),
                 "queue_count": queue_count(),
+                "version": app_version(),
                 "simple": ui_mode() == "simple",
                 "bell": {
                     "unread": state.repo.unread_notification_count(),
@@ -258,6 +261,11 @@ def create_app(state: AppState) -> FastAPI:
         now = state.clock.now()
         start, end = local_day_bounds(now, tz())
         ov = queries.overview(state.repo.db, start, end)
+        next_pubs = (
+            next_publishes(state.repo, state.get_config(), now, state.adapters)
+            if ov["approved_waiting"]
+            else []
+        )
         runs, _ = build_rows(state.repo.recent_runs(RUN_WINDOW), show_all=False)
         # 곧 다시 시도할 것부터(대표로 보이는 오류가 매번 바뀌지 않게)
         failed = sorted(
@@ -277,6 +285,8 @@ def create_app(state: AppState) -> FastAPI:
             failed_pubs=failed,
             first_run=not runs and state.repo.count_contents() == 0,
             cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
+            next_pubs=next_pubs,
+            now_local=local(now, tz()),
             simple_jobs=[j for j in SIMPLE_JOBS if j in JOB_LABELS],
             can_upload=state.uploads_dir is not None,
             max_mb=MAX_FILE_BYTES // (1024 * 1024),

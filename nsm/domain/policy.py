@@ -41,6 +41,24 @@ def in_active_hours(now: datetime, persona: Persona, tz: str) -> bool:
     return in_windows(now, persona.active_hours, tz)
 
 
+def next_window_start(now: datetime, windows: Iterable[ActiveWindow], tz: str) -> datetime | None:
+    """지금이 구간 안이면 now, 아니면 다음으로 구간이 열리는 시각(현지 시간대, aware). 구간이 없으면 None(C26)."""
+    ws = list(windows)
+    if not ws:
+        return None
+    if in_windows(now, ws, tz):
+        return now
+    loc = local(now, tz)
+    best: datetime | None = None
+    for day in (0, 1):
+        base = (loc + timedelta(days=day)).replace(hour=0, minute=0, second=0, microsecond=0)
+        for w in ws:
+            start = base.replace(hour=w.start.hour, minute=w.start.minute)
+            if start > loc and (best is None or start < best):
+                best = start
+    return best
+
+
 def should_act(now: datetime, persona: Persona, tz: str) -> tuple[bool, str]:
     """수집·생성·게시·답글 잡이 지금 움직여도 되는지와 그 이유."""
     if not persona.enabled:

@@ -164,6 +164,7 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 .style-thumbs { display: flex; gap: 6px; }
 .style-thumb { width: 128px; height: 160px; border-radius: 6px; background: var(--line); object-fit: cover; box-shadow: var(--shadow); }
 .style-option .hint { color: var(--muted); }
+.footer { text-align: center; padding: 24px 16px 32px; color: var(--muted); }
 /* 캐릭터 고르기·그림 올리기(C17) */
 .character-options { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
 .character-options .style-option { padding: 8px 10px; gap: 4px; }

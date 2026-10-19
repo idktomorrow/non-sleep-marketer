@@ -274,3 +274,21 @@ def test_reports_link_hidden_without_reports_dir(env) -> None:
 
     html = TestClient(create_app(env["state"])).get("/").text
     assert 'href="/reports"' not in html
+
+
+def test_footer_shows_running_version(env) -> None:
+    """C26: 화면 맨 아래 버전 번호. 사용자가 머지 뒤 다시 켰는지 이 번호로 안다."""
+    import re
+
+    html = env["client"].get("/").text
+    assert re.search(r"논슬립 마케터 v\d+\.\d+", html)
+
+
+def test_overview_shows_next_publish_time_when_waiting(env) -> None:
+    """C26: 승인된 원고가 있으면 "게시 대기" 칸에 플랫폼별 다음 게시 시각."""
+    html = env["client"].get("/").text
+    assert "활동 시간에 올라갑니다" in html and "다음 게시" not in html
+    _clean(env)
+    assert _post(env, "/review/c1/approve").status_code == 303
+    html = env["client"].get("/").text
+    assert "다음 게시" in html and ("스레드" in html or "인스타그램" in html)

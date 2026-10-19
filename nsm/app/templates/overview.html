@@ -66,7 +66,7 @@
     <div class="stats">
       <div class="stat"><span class="label">오늘 게시</span><b>{{ ov.published_today.values()|sum }}</b>
         <span class="muted small">{% for p, n in ov.published_today.items() %}{{ p|ko_platform }} {{ n }}{% if not loop.last %} · {% endif %}{% else %}아직 없음{% endfor %}</span></div>
-      <div class="stat"><span class="label">게시 대기(승인됨)</span><b>{{ ov.approved_waiting }}</b><span class="muted small">활동 시간에 올라갑니다</span></div>
+      <div class="stat"><span class="label">게시 대기(승인됨)</span><b>{{ ov.approved_waiting }}</b><span class="muted small">{% if next_pubs %}다음 게시 {% for n in next_pubs %}{{ n.platform|ko_platform }} {% if n.at %}{{ n.at.strftime('%m/%d %H:%M') if n.at.date() != now_local.date() else n.at.strftime('%H:%M') }}{% else %}{{ n.reason }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}활동 시간에 올라갑니다{% endif %}</span></div>
       <div class="stat" style="grid-column: 1 / -1"><span class="label">오늘 비용</span>
         <b>${{ '%.2f'|format(ov.cost_today) }} <span class="muted small" style="font-weight:600">/ 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></b>
         <div class="progress {{ 'bad' if cost_ratio >= 0.9 else ('warn' if cost_ratio >= 0.6 else '') }}"><i style="width: {{ (cost_ratio * 100)|round(1) }}%"></i></div>
