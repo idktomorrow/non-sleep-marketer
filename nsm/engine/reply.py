@@ -20,6 +20,9 @@ from nsm.engine.rate_limit import blocked_until, resting, retry_at
 log = logging.getLogger(__name__)
 
 MIN_CONFIDENCE = 0.6
+UNCONFIRMED_REASON = (
+    "답글을 보냈지만 플랫폼에서 확인하지 못함. 실제로 달렸는지 보고, 없으면 직접 답글을 보내세요"
+)
 INSTRUCTION = (
     "SNS 게시물에 달린 댓글을 분류하라. praise_general=칭찬·일반 반응, question=질문, "
     "complaint=불만, price_refund=가격·환불·결제 문의, legal=법적 문제·권리 침해 주장, "
@@ -221,5 +224,14 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
             reply_text=text or None,
         )
     reply_id = adapter.reply(c, text)
+    # 보냈을 수 있으므로 작성자별 하루 한도는 센다(확인 실패여도)
     ctx.repo.increment_reply_count(c.platform, c.author_id, local(ctx.clock.now(), ctx.tz).date())
+    if not reply_id:
+        # 어댑터가 "게시"까지 눌렀지만 화면에서 답글을 확인하지 못함(C23). 다시 보내면 두 번 달릴 수 있어
+        # 프로그램은 재시도하지 않고 사람에게 넘긴다. 댓글 화면에서 실제로 달렸는지 보고 직접 답하거나 처리 완료
+        return record(
+            "escalated",
+            reason=UNCONFIRMED_REASON,
+            reply_text=text,
+        )
     return record("auto_replied", reply_text=text, reply_external_id=reply_id)

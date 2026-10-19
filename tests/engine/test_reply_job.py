@@ -295,3 +295,29 @@ def test_reply_without_sources_still_has_post(ctx: JobContext) -> None:
     ctx.text_generator = gen
     run_reply(ctx)
     assert "게시물 주제: 핸드드립" in gen.contexts[0] and "<source" not in gen.contexts[0]
+
+
+def test_unconfirmed_reply_goes_to_human_without_resend(ctx: JobContext) -> None:
+    """C23: 어댑터가 빈 답글 ID를 돌려주면(보냈지만 확인 못 함) 자동 답글로 적지 않고 사람에게 넘긴다."""
+    from nsm.domain.policy import local
+    from nsm.engine.reply import UNCONFIRMED_REASON
+
+    adapter = ctx.adapters["threads"]
+    calls = []
+
+    def unconfirmed(comment, text):
+        calls.append(comment.external_id)
+        return ""
+
+    adapter.reply = unconfirmed
+    run_reply(ctx)
+    c1 = ctx.repo.get_comment("threads:c1")
+    assert c1.status == "escalated" and c1.reason == UNCONFIRMED_REASON
+    assert c1.reply_text  # 보내려던 문장은 남겨 사람이 그대로 다시 보낼 수 있게
+    # 다음 실행에서 다시 보내지 않는다
+    before = len(calls)
+    run_reply(ctx)
+    assert len(calls) == before
+    # 보냈을 수 있으니 작성자 하루 한도는 센다
+    today = local(ctx.clock.now(), ctx.tz).date()
+    assert ctx.repo.reply_count("threads", c1.comment.author_id, today) >= 1
