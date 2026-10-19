@@ -62,6 +62,19 @@ def test_instagram_publish_order_and_dismissal() -> None:
     )
 
 
+def test_instagram_reply_does_not_click_the_box_after_reply_button() -> None:
+    """C22: "답글 달기" 뒤에 입력창을 마우스로 클릭하면 답글 대상이 풀려 새 댓글이 된다(2026-10-19 실험)."""
+    js = instagram._REPLY
+    seg = _between(js, "'답글 달기'", "insertText(ARGS.text)")
+    assert ".click();" in seg.split("nsmWait(")[0]  # 답글 달기 버튼은 누른다
+    after_box = seg.split("nsmWait(")[1]
+    assert "box.click()" not in after_box and "press('End')" not in after_box
+    assert (
+        "startsWith('@' + ARGS.author)" in after_box
+    )  # 채워진 "@작성자"로 답글 상태를 확인한 뒤 쓴다
+    assert "e.focus()" in after_box
+
+
 def test_threads_publish_still_asserts_handle_before_upload() -> None:
     js = threads._PUBLISH
     assert js.index("await nsmAssertHandle(pg, readHandle)") < js.index("await nsmFiles()")
