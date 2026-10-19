@@ -20,9 +20,6 @@ IMAGE_PRICE_PER_IMAGE: dict[str, float] = {
     "gpt-image-2.5-sunburst": 0.10,
 }
 
-# MotherDuck prompt_jev: 공식 벤치마크 10만 행 $0.50 → 행당 약 $0.000005 (컴퓨트 별도)
-JEV_PRICE_PER_ROW = 0.000005
-
 
 def claude_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     pin, pout = CLAUDE_PRICES.get(model, _FALLBACK)

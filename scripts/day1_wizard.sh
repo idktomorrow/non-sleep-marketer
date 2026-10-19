@@ -227,7 +227,7 @@ cell() { local v="${1:--}"; v="${v//$'\n'/ }"; printf '%s' "${v//|/\\|}"; }
 banner "논슬립 마케터 · 1일차 기술 검증 (배치 B)"
 
 # ── 1. API 키 ──────────────────────────────────────────────────────────────
-stage "API 키 넣기 (Claude 필수, OpenAI·MotherDuck 선택)"
+stage "API 키 넣기 (Claude 필수, Gemini·OpenAI 선택)"
 say "키는 화면에 보이지 않게 입력되고, Windows 자격 증명 관리자에만 저장됩니다."
 open_url "https://console.anthropic.com/settings/keys"
 step "Claude 콘솔 → API Keys → Create Key → 복사 (sk-ant- 로 시작)"
@@ -241,22 +241,20 @@ if confirm "OpenAI 키도 넣을까요? (카드 배경 이미지용, 선택)"; t
 fi
 ANTHROPIC_KEY=""; OPENAI_KEY=""
 
-# ── 2. MotherDuck jev ─────────────────────────────────────────────────────
-stage "MotherDuck 가입과 jev 토큰"
-say "jev 분류기를 쓰려면 MotherDuck 계정(Lite, 무료 플랜)이 필요합니다."
-warn "리전은 EU(eu-central-1, eu-west-1)가 아닌 곳을 고르세요. EU 리전은 AI 함수가 꺼져 있습니다."
-open_url "https://app.motherduck.com/"
-step "가입/로그인 → Settings에서 Access Token 생성 → 복사"
-note "메뉴 이름이 다르면 Settings 안에서 'token'이 들어간 항목을 찾으세요."
-if confirm "토큰을 만들었나요? (아니면 이 단계 건너뜀, Claude 분류기로 동작)"; then
-  ask_secret MD_TOKEN "MotherDuck 토큰 붙여넣기:"
-  store_key motherduck_token "$MD_TOKEN"
-  MD_TOKEN=""
+# ── 2. Gemini 키 (자료·댓글 분류, 무료 구간) ──────────────────────────────
+stage "Gemini API 키 (분류, 무료 구간)"
+say "자료·댓글 분류는 Gemini 무료 구간으로 0원에 돌릴 수 있습니다(ADR 0048). 없으면 Claude로 분류합니다(월 200원 안팎)."
+open_url "https://aistudio.google.com/apikey"
+step "Google AI Studio → Create API key → 복사 (AIza 로 시작)"
+if confirm "키를 만들었나요? (아니면 이 단계 건너뜀, Claude 분류기로 동작)"; then
+  ask_secret GEMINI_KEY "Gemini API 키 붙여넣기:"
+  store_key gemini_api_key "$GEMINI_KEY"
+  GEMINI_KEY=""
 fi
 
 # ── 3. 실제 API 호출 확인 ─────────────────────────────────────────────────
 stage "실제 API 연결 확인 (nsm doctor --live)"
-say "방금 넣은 키로 Claude·MotherDuck을 한 번씩 실제로 호출합니다(비용 1원 미만)."
+say "방금 넣은 키로 Claude·Gemini를 한 번씩 실제로 호출합니다(비용 1원 미만)."
 LIVE_FLAG="--live-only"
 confirm "OpenAI 이미지 1장도 만들어 볼까요? (약 70원)" && LIVE_FLAG="--with-image"
 LIVE_RESULT=$(uv run nsm doctor $LIVE_FLAG 2>&1 | grep -E "실호출" || true)

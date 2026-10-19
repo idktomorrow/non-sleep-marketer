@@ -7,7 +7,6 @@ import pytest
 
 from nsm.adapters.classifier import make_classifiers
 from nsm.adapters.classifier.claude import ClaudeClassifier
-from nsm.adapters.classifier.jev import JevClassifier, build_sql
 from nsm.adapters.classifier.keyword import COMMENT_VOCAB, KeywordClassifier
 from nsm.config.secrets import MemorySecretStore
 from nsm.domain.models import COMMENT_CATEGORIES
@@ -55,61 +54,6 @@ def test_claude_classifier_raises_on_refusal() -> None:
         c.classify("x", ["relevant", "irrelevant"], "q")
 
 
-class FakeMD:
-    def __init__(self, rows):
-        self.rows = rows
-        self.sql: list[str] = []
-        self.inserted: list = []
-
-    def execute(self, sql, params=None):
-        self.sql.append(sql)
-        return self
-
-    def executemany(self, sql, rows):
-        self.inserted = rows
-
-    def fetchone(self):
-        return (self.rows[0],)
-
-    def fetchall(self):
-        return [(i, r) for i, r in enumerate(self.rows)]
-
-
-def test_jev_sql_escapes_literals() -> None:
-    sql = build_sql("it's 관련?", ["a'b", "c"], False)
-    assert "'it''s 관련?'" in sql and "['a''b', 'c']" in sql and "prompt_jev(?," in sql
-
-
-def test_jev_classifier_parses_choice_struct() -> None:
-    md = FakeMD(
-        [
-            {
-                "choice": "spam",
-                "confidence": 0.9,
-                "probabilities": [
-                    {"value": "spam", "probability": 0.93},
-                    {"value": "question", "probability": 0.03},
-                ],
-            },
-            {"choice": "question", "confidence": 0.7},
-        ]
-    )
-    sink = FakeCostSink()
-    c = JevClassifier("tok", sink, connect=lambda t: md)
-    one = c.classify("x", list(COMMENT_CATEGORIES), "분류")
-    assert one.label == "spam" and one.confidence == pytest.approx(0.93)
-    many = c.classify_many(["a", "b"], list(COMMENT_CATEGORIES), "분류")
-    assert [m.label for m in many] == ["spam", "question"]
-    assert md.inserted == [(0, "a"), (1, "b")]
-    assert len(sink.records) == 2
-
-
-def test_jev_classifier_rejects_unknown_label() -> None:
-    md = FakeMD([{"choice": "weird", "confidence": 0.9}])
-    with pytest.raises(AdapterError):
-        JevClassifier("tok", connect=lambda t: md).classify("x", ["a", "b"], "q")
-
-
 def test_keyword_classifier_on_comment_fixture() -> None:
     k = KeywordClassifier(COMMENT_VOCAB, default_label="praise_general")
     cases = load_comment_cases()
@@ -127,13 +71,58 @@ def test_make_classifiers_auto_selection(app_config) -> None:
         make_classifiers(app_config, MemorySecretStore({"anthropic_api_key": "k"}), sink).name
         == "claude"
     )
-    both = MemorySecretStore({"anthropic_api_key": "k", "motherduck_token": "t"})
-    assert make_classifiers(app_config, both, sink).name == "jev"
-    forced = app_config.model_copy(
-        update={"settings": app_config.settings.model_copy(update={"classifier": "jev"})}
+    both = MemorySecretStore({"anthropic_api_key": "k", "gemini_api_key": "g"})
+    cs = make_classifiers(app_config, both, sink)
+    assert cs.name == "gemini"  # 무료 구간이 먼저(ADR 0048)
+    assert [n for n, _ in cs.relevance.chain] == ["gemini", "claude", "keyword"]
+    for forced_to in ("gemini", "claude"):
+        forced = app_config.model_copy(
+            update={"settings": app_config.settings.model_copy(update={"classifier": forced_to})}
+        )
+        with pytest.raises(RuntimeError):
+            make_classifiers(forced, MemorySecretStore(), sink)
+    kw = app_config.model_copy(
+        update={"settings": app_config.settings.model_copy(update={"classifier": "keyword"})}
     )
-    with pytest.raises(RuntimeError):
-        make_classifiers(forced, MemorySecretStore(), sink)
+    assert make_classifiers(kw, both, sink).name == "keyword"
+
+
+def test_fallback_switches_once_and_records_who_answered() -> None:
+    from nsm.adapters.classifier import FallbackClassifier
+    from nsm.domain.models import Classification
+
+    calls: list[str] = []
+
+    class Boom:
+        def classify(self, *a):
+            calls.append("boom")
+            raise AdapterError("quota")
+
+        def classify_many(self, texts, *a):
+            calls.append("boom")
+            raise AdapterError("quota")
+
+    class Ok:
+        def classify(self, text, labels, instruction):
+            calls.append("ok")
+            return Classification(label=labels[0], confidence=0.9)
+
+        def classify_many(self, texts, labels, instruction):
+            calls.append("ok")
+            return [Classification(label=labels[0], confidence=0.9) for _ in texts]
+
+    switched: list[tuple[str, str]] = []
+    f = FallbackClassifier(
+        [("gemini", Boom()), ("claude", Ok())], on_switch=lambda a, b, e: switched.append((a, b))
+    )
+    assert f.name == "gemini"
+    assert [c.label for c in f.classify_many(["x", "y"], ["r", "i"], "q")] == ["r", "r"]
+    assert switched == [("gemini", "claude")] and f.name == "claude"
+    f.classify("z", ["r", "i"], "q")
+    assert calls == ["boom", "ok", "ok"]  # 넘어간 뒤에는 실패한 쪽을 다시 두드리지 않는다
+    assert switched == [("gemini", "claude")]
+    with pytest.raises(AdapterError):
+        FallbackClassifier([("gemini", Boom())]).classify("z", ["r", "i"], "q")
 
 
 def test_claude_classifier_wraps_bad_json() -> None:
@@ -146,34 +135,6 @@ def test_claude_classifier_wraps_bad_json() -> None:
     c = ClaudeClassifier(SimpleNamespace(messages=BadJson({})), "claude-haiku-5-5")
     with pytest.raises(AdapterError):
         c.classify("x", ["relevant", "irrelevant"], "q")
-
-
-def test_jev_scrubs_token_from_errors() -> None:
-    def connect(token):
-        raise RuntimeError(f"cannot open md:?motherduck_token={token}")
-
-    c = JevClassifier("SECRET-TOKEN", connect=connect)
-    with pytest.raises(AdapterError) as e:
-        c.classify_many(["a"], ["x", "y"], "q")
-    assert "SECRET-TOKEN" not in str(e.value)
-
-
-def test_jev_confidence_is_choice_probability_not_margin() -> None:
-    # 2026-10-13 실제 응답: 치이카와 흥행 기사. confidence(0.40)는 1등-2등 차이라 그대로 쓰면
-    # 관련 자료 기준 0.8에 못 미쳐 모두 떨어졌다. 고른 라벨의 확률(0.70)을 써야 한다.
-    real = {
-        "choice": "relevant",
-        "probabilities": [
-            {"value": "irrelevant", "probability": 0.3},
-            {"value": "relevant", "probability": 0.7},
-        ],
-        "confidence": 0.4,
-    }
-    md = FakeMD([real, {"choice": "irrelevant", "confidence": 0.5}])
-    c = JevClassifier("tok", connect=lambda t: md)
-    hit, no_probs = c.classify_many(["a", "b"], ["relevant", "irrelevant"], "q")
-    assert hit.confidence == pytest.approx(0.7)
-    assert no_probs.confidence == pytest.approx(0.75)  # 확률이 없으면 (1 + 차이) / 2
 
 
 def test_claude_clients_have_timeouts(app_config, monkeypatch) -> None:

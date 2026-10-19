@@ -80,6 +80,7 @@ class CollectSettings(_Model):
 class ModelSettings(_Model):
     generation: str = "claude-sonnet-5-5"
     classifier: str = "claude-haiku-5-5"
+    gemini: str = "gemini-3.5-flash-lite"  # 무료 구간에서 되는 것을 확인한 모델(ADR 0048)
     image: str = "gpt-image-2.5-flare"
 
 
@@ -110,8 +111,8 @@ class Settings(_Model):
     backup_keep: int = Field(default=7, ge=1, le=60)  # 하루 한 번 데이터 백업, 최근 몇 개를 남길지
     run_log_keep_days: int = Field(default=90, ge=7, le=3650)  # 실행 기록 보관 일수
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
-    # auto: MotherDuck 토큰이 있으면 jev, 없으면 claude (ADR 0003)
-    classifier: Literal["auto", "jev", "claude"] = "auto"
+    # auto: Gemini 키 → gemini(무료 구간), Anthropic 키 → claude, 둘 다 없으면 keyword (ADR 0048)
+    classifier: Literal["auto", "gemini", "claude", "keyword"] = "auto"
     # off(기본): AI 배경을 만들지 않고 코드로 그린 배경만(유료라서 꺼 둠, ADR 0036).
     # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경. on: 항상 생성(키 없으면 경고 후 템플릿 배경)
     image_generation: Literal["auto", "on", "off"] = "off"
@@ -128,6 +129,11 @@ class Settings(_Model):
     dashboard_port: int = 8765
     collect: CollectSettings = Field(default_factory=CollectSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
+
+    @field_validator("classifier", mode="before")
+    @classmethod
+    def _old_jev(cls, v: object) -> object:
+        return "auto" if v == "jev" else v  # jev(MotherDuck)는 C27에서 뺐다. 예전 설정은 auto로
 
 
 class AppConfig(_Model):

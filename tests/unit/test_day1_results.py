@@ -37,7 +37,7 @@ def test_settings_defaults_after_day1() -> None:
     s = Settings()
     assert s.browser_driver == "aside"  # ADR 0017
     assert s.accounts == {}  # 비어 있으면 실계정 게시 안 함
-    assert s.classifier == "auto"  # MotherDuck 토큰이 있으면 jev
+    assert s.classifier == "auto"  # Gemini 키 → Claude 키 → 낱말 규칙(ADR 0048)
 
 
 def test_aside_driver_falls_back_to_playwright_until_batch_g(tmp_path: Path) -> None:
@@ -63,3 +63,9 @@ def test_doctor_aside_check(monkeypatch, nsm_home) -> None:
     monkeypatch.setattr(drivers, "find_aside_cli", lambda: Path("C:/aside.exe"))
     c = doctor._aside()
     assert c.status == "OK" and "로그인" in c.detail
+
+
+def test_old_jev_setting_reads_as_auto() -> None:
+    # jev(MotherDuck)는 C27에서 뺐다. 예전 설정 파일이 남아 있어도 켜지게 auto로 읽는다(ADR 0048)
+    assert Settings(classifier="jev").classifier == "auto"
+    assert Settings(classifier="gemini").classifier == "gemini"

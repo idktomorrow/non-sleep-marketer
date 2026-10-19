@@ -204,7 +204,7 @@ def test_card_style_and_image_generation_defaults(nsm_home: Path) -> None:
 
 def test_entering_openai_key_offers_to_turn_on_images(nsm_home: Path) -> None:
     answers = list(NEW_ANSWERS)
-    answers[-2] = "sk-openai-test"  # OpenAI 키
+    answers[-1] = "sk-openai-test"  # OpenAI 키(순서: Claude, Gemini, OpenAI)
     cfg = wizard(ScriptedIO(answers, [*NEW_CONFIRMS, True]), MemorySecretStore())
     assert cfg.settings.image_generation == "auto"
     cfg = wizard(ScriptedIO(answers, [*NEW_CONFIRMS, False]), MemorySecretStore())

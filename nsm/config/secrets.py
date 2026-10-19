@@ -10,11 +10,11 @@ import os
 from typing import Protocol
 
 SERVICE = "non-sleep-marketer"
-KEYS = ("anthropic_api_key", "openai_api_key", "motherduck_token")
+KEYS = ("anthropic_api_key", "gemini_api_key", "openai_api_key")
 ENV_NAMES = {
     "anthropic_api_key": ("NSM_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
     "openai_api_key": ("NSM_OPENAI_API_KEY", "OPENAI_API_KEY"),
-    "motherduck_token": ("NSM_MOTHERDUCK_TOKEN", "MOTHERDUCK_TOKEN", "motherduck_token"),
+    "gemini_api_key": ("NSM_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
 }
 
 

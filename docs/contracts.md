@@ -18,7 +18,7 @@ non-sleep-marketer/
       platforms/          # instagram.py threads.py dryrun.py (naver_blog는 범위 밖, ADR 0016) [메인]
       drivers/            # aside.py playwright.py  (브라우저 드라이버)           [메인]
       sources/            # upload.py naver.py google_trends.py community.py     [메인]
-      classifier/         # jev.py claude.py                                     [메인]
+      classifier/         # gemini.py claude.py keyword.py (jev는 C27에서 제거)   [메인]
       generator/          # claude_text.py image_api.py                          [메인]
       notify/             # windows.py (winotify), log.py                        [메인]
     render/               # 카드 덱 JSON → PNG (Playwright)                      [서브]
@@ -366,7 +366,7 @@ class Clock(Protocol):
 | `nsm run --once --job collect` | 특정 잡 1회 실행 (디버그·E2E용) |
 | `nsm render-preview deck.json --out DIR [--style clean\|photo\|illust]` | 덱 → PNG (스타일 기본: 설정의 `brand.card_style`) |
 | `nsm install-autostart` / `uninstall-autostart` | Windows 작업 스케줄러에 로그온 시 `nsm run` 등록 |
-| `nsm doctor` | 1일차 검증 항목 자동 점검(MotherDuck 연결, 드라이버 로그인 상태, 폰트) |
+| `nsm doctor` | 환경 점검(API 키, 드라이버 로그인 상태, 폰트) |
 
 전역 설정 `dry_run: true`면 모든 플랫폼 어댑터가 드라이런 구현으로 바뀌고 산출물은 `./preview/YYYY-MM-DD/<content_id>/`에 PNG·캡션·스레드 글·블로그 md로 저장됩니다.
 

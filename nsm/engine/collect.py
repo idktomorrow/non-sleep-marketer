@@ -24,14 +24,17 @@ def excluded_word(item: SourceItem, words: list[str]) -> str | None:
 def relevance_instruction(ctx: JobContext, extra_topic: str | None = None) -> str:
     b, p = ctx.config.brand, ctx.config.persona
     topics = [*p.topics, extra_topic] if extra_topic else p.topics
-    # jev·Claude 분류기가 같은 지시를 쓴다(ADR 0003). 2026-10-12 드라이런에서 카페 방문 후기가
+    # 모든 분류기가 같은 지시를 쓴다(ADR 0003·0048). 2026-10-12 드라이런에서 카페 방문 후기가
     # 관련 0.93으로 통과해, "정보성 글만"과 제외 장르를 명시한다.
     return (
         f"이 자료가 브랜드 '{b.name}'({b.industry})의 SNS 정보 콘텐츠 소재로 쓸 수 있는가? "
         f"관심 주제: {', '.join(topics)}. "
         "관심 주제와 직접 관련된 정보성 글(방법, 기준, 원리, 비교, 정리, 소식)만 relevant다. "
         "주제 낱말이 나와도 방문 후기, 맛집·카페 리뷰, 여행기, 개인 일기·일상 기록, 구매·사용 후기, "
-        "광고 홍보 글은 irrelevant다. relevant 또는 irrelevant로 답하라."
+        "광고 홍보 글은 irrelevant다. "
+        # C27: Gemini가 흥행·품절 기사를 "정보성 글이 아님"으로 보던 것을 이 한 줄이 바로잡았다(ADR 0048)
+        "관심 주제의 흥행·판매·품절·행사 같은 뉴스 기사와 공식 소식 정리는 relevant다(언론 보도 포함). "
+        "relevant 또는 irrelevant로 답하라."
     )
 
 
@@ -76,6 +79,11 @@ def run_collect(ctx: JobContext) -> JobResult:
     return result
 
 
+def _who(ctx: JobContext) -> str:
+    """분류 기록에 적을 분류기 이름. 대체 분류기로 넘어갔으면 넘어간 쪽(C27)."""
+    return str(getattr(ctx.relevance_classifier, "name", None) or ctx.classifier_name)
+
+
 def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
     if ctx.relevance_classifier is None or ctx.topic_classifier is None:
         result.errors.append("분류기가 설정되지 않았습니다")
@@ -115,14 +123,14 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
             # 같은 항목이 매 실행마다 실패하며 비용만 쓰지 않도록 관련성 0으로 닫는다
             ctx.repo.set_source_relevance(item.id, 0.0)
             ctx.repo.record_classification(
-                "source_item", item.id, "relevance", "error", 0.0, ctx.classifier_name
+                "source_item", item.id, "relevance", "error", 0.0, _who(ctx)
             )
             continue
         # "relevant일 확률"로 통일해서 저장한다
         score = c.confidence if c.label == "relevant" else 1.0 - c.confidence
         ctx.repo.set_source_relevance(item.id, score)
         ctx.repo.record_classification(
-            "source_item", item.id, "relevance", c.label, c.confidence, ctx.classifier_name
+            "source_item", item.id, "relevance", c.label, c.confidence, _who(ctx)
         )
         if score >= threshold:
             relevant += 1
@@ -139,7 +147,7 @@ def _classify_pending(ctx: JobContext, result: JobResult) -> tuple[int, int]:
             continue
         ctx.repo.set_source_topic(item.id, t.label, t.confidence)
         ctx.repo.record_classification(
-            "source_item", item.id, "topic", t.label, t.confidence, ctx.classifier_name
+            "source_item", item.id, "topic", t.label, t.confidence, _who(ctx)
         )
     return relevant, len(pending) + result.counts.get("excluded_genre", 0)
 

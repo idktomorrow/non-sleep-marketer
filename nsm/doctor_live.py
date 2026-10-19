@@ -2,7 +2,7 @@
 
 - 비용이 아주 조금 든다(분류 1회 수준). 이미지 생성은 비싸서 `--with-image`일 때만.
 - 모델은 사용자 설정(config.yaml의 settings.models)을 따른다. 설정이 없으면 기본값.
-- 키가 없으면 WARN. 선택 기능(MotherDuck, OpenAI)이 실패해도 앱은 대체 경로로 돌기 때문에 WARN,
+- 키가 없으면 WARN. 선택 기능(Gemini, OpenAI)이 실패해도 앱은 대체 경로로 돌기 때문에 WARN,
   필수(Claude)가 실패하면 FAIL.
 - 키를 환경 변수에서 읽었는지 keyring에서 읽었는지 함께 표시한다.
 - 실제 호출 비용은 DB의 costs 테이블에 ref="doctor"로 기록한다(배치 Q1). `nsm run`이 켜져 있어
@@ -83,20 +83,20 @@ def _anthropic(secrets: SecretStore, model: str, sink: CostSink | None = None) -
         return Check(name, "FAIL", f"{type(e).__name__}: {str(e)[:160]} · 키: {src}")
 
 
-def _jev(secrets: SecretStore, sink: CostSink | None = None) -> Check:
-    name = "MotherDuck jev (실호출)"
-    token = secrets.get("motherduck_token")
-    if not token:
-        return Check(name, "WARN", "토큰 없음: Claude 분류기로 대신 동작")
-    src = key_source("motherduck_token")
+def _gemini(secrets: SecretStore, model: str, sink: CostSink | None = None) -> Check:
+    name = "Gemini 분류 (실호출)"
+    key = secrets.get("gemini_api_key")
+    if not key:
+        return Check(name, "WARN", "키 없음: Claude 분류기로 대신 동작")
+    src = key_source("gemini_api_key")
     try:
-        from nsm.adapters.classifier.jev import JevClassifier
+        from nsm.adapters.classifier.gemini import GeminiClassifier
 
-        c = JevClassifier(token, cost_sink=sink).classify(
+        c = GeminiClassifier(key, model, cost_sink=sink).classify(
             PROBE_TEXT, PROBE_LABELS, PROBE_INSTRUCTION
         )
-        return Check(name, "OK", f"prompt_jev → {c.label} ({c.confidence:.2f}) · 키: {src}")
-    except Exception as e:  # noqa: BLE001  (토큰은 JevClassifier가 오류 메시지에서 지운다)
+        return Check(name, "OK", f"{model} → {c.label} ({c.confidence:.2f}) · 키: {src}")
+    except Exception as e:  # noqa: BLE001  (키는 헤더로만 보내 오류 문구에 없다)
         return Check(name, "WARN", f"실패, Claude 분류기로 대신 동작: {str(e)[:160]} · 키: {src}")
 
 
@@ -141,7 +141,7 @@ def run_live_checks(
 def _run(
     secrets: SecretStore, with_image: bool, m: ModelSettings, sink: CostSink | None
 ) -> list[Check]:
-    checks = [_anthropic(secrets, m.classifier, sink), _jev(secrets, sink)]
+    checks = [_anthropic(secrets, m.classifier, sink), _gemini(secrets, m.gemini, sink)]
     if with_image:
         checks.append(_openai(secrets, m.image, Path(tempfile.gettempdir()) / "nsm-doctor", sink))
     return checks
