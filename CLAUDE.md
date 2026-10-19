@@ -27,6 +27,7 @@
 7. `CHANGELOG.md` Unreleased에 한 줄
 8. `docs/user-guide.md`에서 이 배치가 채우기로 한 절 작성
 9. PR 본문 템플릿을 채우고 `/code-review` 지적을 반영
+10. `pyproject.toml`의 `version` 끝자리를 +1 하고 `uv lock`으로 `uv.lock`도 갱신 (예: 0.4.3 → 0.4.4). 안정화 태그 때는 가운데 자리(0.5.0). 대시보드 맨 아래에 보이는 번호라, 사용자가 "다시 켰나"를 이 번호로 안다
 
 ## 하드 가드레일
 
