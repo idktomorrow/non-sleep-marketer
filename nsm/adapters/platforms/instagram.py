@@ -326,8 +326,15 @@ const focused = await box.evaluate(e => document.activeElement === e);
 if (!focused) await box.evaluate(e => e.focus());  // 마우스 클릭이 아니라 focus()만(답글 대상 유지)
 await pg.keyboard.insertText(ARGS.text);
 await sleep(500);
-const sent = await nsmClickText(pg.locator('main'), '게시');
-if (!sent) throw new NsmError('script', '답글 게시 버튼 없음');
+// 전송은 Enter로(C25). "게시"를 마우스로 누르면 그 순간 입력창이 초점을 잃고(blur), 인스타그램이 답글 대상을
+// 지우는 것과 경쟁해 가끔 새 댓글로 올라갔다(2026-10-19 21:05, 같은 코드로 다른 때는 답글로 달림).
+// Enter는 입력창 안에서 보내므로 초점이 옮겨 가지 않는다. Enter가 안 먹으면(글이 남아 있으면) "게시"를 누른다.
+await pg.keyboard.press('Enter');
+const posted = await nsmUntil(async () => (await readBox()) === '', 6000, 300);
+if (!posted) {
+  const sent = await nsmClickText(pg.locator('main'), '게시');
+  if (!sent) throw new NsmError('script', '답글 게시 버튼 없음');
+}
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다
 // 답글은 보통 "답글 N개 모두 보기"로 접혀 보인다. 내 문구가 보이거나 그 댓글 칸에 답글 수가 생기면 확인된 것으로 본다.
 const seen = await nsmUntil(async () => await pg.evaluate((args) => {

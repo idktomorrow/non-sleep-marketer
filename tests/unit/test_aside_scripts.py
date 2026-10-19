@@ -75,6 +75,15 @@ def test_instagram_reply_does_not_click_the_box_after_reply_button() -> None:
     assert "e.focus()" in after_box
 
 
+def test_instagram_reply_sends_with_enter_before_clicking() -> None:
+    """C25: 전송은 Enter(초점 유지). 마우스로 "게시"를 누르는 건 Enter가 안 먹었을 때만."""
+    js = instagram._REPLY
+    seg = _between(js, "insertText(ARGS.text)", "여기부터는 답글이 나갔을 수 있으니")
+    assert "press('Enter')" in seg
+    assert seg.index("press('Enter')") < seg.index("'게시'")
+    assert "readBox()) === ''" in seg  # 글이 비워졌는지로 전송을 확인한 뒤에만 버튼으로 간다
+
+
 def test_threads_publish_still_asserts_handle_before_upload() -> None:
     js = threads._PUBLISH
     assert js.index("await nsmAssertHandle(pg, readHandle)") < js.index("await nsmFiles()")
