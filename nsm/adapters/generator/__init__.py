@@ -10,6 +10,9 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.ports import CostSink, ImageGenerator, TextGenerator
 
+GENERATION_TIMEOUT_S = 180.0  # 원고 1건(카드 덱 + 캡션 + 스레드 글) 실측 30~60초
+CLASSIFY_TIMEOUT_S = 60.0
+
 
 def make_text_generator(
     cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink
@@ -22,7 +25,8 @@ def make_text_generator(
     from nsm.adapters.generator.claude_text import ClaudeTextGenerator
 
     return ClaudeTextGenerator(
-        anthropic.Anthropic(max_retries=5, api_key=key),
+        # 작업 스레드가 하나라 생성이 멈추면 게시·답글도 멈춘다. SDK 기본 대기(10분)는 너무 길다(C24). 재시도 5번은 순간 끊김용
+        anthropic.Anthropic(max_retries=5, timeout=GENERATION_TIMEOUT_S, api_key=key),
         cfg.settings.models.generation,
         cost_sink,
         include_blog="naver_blog" in cfg.settings.enabled_platforms,

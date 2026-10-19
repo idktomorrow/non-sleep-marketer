@@ -381,3 +381,17 @@ def test_editor_shows_sources_box(env) -> None:
     oi = len(deck.slides) - 1
     html = env["client"].get("/review/c1").text
     assert f'name="s{oi}_sources"' in html
+
+
+def test_edit_after_approval_is_refused_at_the_database(env) -> None:
+    """C24: 화면 검사 뒤 승인이 끼어들어도(동시 요청) 승인된 원고는 바뀌지 않는다."""
+    from nsm.store.repo import InvalidTransitionError
+
+    repo = env["repo"]
+    c = repo.get_content("c1")
+    repo.transition_content("c1", "approved", approved_by="human")
+    with pytest.raises(InvalidTransitionError):
+        repo.update_generated("c1", c.generated.model_copy(update={"threads_text": "바뀜"}))
+    assert repo.get_content("c1").generated.threads_text == c.generated.threads_text
+    r = _post(env, "/review/c1/edit", threads_text="바뀜")
+    assert r.status_code == 409

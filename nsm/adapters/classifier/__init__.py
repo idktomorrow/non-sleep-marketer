@@ -39,9 +39,10 @@ def make_classifiers(cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink) 
         import anthropic
 
         from nsm.adapters.classifier.claude import ClaudeClassifier
+        from nsm.adapters.generator import CLASSIFY_TIMEOUT_S
 
         c = ClaudeClassifier(
-            anthropic.Anthropic(max_retries=5, api_key=anthropic_key),
+            anthropic.Anthropic(max_retries=5, timeout=CLASSIFY_TIMEOUT_S, api_key=anthropic_key),
             cfg.settings.models.classifier,
             cost_sink,
         )

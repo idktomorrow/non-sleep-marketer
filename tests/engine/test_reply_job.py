@@ -238,7 +238,10 @@ def _add_sources(ctx: JobContext, n: int, cited: str | None = None) -> list:
         from nsm.domain.models import Claim
 
         g = c.generated.model_copy(update={"claims": [Claim(text="x", source_item_id=cited)]})
-        ctx.repo.update_generated("c1", g)
+        # 픽스처 원고는 이미 승인됨이라 사람 편집 경로(검토 대기만, C24)를 쓰지 않고 직접 넣는다
+        ctx.repo.db.execute(
+            "UPDATE contents SET generated = ? WHERE id = ?", [g.model_dump_json(), "c1"]
+        )
     return items
 
 
@@ -321,3 +324,33 @@ def test_unconfirmed_reply_goes_to_human_without_resend(ctx: JobContext) -> None
     # 보냈을 수 있으니 작성자 하루 한도는 센다
     today = local(ctx.clock.now(), ctx.tz).date()
     assert ctx.repo.reply_count("threads", c1.comment.author_id, today) >= 1
+
+
+def test_reply_marks_replying_before_sending_and_recovers_after_crash(ctx: JobContext) -> None:
+    """C24: 보내기 전에 '보내는 중'으로 적는다. 보낸 직후 죽으면 다음 실행이 다시 보내지 않고,
+    켤 때 사람 확인으로 넘긴다(두 번 달리는 것보다 한 번 빠지는 쪽)."""
+    from nsm.engine.reply import INTERRUPTED_REASON, recover_interrupted_replies
+
+    adapter = ctx.adapters["threads"]
+    seen_status: list[str] = []
+
+    def crash_after_send(comment, text):
+        seen_status.append(ctx.repo.get_comment(ctx.repo.comment_key(comment)).status)
+        raise KeyboardInterrupt  # 프로세스가 죽은 것처럼
+
+    adapter.reply = crash_after_send
+    with pytest.raises(KeyboardInterrupt):
+        run_reply(ctx)
+    assert seen_status == ["replying"]  # 보내기 전에 이미 '보내는 중'
+    assert ctx.repo.get_comment("threads:c1").status == "replying"
+
+    # 다시 켤 때: 재전송 없이 사람에게
+    assert recover_interrupted_replies(ctx) == 1
+    c1 = ctx.repo.get_comment("threads:c1")
+    assert c1.status == "escalated" and c1.reason == INTERRUPTED_REASON and c1.reply_text
+    assert any("중단" in t for t, _b, _l in ctx.notifier.calls)
+    # 이후 실행은 그 댓글을 건드리지 않는다
+    calls = []
+    adapter.reply = lambda comment, text: calls.append(comment.external_id) or "r1"
+    run_reply(ctx)
+    assert "c1" not in calls
