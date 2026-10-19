@@ -28,10 +28,19 @@ def next_publishes(
     tz = s.timezone
     paused = set(repo.get_setting(PAUSED_KEY, []))
     out: list[NextPublish] = []
-    waiting = repo.publications_in_status("queued") + repo.publications_in_status("failed")
+    # 게시 잡(due_publications)처럼 승인된 원고의 게시만 센다. 검토 대기·폐기 원고에도 queued 행은 있다
+    approved = {c.id for c in repo.list_contents("approved", limit=1000)}
+    waiting = [
+        p
+        for p in repo.publications_in_status("queued") + repo.publications_in_status("failed")
+        if p.content_id in approved
+    ]
     for platform in s.enabled_platforms:
         mine = [p for p in waiting if p.platform == platform]
         if not mine:
+            continue
+        if adapters is not None and platform not in adapters:
+            out.append(NextPublish(platform, None, "연결 안 됨"))
             continue
         if not cfg.persona.enabled:
             out.append(NextPublish(platform, None, "페르소나 꺼짐"))
@@ -56,8 +65,16 @@ def next_publishes(
             continue
         if repo.count_published_between(platform, start, end) >= quota and at < end:
             at = end  # 내일 0시부터
-        windows = s.posting_hours if s.posting_hours is not None else cfg.persona.active_hours
-        opened = next_window_start(at, windows, tz)
+        # 게시 잡(should_post)은 활동 시간 안이면서 게시 시간 안이어야 한다. 두 구간을 번갈아 맞춘다
+        sets = [cfg.persona.active_hours]
+        if s.posting_hours is not None:
+            sets.append(s.posting_hours)
+        opened: datetime | None = at
+        for _ in range(3):
+            for windows in sets:
+                opened = next_window_start(opened, windows, tz) if opened is not None else None
+            if opened is None or all(next_window_start(opened, w, tz) == opened for w in sets):
+                break
         if opened is None:
             out.append(NextPublish(platform, None, "게시 시간 없음"))
             continue

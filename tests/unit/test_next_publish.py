@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from nsm.app.next_publish import next_publishes
 from nsm.domain.models import ActiveWindow
 from nsm.domain.policy import next_window_start
+from nsm.engine.publish import PAUSED_KEY
 
 KST = ZoneInfo("Asia/Seoul")
 WIN = [ActiveWindow(start=time(8, 0), end=time(23, 0))]
@@ -39,7 +40,11 @@ class _Repo:
         )
 
     def get_setting(self, key, default=None):
-        return self._paused if key == "paused_platforms" else default
+        return self._paused if key == PAUSED_KEY else default
+
+    def list_contents(self, status=None, limit=200):
+        # 승인된 원고 c-ok 하나만. 테스트의 게시 행은 기본으로 이 원고 것이다
+        return [SimpleNamespace(id="c-ok")] if status == "approved" else []
 
     def publications_in_status(self, status):
         return self._q if status == "queued" else self._f
@@ -51,8 +56,10 @@ class _Repo:
         return self._n
 
 
-def _pub(platform, status="queued", next_attempt_at=None):
-    return SimpleNamespace(platform=platform, status=status, next_attempt_at=next_attempt_at)
+def _pub(platform, status="queued", next_attempt_at=None, content_id="c-ok"):
+    return SimpleNamespace(
+        platform=platform, status=status, next_attempt_at=next_attempt_at, content_id=content_id
+    )
 
 
 def _cfg(**over):
@@ -95,6 +102,35 @@ def test_gap_retry_quota_and_window_push_the_time() -> None:
     # 게시 시간 밖(23:30)이면 내일 08:00
     rows = next_publishes(_Repo(queued=[_pub("threads")]), _cfg(), _at(23, 30))
     assert rows[0].at == _at(8, day=20)
+
+
+def test_only_approved_content_counts_and_missing_adapter_is_reported() -> None:
+    now = _at(10)
+    # 검토 대기·폐기 원고의 queued 행은 세지 않는다
+    assert (
+        next_publishes(_Repo(queued=[_pub("threads", content_id="c-pending")]), _cfg(), now) == []
+    )
+    # 실패 재시도만 승인된 원고면 그 시각이 보인다(다른 원고의 queued 행에 가려지지 않음)
+    rows = next_publishes(
+        _Repo(
+            queued=[_pub("instagram", content_id="c-pending")],
+            failed=[_pub("instagram", "failed", _at(12, 5).astimezone(UTC))],
+        ),
+        _cfg(),
+        now,
+    )
+    assert rows[0].at == _at(12, 5)
+    # 어댑터가 없는 플랫폼은 "연결 안 됨"
+    rows = next_publishes(_Repo(queued=[_pub("instagram")]), _cfg(), now, {"threads": object()})
+    assert rows[0].at is None and rows[0].reason == "연결 안 됨"
+
+
+def test_posting_hours_and_active_hours_both_apply() -> None:
+    # 활동 09~18, 게시 08~20: 08시는 게시 시간이지만 활동 시간 밖 → 09:00
+    cfg = _cfg(posting_hours=[ActiveWindow(start=time(8, 0), end=time(20, 0))])
+    cfg.persona.active_hours = [ActiveWindow(start=time(9, 0), end=time(18, 0))]
+    rows = next_publishes(_Repo(queued=[_pub("threads")]), cfg, _at(7))
+    assert rows[0].at == _at(9)
 
 
 def test_paused_disabled_and_rate_limited() -> None:
