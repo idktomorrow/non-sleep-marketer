@@ -14,26 +14,38 @@
     rgba(0,0,0,.38) 0%, rgba(0,0,0,0) 16%, rgba(0,0,0,0) 46%, rgba(0,0,0,.56) 72%, rgba(0,0,0,.86) 100%);
 }
 
-/* 표기 배지: 종이 위에서는 진한 알약, 사진 위에서는 흰 알약(ADR 0007) */
+/* 표기 배지: 종이 위에서는 진한 알약, 사진 위에서는 흰 알약(ADR 0007).
+   광고 배지는 종이(밝은 바탕)에서는 illust용 색, 사진 위에서는 photo용 색 + 검은 테두리(밝은 사진에서도 알약이 보이게) */
 .style-editorial .slide .badge:not(.ad),
 .style-editorial .slide.brand .badge:not(.ad) { background: var(--ink); color: #fff; }
 .style-editorial .slide.has-bg .badge:not(.ad) { background: #fff; color: #111; }
+.style-editorial .slide:not(.has-bg) .badge.ad { background: var(--illust-ad-bg); color: var(--illust-ad-fg); }
+.style-editorial .slide.has-bg .badge.ad { background: var(--photo-ad-bg); color: var(--photo-ad-fg); box-shadow: 0 0 0 3px rgba(0,0,0,.55); }
 
-/* 표지: 키커(부제 슬롯) 위, 큰 제목 아래, 왼쪽 아래 정렬 */
-.style-editorial .cover .kicker { display: none; }
-.style-editorial .cover .content { justify-content: flex-end; gap: 22px; padding-bottom: 24px; }
+/* 표지: 키커(부제 슬롯) 위, 큰 제목 아래, 왼쪽 아래 정렬(editorial 표지는 .kicker 막대를 내지 않는다) */
+.style-editorial .cover .content { justify-content: flex-end; padding-bottom: 24px; }
+.style-editorial .cover .titles { display: flex; flex-direction: column; gap: 22px; }
+/* 사진 위 글 묶음 뒤에 글 높이만큼 따라가는 어두운 띠(순백 사진에서도 흰 글자 대비 ≥3). 가로는 카드 끝까지.
+   .content를 먼저 카드 폭으로 넓혀 두어야(음수 여백 + 같은 패딩) 띠가 .content 밖으로 삐져나가 nsmFit()이 가로 넘침으로 보지 않는다 */
+.style-editorial .cover.has-bg .content { margin: 0 -88px; padding-left: 88px; padding-right: 88px; }
+.style-editorial .cover.has-bg .titles {
+  margin: 0 -88px -24px; padding: 96px 88px 24px;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.40) 9%, rgba(0,0,0,.66) 18%, rgba(0,0,0,.74) 40%, rgba(0,0,0,.80) 100%);
+}
 .style-editorial .cover .subtitle { font-size: 52px; font-weight: 600; line-height: 1.3; opacity: .94; }
 .style-editorial .cover h1 { font-size: 112px; line-height: 1.14; letter-spacing: -0.04em; }
 .style-editorial .cover:not(.has-bg) h1 { color: var(--primary-ink); }
 .style-editorial .cover:not(.has-bg) .subtitle { color: var(--accent-ink); opacity: 1; }
 .style-editorial .cover.has-bg h1,
 .style-editorial .cover.has-bg .subtitle { text-shadow: 0 2px 18px rgba(0,0,0,.35); }
-.style-editorial .slide.has-bg .who { opacity: 1; text-shadow: 0 1px 12px rgba(0,0,0,.5); }
+/* 사진 위 이름: 밝은 사진(눈·흰 상품)에서도 읽히게 진한 알약 바탕(흰 글자 대비 ≥3, 큰 글자 기준) */
+.style-editorial .slide.has-bg .who { opacity: 1; background: rgba(0,0,0,.72); padding: 8px 20px; border-radius: 999px; }
 
-/* 본문(사진 있음): 사진을 70% 이상 남기고 아래에 흰 설명 패널 */
-.style-editorial .body.has-bg .content { justify-content: flex-end; }
+/* 본문(사진 있음): 사진을 70% 이상 남기고 아래에 흰 설명 패널.
+   패널은 margin-top:auto로 아래에 붙인다. justify-content:flex-end면 긴 글이 위로 넘쳐 nsmFit()(scrollHeight)이 못 본다 */
+.style-editorial .body.has-bg .content { justify-content: flex-start; }
 .style-editorial .caption-panel {
-  background: var(--panel); color: var(--ink); border-radius: 36px; padding: 40px 44px;
+  margin-top: auto; background: var(--panel); color: var(--ink); border-radius: 36px; padding: 40px 44px;
   display: flex; flex-direction: column; gap: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.18);
 }
 .style-editorial .caption-panel h2 { font-size: 56px; color: var(--primary-ink); }
@@ -44,9 +56,8 @@
 
 /* 본문(사진 없음)·리스트·비교: 종이색 바탕 + 얇은 테두리 흰 카드 */
 .style-editorial .list li { background: #fff; border: 2px solid var(--line); color: var(--ink); }
-.style-editorial .compare .col,
-.style-editorial .compare .col.right { background: #fff; border: 2px solid var(--line); }
-.style-editorial .compare .col.right { background: var(--card-accent); }
+.style-editorial .compare .col { background: #fff; border: 2px solid var(--line); }
+.style-editorial .compare .col.right { background: var(--card-accent); border: 2px solid var(--line); }
 
 /* 리스트·비교(사진 있음): 사진을 흐리고 밝게 깔고 진한 글자, 흰 카드 */
 .style-editorial .slide.has-bg.list,
@@ -59,7 +70,7 @@
 .style-editorial .slide.has-bg.list .badge:not(.ad),
 .style-editorial .slide.has-bg.compare .badge:not(.ad) { background: var(--ink); color: #fff; }
 .style-editorial .slide.has-bg.list .who,
-.style-editorial .slide.has-bg.compare .who { text-shadow: none; }
+.style-editorial .slide.has-bg.compare .who { background: none; padding: 0; }
 .style-editorial .slide.has-bg.list h2,
 .style-editorial .slide.has-bg.compare h2 { color: var(--primary-ink); }
 .style-editorial .slide.has-bg.list li { background: #fff; }

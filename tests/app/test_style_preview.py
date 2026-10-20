@@ -127,10 +127,27 @@ def test_sample_deck_uses_persona_and_ad_label(app_config) -> None:
     assert [s.kind for s in deck.slides] == ["cover", "list", "outro"]
 
 
-def test_editorial_sample_has_bundled_photo_only_on_cover_and_outro(app_config) -> None:
-    """사진 우선형(S10) 견본은 동봉 사진을 표지·마지막 장에만 깐다. 다른 스타일 견본은 사진이 없다."""
+def test_editorial_sample_has_bundled_photo_on_visible_slides(app_config) -> None:
+    """사진 우선형(S10) 견본은 동봉 사진을 표지·본문(패널) 장에 깐다. 다른 스타일 견본은 사진이 없다."""
     deck = sample_deck(app_config, "#111111", "#222222", "editorial")
     bgs = [s.background for s in deck.slides]
-    assert bgs[0] and bgs[0] == bgs[2] and bgs[1] is None
+    # 화면에 보이는 1·2장(표지·설명 패널 본문)에만 사진. 안 보이는 마지막 장은 사진 없이(그리는 값 절약)
+    assert [s.kind for s in deck.slides] == ["cover", "body", "outro"]
+    assert bgs[0] and bgs[0] == bgs[1] and bgs[2] is None
     assert Path(bgs[0]).is_file() and "sample-photo" in bgs[0]
     assert all(s.background is None for s in sample_deck(app_config, "#111111", "#222222").slides)
+
+
+def test_editorial_sample_cache_key_tracks_photo_file(
+    app_config, tmp_path: Path, monkeypatch
+) -> None:
+    """견본 사진 파일 내용이 바뀌면 editorial 견본을 다시 그린다(템플릿 지문은 사진을 안 본다)."""
+    import nsm.app.style_preview as sp
+
+    r = SampleRenderer()
+    style_preview_png(r, app_config, tmp_path, "editorial", 1)
+    style_preview_png(r, app_config, tmp_path, "editorial", 1)
+    assert len(r.calls) == 1
+    monkeypatch.setattr(sp, "_photo_fingerprint", lambda: "changed")
+    style_preview_png(r, app_config, tmp_path, "editorial", 1)
+    assert len(r.calls) == 2

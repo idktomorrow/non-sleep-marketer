@@ -91,8 +91,10 @@
   <div class="content">
     {%- if style == 'editorial' %}
     {#- 사진 우선형: 부제를 제목 위 키커로(부제 슬롯·최소 크기는 그대로, ADR 0035) -#}
-    {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
-    <h1 data-fit="88">{{ title_text(s) }}</h1>
+    <div class="titles">
+      {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
+      <h1 data-fit="88">{{ title_text(s) }}</h1>
+    </div>
     {%- else %}
     <div class="kicker"></div>
     <h1 data-fit="88">{{ title_text(s) }}</h1>
@@ -152,9 +154,9 @@
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content">
     {%- if style == 'editorial' and bg %}
-    {#- 사진 위 팔로우 카드. 이름은 .who(가상인물 배지 옆 인물 슬롯)와 별개의 장식이다 -#}
+    {#- 사진 위 팔로우 카드. 페르소나 이름·핸들은 가상인물 배지 옆(.who)에만 두므로(ADR 0019·0043) 여기는 브랜드 이름만 -#}
     <div class="follow-card">
-      <div class="follow-name">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} <span class="handle">{{ deck.persona.handle }}</span></div>
+      <div class="follow-name">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.brand.name }}</div>
       <p class="cta" data-fit="48">{{ s.cta }}</p>
     </div>
     {%- else %}

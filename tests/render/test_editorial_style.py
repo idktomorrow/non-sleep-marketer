@@ -98,9 +98,11 @@ def test_label_slots_match_clean_and_no_ai_caption_without_flag() -> None:
     assert [x["labels"].count("virtual-person") for x in ours] == [1, 0, 0, 1]
     assert all("ad" not in x["labels"] for x in ours)
     assert [x["sources"] for x in ours] == [0, 0, 0, 1]
-    # 마지막 장 팔로우 카드 안의 이름은 .who(인물 슬롯)와 별개다: 배지 옆 이름은 여전히 표지·마지막 장 2곳
+    # 페르소나 이름·핸들은 가상인물 배지 옆(.who)에만 2번(ADR 0019·0043). 팔로우 카드는 브랜드 이름만
     html = build_html(deck, STYLE)
     assert html.count('<div class="who">') == 2 == html.count('data-label="virtual-person"')
+    assert html.count(deck.persona.handle) == 2
+    assert f'<div class="follow-name">{deck.brand.name}</div>' in html
 
 
 @pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
@@ -148,7 +150,7 @@ def test_caption_panel_leaves_most_of_the_photo_visible(tmp_path) -> None:
 
 
 def test_text_on_white_panels_is_readable(tmp_path) -> None:
-    """설명 패널·팔로우 카드 안 글자는 흰 바탕과 대비 4.5 이상, 사진 위 표지 글자는 흰색."""
+    """설명 패널·팔로우 카드 안 글자는 흰 바탕과 대비 4.5 이상(사진 위 글자는 아래 밝은 사진 테스트)."""
     pairs = _measure(
         photo_deck(True),
         tmp_path,
@@ -161,8 +163,6 @@ def test_text_on_white_panels_is_readable(tmp_path) -> None:
               out.push([el.className || el.tagName, rgba(getComputedStyle(el).color), bg]);
             }
           }
-          const t = document.querySelector('section[data-kind="cover"] h1');
-          out.push(['cover-h1', rgba(getComputedStyle(t).color), [0, 0, 0]]);
           return out;
         }""",
     )
@@ -172,3 +172,104 @@ def test_text_on_white_panels_is_readable(tmp_path) -> None:
         if c < 4.5:
             bad.append(f"{name}: {c:.1f}")
     assert bad == []
+
+
+def _white_photo(tmp_path: Path, shade: int = 255) -> Path:
+    from PIL import Image
+
+    p = tmp_path / f"bright-{shade}.png"
+    Image.new("RGB", (1080, 1350), (shade, shade, shade)).save(p)
+    return p
+
+
+def _luminance(rgb) -> float:
+    def ch(v: float) -> float:
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    r, g, b = rgb
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+
+
+@pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
+def test_cover_text_readable_on_bright_photo(extreme: bool, tmp_path) -> None:
+    """가장 밝은 사진(순백)에서도 표지 제목·키커·이름·페이지 번호 뒤 바탕이 흰 글자와 대비 3.0 이상(큰 글자 기준).
+
+    글자를 투명하게 만든 뒤 글자 상자 자리의 실제 화면 밝기를 잰다(그라디언트·알약 바탕이 충분한지).
+    """
+    import io
+
+    from PIL import Image, ImageStat
+    from playwright.sync_api import sync_playwright
+
+    raw = json.loads((FIXTURES / "editorial-photo.json").read_text("utf-8"))
+    if extreme:
+        ex = _extreme("info").model_dump(mode="json")
+        raw["slides"], raw["labels"] = ex["slides"], ex["labels"]
+    white = str(_white_photo(tmp_path))
+    for s in raw["slides"]:
+        s["background"] = white
+    deck = CardDeck.model_validate(raw)
+    page_path = tmp_path / "deck.html"
+    page_path.write_text(build_html(deck, STYLE), encoding="utf-8")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1080, "height": 1350})
+            page.goto(page_path.resolve().as_uri(), wait_until="load")
+            page.evaluate("document.fonts.ready.then(() => true)")
+            page.evaluate("window.nsmFit()")
+            page.add_style_tag(
+                content=".slide * { color: transparent !important; text-shadow: none !important; }"
+            )
+            boxes = page.evaluate(
+                """() => {
+                  const s = document.querySelector('section.slide[data-kind="cover"]');
+                  const out = {};
+                  for (const [k, sel] of [['title','h1'], ['kicker','.subtitle'], ['who','.who'], ['page','[data-page]']]) {
+                    const r = s.querySelector(sel).getBoundingClientRect();
+                    out[k] = [r.left, r.top, r.right, r.bottom];
+                  }
+                  return out;
+                }"""
+            )
+            shot = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
+        finally:
+            browser.close()
+    bad = []
+    for name, (left, top, right, bottom) in boxes.items():
+        region = shot.crop((int(left), int(top), int(right), int(bottom)))
+        mean = tuple(ImageStat.Stat(region).mean[:3])
+        contrast = 1.05 / (_luminance(mean) + 0.05)  # 흰 글자(1.0) 대 바탕
+        if contrast < 3.0:
+            bad.append(f"{name}: {contrast:.2f} (바탕 평균 {tuple(round(m) for m in mean)})")
+    assert bad == []
+
+
+def test_long_caption_panel_shrinks_instead_of_clipping_upward(tmp_path) -> None:
+    """아주 긴 본문도 패널이 위로 넘쳐 잘리지 않고 글자가 줄어들어 들어간다(nsmFit이 넘침을 볼 수 있어야 한다)."""
+    raw = json.loads((FIXTURES / "editorial-photo.json").read_text("utf-8"))
+    long = "아주 긴 문장이 들어와도 카드가 깨지지 않아야 합니다 그래서 일부러 길게 씁니다. "
+    body = raw["slides"][1]
+    body["heading"], body["body"], body["bullets"] = (
+        "소제목도 길게 들어오는 경우",
+        long * 6,
+        [long] * 6,
+    )
+    for s in raw["slides"]:
+        s["background"] = str(SAMPLE) if s["background"] else None
+    deck = CardDeck.model_validate(raw)
+    r = _measure(
+        deck,
+        tmp_path,
+        """() => {
+          const s = document.querySelector('section.slide[data-kind="body"].has-bg');
+          const c = s.querySelector('.content').getBoundingClientRect();
+          const p = s.querySelector('.caption-panel').getBoundingClientRect();
+          const h2 = parseFloat(getComputedStyle(s.querySelector('h2')).fontSize);
+          return { contentTop: c.top, panelTop: p.top, panelBottom: p.bottom, contentBottom: c.bottom, h2 };
+        }""",
+    )
+    assert r["panelTop"] >= r["contentTop"] - 1, r  # 위로 잘리지 않음
+    assert r["panelBottom"] <= r["contentBottom"] + 1, r
+    assert r["h2"] < 56, r  # 글자가 실제로 줄었다
