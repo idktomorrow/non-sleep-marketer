@@ -18,6 +18,10 @@ def test_apply_preset_sets_topics_aliases_exclude_and_enables_picks(app_config) 
     assert new.persona.topics == PRESETS["lol"].topics
     assert new.settings.picks.enabled and new.settings.picks.aliases == PRESETS["lol"].aliases
     assert "김밥" in new.settings.collect.exclude_words
+    assert (
+        new.persona.tone == app_config.persona.tone
+    )  # 말투가 없는 프리셋은 말투를 건드리지 않는다
+    assert "밈" in apply_preset(app_config, "chiikawa").persona.tone  # 치이카와는 밈 말투
     assert app_config.settings.picks.enabled is False  # 원본은 그대로
     with pytest.raises(KeyError):
         apply_preset(app_config, "nope")

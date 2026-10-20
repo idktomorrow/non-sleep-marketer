@@ -17,6 +17,8 @@ def test_relative_and_absolute_dates() -> None:
     assert parse_naver_date("어제 올린 글", NOW) == NOW - timedelta(days=1)
     assert parse_naver_date("2026.10.19. 네이버뉴스", NOW) == NOW.replace(day=19, hour=12, minute=0)
     assert parse_naver_date("날짜 없음", NOW) is None
+    assert parse_naver_date("10월 20일 전후로 출시", NOW) is None  # 낱말 속 "전"은 날짜가 아니다
+    assert parse_naver_date("7일 전체 일정 공개", NOW) is None
     assert parse_naver_date("2026.13.40.", NOW) is None
 
 

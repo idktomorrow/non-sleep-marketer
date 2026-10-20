@@ -34,7 +34,13 @@ def _png(w: int = 800, h: int = 1000) -> bytes:
 
 def _client(routes: dict[str, httpx.Response]) -> httpx.Client:
     def handler(request: httpx.Request) -> httpx.Response:
-        return routes.get(str(request.url), httpx.Response(404))
+        # 접속은 해석한 IP로 가고 Host 헤더에 원래 이름이 온다(DNS 리바인딩 방지). 원래 주소로 되돌려 찾는다
+        assert request.url.host[0].isdigit(), request.url
+        original = (
+            f"{request.url.scheme}://{request.headers['host']}{request.url.raw_path.decode()}"
+        )
+        assert request.extensions.get("sni_hostname") == request.headers["host"].split(":")[0]
+        return routes.get(original, httpx.Response(404))
 
     return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
 
@@ -166,3 +172,39 @@ def test_too_many_redirects_and_missing_page(tmp_path: Path) -> None:
         )
         is None
     )
+
+
+def test_dns_rebinding_cannot_switch_to_private_after_check(tmp_path: Path) -> None:
+    """첫 조회는 공개 IP, 두 번째는 사설 IP를 주는 호스트: 접속은 첫 조회로 확인한 IP로만 간다."""
+    answers = iter([["93.184.216.34"], ["169.254.169.254"], ["169.254.169.254"]])
+    seen: list[str] = []
+
+    def resolver(host: str) -> list[str]:
+        return next(answers)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        return httpx.Response(200, text="<html></html>")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    assert (
+        fetch_photo_candidate(
+            "https://news.example.com/a/1", tmp_path, client=client, resolver=resolver
+        )
+        is None
+    )
+    assert seen == ["93.184.216.34"]  # 확인한 IP로만 접속했다
+
+
+def test_pillow_global_limit_is_untouched(tmp_path: Path) -> None:
+    before = Image.MAX_IMAGE_PIXELS
+    client = _client(
+        {
+            "https://news.example.com/a/1": httpx.Response(200, text=HTML),
+            "https://news.example.com/photos/1.png": httpx.Response(200, content=_png()),
+        }
+    )
+    assert fetch_photo_candidate(
+        "https://news.example.com/a/1", tmp_path, client=client, resolver=_resolver(PUBLIC)
+    )
+    assert before == Image.MAX_IMAGE_PIXELS

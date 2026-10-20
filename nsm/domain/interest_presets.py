@@ -18,6 +18,7 @@ class InterestPreset:
     aliases: dict[str, list[str]] = field(default_factory=dict)  # 대표 주제 → 검색 별칭
     exclude_words: list[str] = field(default_factory=list)
     note: str = ""  # 화면에 보이는 주의 문구
+    tone: str = ""  # 비우지 않으면 페르소나 말투도 바꾼다(키치·밈 톤 등)
 
 
 PRESETS: dict[str, InterestPreset] = {
@@ -32,6 +33,7 @@ PRESETS: dict[str, InterestPreset] = {
         },
         exclude_words=["중고", "양도", "삽니다"],
         note="굿즈·협업 사진에는 캐릭터 저작권이 있습니다. 사진 후보는 확인한 것만 쓰세요.",
+        tone='친구한테 떠드는 밈 말투. 짧게 끊고 드립 한 스푼, 제목은 한 줄 드립(예: "이런 비행기 아니면 타기도 싫다"), 느낌표는 한 번만, 이모지는 한 개까지',
     ),
     "lol": InterestPreset(
         key="lol",
@@ -77,7 +79,9 @@ def apply_preset(cfg: Any, key: str) -> Any:
     if key not in PRESETS:
         raise KeyError(key)
     ps = PRESETS[key]
-    persona = cfg.persona.model_copy(update={"topics": list(ps.topics)})
+    persona = cfg.persona.model_copy(
+        update={"topics": list(ps.topics), **({"tone": ps.tone} if ps.tone else {})}
+    )
     collect = cfg.settings.collect.model_copy(
         update={
             "exclude_words": list(

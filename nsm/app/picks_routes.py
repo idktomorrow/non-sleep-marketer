@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from nsm.app.review_actions import RECHECK_AFTER, ReviewActions
+from nsm.app.review_actions import ReviewActions
 from nsm.domain.policy import local
 from nsm.store.picks import Pick
 

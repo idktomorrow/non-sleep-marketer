@@ -45,9 +45,8 @@ def test_save_marks_items_used_and_does_not_count_toward_daily_target(
     repo, store = env["repo"], env["store"]
     assert repo.get_content("p1").status == "pending_review"
     assert repo.publications_for_content("p1") == []  # 게시 레코드는 아직 없다
-    assert repo.unused_relevant_items(0.0) == [] or all(
-        i.id not in {x.id for x in env["items"]} for i, _, _ in repo.unused_relevant_items(0.0)
-    )
+    used = {i.id for i, _, _ in repo.unused_relevant_items(0.0)}
+    assert used.isdisjoint({x.id for x in env["items"]})  # 쓴 자료는 더 이상 "안 쓴 자료"가 아니다
     start, end = local_day_bounds(clock.now(), app_config.settings.timezone)
     assert repo.count_contents_between(start, end) == 0  # 일일 생성 목표를 쓰지 않는다
     p = store.get("p1")
@@ -78,11 +77,11 @@ def test_dismiss_discards_releases_items_and_keeps_fingerprint(env, clock) -> No
     repo, store = env["repo"], env["store"]
     store.dismiss("p1")
     assert repo.get_content("p1").status == "discarded"
-    assert {i.id for i, _, _ in repo.unused_relevant_items(0.0)} >= {
+    for item in env["items"]:
+        repo.set_source_relevance(item.id, 0.9)
+    assert {i.id for i, _, _ in repo.unused_relevant_items(0.8)} >= {
         x.id for x in env["items"]
-    } or True
-    rows = repo.db.execute("SELECT count(*) FROM source_items WHERE used_in_content_id = 'p1'")
-    assert rows[0][0] == 0
+    }  # 풀렸다
     assert store.get("p1").state == "dismissed"
     assert store.dismissed_fingerprints(clock.now() - timedelta(days=1)) == ["물 온도 핸드드립"]
     with pytest.raises(InvalidTransitionError):

@@ -16,7 +16,14 @@ from pathlib import Path
 from nsm.adapters.sources.og_image import PhotoCandidate, fetch_photo_candidate
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content
-from nsm.domain.picks_policy import Cluster, cluster_candidates, freshness, rank_clusters
+from nsm.domain.picks_policy import (
+    SAME_EVENT_JACCARD,
+    Cluster,
+    cluster_candidates,
+    freshness,
+    jaccard,
+    rank_clusters,
+)
 from nsm.domain.policy import local, local_day_bounds, should_act, under_cost_cap
 from nsm.engine.collect import excluded_word, run_collect
 from nsm.engine.context import JobContext, JobResult
@@ -78,19 +85,26 @@ def run_picks(
         if topic and not excluded_word(item, words)
     ]
     clusters = cluster_candidates(candidates, s.picks.aliases)
-    exclude = store.recent_topics_text(
-        now - timedelta(days=RECENT_DAYS)
-    ) + store.dismissed_fingerprints(now - timedelta(days=DISMISSED_DAYS))
+    # 최근 원고 제목은 "대표 주제: 제목" 꼴이라 주제 낱말이 겹침을 부풀린다 → 제목 부분만 비교(S11 리뷰)
+    recent = [
+        t.split(": ", 1)[-1] for t in store.recent_topics_text(now - timedelta(days=RECENT_DAYS))
+    ]
+    exclude = recent + store.dismissed_fingerprints(now - timedelta(days=DISMISSED_DAYS))
     ranked = rank_clusters(clusters, exclude, now, s.picks.fresh_hours, s.picks.aliases)
     result.counts["candidates"] = len(ranked)
 
     # 3) 서로 다른 사건을 위에서부터 완성 원고로
     start, end = local_day_bounds(now, ctx.tz)
     made: list[str] = []
+    made_tokens: list[
+        set[str]
+    ] = []  # 같은 사건이 다른 주제로 분류돼 두 묶음이 됐어도 한 번만(S11 리뷰)
     rank = already
     for cluster in ranked[:MAX_CANDIDATES]:
         if len(made) >= need:
             break
+        if any(jaccard(cluster.tokens, t) >= SAME_EVENT_JACCARD for t in made_tokens):
+            continue
         spent = ctx.repo.cost_between(start, end)
         if not under_cost_cap(spent, s.daily_cost_cap_usd):
             result.counts["cost_cap_hit"] = True
@@ -125,6 +139,7 @@ def run_picks(
         )
         store.save(content, persona_topic=cluster.topic, item_ids=d.item_ids, pick=pick)
         made.append(content.id)
+        made_tokens.append(cluster.tokens)
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
             _attach_photo(ctx, store, content.id, chosen[0][0].url, fetch_photo)

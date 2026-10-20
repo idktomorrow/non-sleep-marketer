@@ -37,7 +37,7 @@
     <label>하루 추천 수(1~5) <span class="hint">게시 수와 별개입니다. 추천 1건에 Claude 약 4~6센트</span><input type="number" name="picks_count" value="{{ v.picks_count }}" min="1" max="5" step="1" required></label>
     <label>검색 별칭(한 줄에 "대표 주제: 별칭, 별칭") <span class="hint">검색에만 씁니다(예: 치이카와 굿즈: ちいかわ グッズ, Chiikawa goods). 주제 분류와 추천은 대표 주제 하나로 묶입니다</span><textarea name="picks_aliases" rows="3">{{ v.picks_aliases }}</textarea></label>
   </div>
-  <p class="muted small" style="margin-bottom:0">관심 분야를 고르면 관심 주제·검색 별칭·수집 제외어가 채워지고 추천 모드가 켜집니다(지금 값은 덮어씁니다). 사진 후보는 기사 대표 이미지를 받아 둘 뿐이며, 검토 상세에서 "이 사진 쓰기"를 눌러야 카드에 들어갑니다.</p>
+  <p class="muted small" style="margin-bottom:0">관심 분야를 고르면 관심 주제·검색 별칭·수집 제외어가 채워지고 추천 모드가 켜집니다(지금 값은 덮어씁니다. 치이카와는 밈 말투도 함께). 사진 후보는 기사 대표 이미지를 받아 둘 뿐이며, 검토 상세에서 "이 사진 쓰기"를 눌러야 카드에 들어갑니다.</p>
 </div>
 <div class="panel" style="margin-top:-6px">
   <div class="actions">{% for k, ps in presets.items() %}<button class="btn-sm" type="submit" form="preset-{{ k }}" title="{{ ps.note }}">{{ ps.name }}</button>{% endfor %}</div>

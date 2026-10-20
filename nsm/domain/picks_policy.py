@@ -181,11 +181,14 @@ def rank_clusters(
     exclude: 최근에 이미 다룬 사건(원고 제목)과 '관심 없음'으로 버린 사건의 지문. 겹치면 뺀다.
     """
     ex_tokens = [normalize_tokens(x, aliases) for x in exclude]
-    kept = [
-        c
-        for c in clusters
-        if not any(jaccard(c.tokens, e) >= SAME_EVENT_JACCARD for e in ex_tokens)
-    ]
+
+    def dup(c: Cluster) -> bool:
+        # 대표 주제 낱말(치이카와, 굿즈)은 같은 주제의 모든 제목에 있어 겹침을 부풀린다 → 빼고 비교(S11 리뷰)
+        topic_tokens = normalize_tokens(c.topic, aliases)
+        mine = c.tokens - topic_tokens
+        return any(jaccard(mine, e - topic_tokens) >= SAME_EVENT_JACCARD for e in ex_tokens)
+
+    kept = [c for c in clusters if not dup(c)]
     kept.sort(
         key=lambda c: (
             -_FRESH_SCORE[freshness(c.published_at, now, fresh_hours)],

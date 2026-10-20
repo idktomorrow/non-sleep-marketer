@@ -58,39 +58,67 @@ def _default_resolver(host: str) -> list[str]:
     return [info[4][0] for info in socket.getaddrinfo(host, None)]
 
 
-def is_public_url(url: str, resolver: Resolver = _default_resolver) -> bool:
-    """http(s)이고 호스트가 공개 IP로만 풀리는가. 하나라도 사설·루프백·링크로컬·예약 대역이면 False."""
+def public_addresses(url: str, resolver: Resolver = _default_resolver) -> list[str]:
+    """http(s)이고 호스트가 공개 IP로만 풀리면 그 IP 목록(한 번만 조회). 아니면 빈 목록.
+
+    하나라도 사설·루프백·링크로컬·예약 대역이면 빈 목록. 접속은 이 목록의 IP로 해야 두 번째 조회가 다른 답을 주는
+    DNS 리바인딩을 막는다.
+    """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        return False
+        return []
     host = parts.hostname
     if host in ("localhost",) or host.endswith(".localhost") or host.endswith(".local"):
-        return False
+        return []
     try:
         addrs = resolver(host)
     except OSError:
-        return False
+        return []
     if not addrs:
-        return False
+        return []
     for a in addrs:
         try:
             ip = ipaddress.ip_address(a)
         except ValueError:
-            return False
+            return []
         if not ip.is_global:
-            return False
-    return True
+            return []
+    return list(addrs)
+
+
+def is_public_url(url: str, resolver: Resolver = _default_resolver) -> bool:
+    return bool(public_addresses(url, resolver))
+
+
+def _public_ip(url: str, resolver: Resolver) -> str:
+    """호스트를 한 번만 풀어 공개 IP 하나를 돌려준다. 접속도 이 IP로 해 DNS 리바인딩(두 번째 조회가 사설 주소)을 막는다."""
+    addrs = public_addresses(url, resolver)
+    if not addrs:
+        raise UnsafeUrlError(url)
+    return addrs[0]
+
+
+def _pinned(url: str, ip: str) -> tuple[str, dict[str, str], dict[str, str]]:
+    """같은 URL을 IP로 바꾼 주소와 Host 헤더, TLS 이름(SNI). 인증서는 원래 호스트 이름으로 검증된다."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    netloc = f"[{ip}]" if ":" in ip else ip
+    if parts.port:
+        netloc += f":{parts.port}"
+    pinned = parts._replace(netloc=netloc).geturl()
+    headers = {"User-Agent": USER_AGENT, "Host": host + (f":{parts.port}" if parts.port else "")}
+    return pinned, headers, {"sni_hostname": host}
 
 
 def _get(
     client: httpx.Client, url: str, max_bytes: int, resolver: Resolver
 ) -> tuple[str, bytes, str]:
-    """리다이렉트를 손으로 따라가며 홉마다 공개 주소인지 확인한다. (최종 URL, 본문, Content-Type)."""
+    """리다이렉트를 손으로 따라가며 홉마다 공개 주소인지 확인하고, 확인한 IP로 접속한다. (최종 URL, 본문, Content-Type)."""
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        if not is_public_url(current, resolver):
-            raise UnsafeUrlError(current)
-        with client.stream("GET", current, headers={"User-Agent": USER_AGENT}) as r:
+        ip = _public_ip(current, resolver)
+        pinned, headers, ext = _pinned(current, ip)
+        with client.stream("GET", pinned, headers=headers, extensions=ext) as r:
             if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                 current = urljoin(current, r.headers["location"])
                 continue
@@ -139,15 +167,15 @@ def fetch_photo_candidate(
             log.info("사진 후보: 이미지를 못 받음(%s): %s", image_url, e)
             return None
         try:
-            Image.MAX_IMAGE_PIXELS = MAX_PIXELS
-            with Image.open(io.BytesIO(data)) as im:
-                im.verify()
+            # 머리만 읽어 크기를 먼저 보고(픽셀 폭탄은 verify 전에 거절), 전역 Pillow 상한은 건드리지 않는다(S11 리뷰)
             with Image.open(io.BytesIO(data)) as im:
                 fmt, width, height = im.format, im.width, im.height
+            if fmt not in _EXT or width * height > MAX_PIXELS or min(width, height) < MIN_SIDE:
+                return None
+            with Image.open(io.BytesIO(data)) as im:
+                im.verify()
         except Exception as e:  # noqa: BLE001  손상·형식 아님·픽셀 폭탄
             log.info("사진 후보: 이미지 검사 실패(%s): %s", image_url, e)
-            return None
-        if fmt not in _EXT or width * height > MAX_PIXELS or min(width, height) < MIN_SIDE:
             return None
         dest_dir.mkdir(parents=True, exist_ok=True)
         path = dest_dir / f"candidate{_EXT[fmt]}"
