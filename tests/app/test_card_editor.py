@@ -450,3 +450,16 @@ def test_products_and_facts_fields_and_item_images(env) -> None:
     assert (
         _post(env, "/review/c1/slides/1/items/0/image/remove").status_code == 400
     )  # 상품 장이 아님
+    # 상품 장이 아닌 곳에 올리면 400이고 파일도 남지 않는다
+    folder = Path(env["state"].media_dir / "uploads" / "backgrounds" / "c1")
+    before = sorted(folder.glob("*"))
+    r = env["client"].post(
+        "/review/c1/slides/1/items/0/image",
+        data={"csrf": env["state"].csrf_token},
+        files={"file": ("x.png", png, "image/png")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400 and sorted(folder.glob("*")) == before
+    assert (
+        'name="s2_heading"' in env["client"].get("/review/c1").text
+    )  # 상품 장 소제목도 고칠 수 있다

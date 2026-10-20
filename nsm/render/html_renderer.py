@@ -29,6 +29,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
+from nsm.domain.quality import slide_texts
 from nsm.render.character import DRAWN, CharacterArt
 from nsm.render.mascot import pick_prop
 
@@ -219,14 +220,9 @@ def resolve_asset(path: str | None) -> str | None:
 
 
 def _deck_texts(deck: CardDeck) -> list[str]:
-    out: list[str] = []
-    for s in deck.slides:
-        for key in ("title", "subtitle", "heading", "body", "cta"):
-            v = getattr(s, key, None)
-            if isinstance(v, str):
-                out.append(v)
-        out.extend(getattr(s, "bullets", None) or [])
-    return out
+    return [
+        t for s in deck.slides for t in slide_texts(s)
+    ]  # 장 종류별 글자 추출은 quality에 한 곳만
 
 
 def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:

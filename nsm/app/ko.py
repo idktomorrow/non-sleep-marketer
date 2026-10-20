@@ -21,7 +21,7 @@ PUB_STATUS = {
     "failed": "실패(다시 시도 예정)",
     "abandoned": "포기(검토로 돌아옴)",
 }
-TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
+TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
 SLIDE_KIND = {
     "cover": "표지",
     "body": "본문",

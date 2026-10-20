@@ -58,7 +58,7 @@
     {% if s.kind == 'cover' %}
     <label>제목<textarea name="s{{ i }}_title" rows="2">{{ s.title }}</textarea></label>
     <label>부제<input type="text" name="s{{ i }}_subtitle" value="{{ s.subtitle or '' }}"></label>
-    {% elif s.kind in ('body', 'list', 'compare') %}
+    {% elif s.kind in ('body', 'list', 'compare', 'products', 'facts') %}
     <label>소제목<input type="text" name="s{{ i }}_heading" value="{{ s.heading }}"></label>
     {% endif %}
     {% if s.kind == 'body' %}<label>본문<textarea name="s{{ i }}_body" rows="3">{{ s.body }}</textarea></label>{% endif %}
@@ -141,6 +141,8 @@
     {% if s.title %}{{ s.title }}{% endif %}{% if s.heading %}{{ s.heading }}{% endif %}
     {% if s.body %}<br>{{ s.body }}{% endif %}{% if s.bullets %}<ul>{% for b in s.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
     {% if s.left %}<br>{{ s.left.title }}: {{ s.left.points|join(' / ') }} · {{ s.right.title }}: {{ s.right.points|join(' / ') }}{% endif %}
+    {% if s.kind == 'products' %}<ul>{% for it in s.items %}<li>{{ it.name }}{% if it.price %} · {{ it.price }}{% endif %}{% if it.note %} <span class="muted">({{ it.note }})</span>{% endif %}{% if it.image %} <span class="muted small">그림 있음</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+    {% if s.kind == 'facts' %}<ul>{% for r in s.rows %}<li><b>{{ r.label }}</b> {{ r.value }}</li>{% endfor %}</ul>{% endif %}
     {% if s.cta %}<br>{{ s.cta }}{% endif %}{% if s.sources %}<br><span class="muted">출처: {{ s.sources|join(', ') }}</span>{% endif %}
     </li>{% endfor %}</ol></div>
     <h2>올릴 글</h2>

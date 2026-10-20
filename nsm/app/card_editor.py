@@ -197,16 +197,22 @@ def set_background(
     return gen.model_copy(update={"deck": deck})
 
 
+def check_item_slot(gen: GeneratedContent, index: int, item: int) -> None:
+    """상품 그림을 저장하기 전에 자리부터 확인한다(아니면 400을 돌려주고도 파일이 남는다, S12 리뷰)."""
+    slides = gen.deck.slides
+    if not 0 <= index < len(slides) or slides[index].kind != "products":
+        raise EditError("상품 그리드 장이 아닙니다")
+    if not 0 <= item < len(slides[index].items):
+        raise EditError("없는 상품입니다")
+
+
 def set_item_image(
     gen: GeneratedContent, index: int, item: int, path: str | None
 ) -> GeneratedContent:
     """상품 그리드(S12)의 j번째 상품 그림을 바꾼다. 사람이 올린 사진이라 "AI 생성 이미지" 표기와 무관하다."""
+    check_item_slot(gen, index, item)
     slides = list(gen.deck.slides)
-    if not 0 <= index < len(slides) or slides[index].kind != "products":
-        raise EditError("상품 그리드 장이 아닙니다")
     items = list(slides[index].items)
-    if not 0 <= item < len(items):
-        raise EditError("없는 상품입니다")
     items[item] = items[item].model_copy(update={"image": path})
     slides[index] = slides[index].model_copy(update={"items": items})
     return gen.model_copy(update={"deck": gen.deck.model_copy(update={"slides": slides})})

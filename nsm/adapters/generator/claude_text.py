@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -40,6 +41,8 @@ from nsm.domain.models import (
 )
 from nsm.domain.quality import STIFF_PHRASES, emoji_limit
 from nsm.ports import AdapterError, CostSink
+
+log = logging.getLogger(__name__)
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_MIDDLE_SLIDES = 8
@@ -132,13 +135,31 @@ _LLM_SCHEMA: dict[str, Any] = {
 _BLOG_FIELDS = ("blog_title", "blog_markdown")
 
 
-def llm_schema(include_blog: bool) -> dict[str, Any]:
-    """블로그를 게시하지 않으면(ADR 0016) 블로그 원고 칸을 요청하지 않는다(출력 비용 절약, #43)."""
-    if include_blog:
-        return _LLM_SCHEMA
-    props = {k: v for k, v in _LLM_SCHEMA["properties"].items() if k not in _BLOG_FIELDS}
-    required = [k for k in _LLM_SCHEMA["required"] if k not in _BLOG_FIELDS]
-    return {**_LLM_SCHEMA, "properties": props, "required": required}
+_EDITORIAL_FIELDS = ("products", "facts")
+
+
+def llm_schema(include_blog: bool, template: str = "info") -> dict[str, Any]:
+    """블로그를 게시하지 않으면(ADR 0016) 블로그 원고 칸을 요청하지 않는다(출력 비용 절약, #43).
+
+    상품·일정 칸(S12)은 소식형(editorial)에서만 요청한다. 다른 템플릿은 칸 자체가 없어 모델이 채우지 않는다.
+    """
+    schema = _LLM_SCHEMA
+    if not include_blog:
+        props = {k: v for k, v in schema["properties"].items() if k not in _BLOG_FIELDS}
+        required = [k for k in schema["required"] if k not in _BLOG_FIELDS]
+        schema = {**schema, "properties": props, "required": required}
+    if template != "editorial":
+        slide = schema["properties"]["slides"]["items"]
+        slide = {
+            **slide,
+            "properties": {
+                k: v for k, v in slide["properties"].items() if k not in _EDITORIAL_FIELDS
+            },
+            "required": [k for k in slide["required"] if k not in _EDITORIAL_FIELDS],
+        }
+        slides = {**schema["properties"]["slides"], "items": slide}
+        schema = {**schema, "properties": {**schema["properties"], "slides": slides}}
+    return schema
 
 
 _TEMPLATE_GUIDE = {
@@ -255,6 +276,8 @@ def build_deck(
                 for x in s.get("facts") or []
                 if str(x.get("label", "")).strip() and str(x.get("value", "")).strip()
             ][:6]
+            made = 0
+            # 한 장에 상품·일정이 같이 오면 둘 다 장으로(안내문은 따로 쓰라고 하지만 스키마가 막지 않는다, S12 리뷰)
             if len(products) >= 2:
                 middle.append(
                     ProductsSlide(
@@ -269,7 +292,8 @@ def build_deck(
                         ],
                     )
                 )
-            elif len(facts) >= 2:
+                made += 1
+            if len(facts) >= 2:
                 middle.append(
                     FactsSlide(
                         heading=heading or "확인할 것",
@@ -279,9 +303,18 @@ def build_deck(
                         ],
                     )
                 )
-            elif heading and s["body"].strip():
+                made += 1
+            if not made and heading and s["body"].strip():
                 middle.append(
                     BodySlide(heading=heading, body=s["body"].strip(), bullets=s["bullets"][:3])
+                )
+                made += 1
+            if not made:
+                log.info(
+                    "소식형 장 버림(상품 %d개·정보 %d줄·본문 없음): %s",
+                    len(products),
+                    len(facts),
+                    heading,
                 )
     if not middle:
         raise AdapterError(f"생성 결과에 {template} 템플릿에 맞는 슬라이드가 없습니다")
@@ -374,7 +407,10 @@ class ClaudeTextGenerator:
             system=_system(persona, brand, self.include_blog),
             output_config={
                 "effort": "medium",
-                "format": {"type": "json_schema", "schema": llm_schema(self.include_blog)},
+                "format": {
+                    "type": "json_schema",
+                    "schema": llm_schema(self.include_blog, brief.template),
+                },
             },
             messages=[
                 {
