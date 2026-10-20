@@ -154,6 +154,16 @@ input[type=text]:disabled { background: #f3f4f6; color: var(--muted); }
 label.check { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; color: var(--fg); margin-top: 14px; }
 label.check .hint { flex-basis: 100%; color: var(--muted); }
 .settings-bar { position: sticky; top: auto; bottom: 0; margin-top: 16px; }
+/* 프리셋(C29) */
+.preset-list { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 14px; }
+.preset-list th, .preset-list td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.preset-list th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.preset-list tr.current td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.preset-list .actions-cell { white-space: nowrap; text-align: right; }
+.preset-list .actions-cell form + form { margin-left: 6px; }
+.preset-save { display: flex; gap: 10px; align-items: flex-end; }
+.preset-save label { margin: 0; }
+.preset-tag { display: inline-block; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 700; text-decoration: none; }
 /* 카드 스타일 고르기(S8): 견본 카드를 보고 고른다 */
 .style-picker { border: 0; padding: 0; margin: 14px 0 0; min-width: 0; }
 .style-picker legend { padding: 0; font-weight: 600; color: var(--fg); }

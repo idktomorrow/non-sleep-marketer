@@ -13,7 +13,7 @@
     <a class="brand" href="/"><span class="brand-dot"></span>논슬립 마케터</a>
     {% if cfg.settings.dry_run %}<span class="mode dry" title="실제로 올리지 않고 미리보기 폴더에 저장합니다">드라이런</span>
     {% else %}<span class="mode live" title="실제 계정에 게시합니다">실계정</span>{% endif %}
-    <span class="who">{{ cfg.persona.name }} {{ cfg.persona.handle }} · {{ cfg.brand.name }}</span>
+    <span class="who">{% if cfg.settings.preset != default_preset %}<a class="preset-tag" href="/settings#presets" title="지금 프리셋">{{ cfg.settings.preset }}</a> · {% endif %}{{ cfg.persona.name }} {{ cfg.persona.handle }} · {{ cfg.brand.name }}</span>
     <form class="ui-mode" method="post" action="/ui-mode" title="간단: 매일 쓰는 화면만 · 고급: 자료·실행 기록과 세부 설정까지"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button name="mode" value="simple" {% if simple %}class="on" aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>간단</button><button name="mode" value="advanced" {% if not simple %}class="on" aria-pressed="true"{% else %}aria-pressed="false"{% endif %}>고급</button>
     </form>

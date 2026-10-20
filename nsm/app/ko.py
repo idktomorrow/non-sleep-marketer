@@ -71,6 +71,7 @@ JOBS: dict[str, tuple[str, str]] = {
 # 값을 받아 부르는 잡("지금 실행" 버튼 목록에는 없음). 실행 기록·진행 표시의 이름에 쓴다
 ARG_JOBS: dict[str, tuple[str, str]] = {
     "keyword": ("키워드 원고", "넣은 키워드로 최근 글을 찾아 원고 1건을 만듭니다"),
+    "preset": ("프리셋 전환", "페르소나·브랜드·자료·원고·성과를 다른 프리셋으로 갈아끼웁니다"),
 }
 ALL_JOBS = {**JOBS, **ARG_JOBS}
 

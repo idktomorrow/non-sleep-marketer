@@ -52,22 +52,23 @@ class Database:
         self._lock = threading.RLock()
         self._apply_schema()
 
-    def _apply_schema(self) -> None:
+    def _apply_schema(self, conn: duckdb.DuckDBPyConnection | None = None) -> None:
         sql = resources.files("nsm.store").joinpath("schema.sql").read_text(encoding="utf-8")
         with self._lock:
-            row = self._conn.execute(
+            conn = conn or self._conn
+            row = conn.execute(
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = 'schema_version'"
             ).fetchone()
             fresh = not row or row[0] == 0
-            self._conn.execute(sql)
+            conn.execute(sql)
             if fresh:
-                self._conn.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
+                conn.execute("INSERT INTO schema_version VALUES (?)", [SCHEMA_VERSION])
                 return
-            current = self._read_version(self._conn)
+            current = self._read_version(conn)
             for v in range(current + 1, SCHEMA_VERSION + 1):
                 for stmt in MIGRATIONS.get(v, []):
-                    self._conn.execute(stmt)
-                self._conn.execute("INSERT INTO schema_version VALUES (?)", [v])
+                    conn.execute(stmt)
+                conn.execute("INSERT INTO schema_version VALUES (?)", [v])
 
     @staticmethod
     def _read_version(conn: duckdb.DuckDBPyConnection) -> int:
@@ -83,14 +84,36 @@ class Database:
             cur.close()
 
     def cursor(self) -> duckdb.DuckDBPyConnection:
-        """스레드마다 별도 커서를 쓴다."""
-        return self._conn.cursor()
+        """스레드마다 별도 커서를 쓴다. 커서는 lock 안에서 만든다(switch 도중에 옛 연결을 잡지 않게)."""
+        with self._lock:
+            return self._conn.cursor()
+
+    def switch(self, path: str | Path) -> None:
+        """다른 DB 파일로 갈아끼운다(프리셋 전환, C29). 이 객체를 쥔 Repository들은 그대로 쓴다.
+
+        새 파일을 먼저 열어 스키마까지 맞춘 뒤에야 바꾸고 옛 연결을 닫는다. 새 파일이 깨졌으면 예외를 내고
+        옛 연결은 그대로 남는다. lock 안에서 하므로 작업 스레드가 쉬는 틈에 불러야 한다.
+        """
+        new_path = str(path)
+        if new_path != ":memory:":
+            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            if new_path == self.path:
+                return
+            fresh = duckdb.connect(new_path)
+            try:
+                self._apply_schema(fresh)
+            except Exception:
+                fresh.close()
+                raise
+            old, self._conn, self.path = self._conn, fresh, new_path
+            old.close()
 
     @contextmanager
     def transaction(self) -> Iterator[duckdb.DuckDBPyConnection]:
         """여러 쓰기를 원자적으로 묶는다."""
-        cur = self._conn.cursor()
         with self._lock:
+            cur = self._conn.cursor()
             cur.execute("BEGIN TRANSACTION")
             try:
                 yield cur
@@ -103,17 +126,24 @@ class Database:
                 cur.close()
 
     def execute(self, sql: str, params: list | tuple | None = None) -> list[tuple]:
-        """단일 문장 실행. lock으로 직렬화해 스레드 간 트랜잭션 충돌을 피한다."""
-        cur = self._conn.cursor()
-        try:
-            with self._lock:
-                cur.execute(sql, params or [])
+        """단일 문장 실행. lock으로 직렬화해 스레드 간 트랜잭션 충돌을 피하고, switch() 중에 옛 연결의 커서를
+        쓰지 않게 커서 생성부터 fetch까지 lock 안에서 끝낸다."""
+        rows, _ = self.query(sql, params)
+        return rows
+
+    def query(self, sql: str, params: list | tuple | None = None) -> tuple[list[tuple], list[str]]:
+        """execute + 열 이름. 대시보드 조회(queries.py)가 쓴다."""
+        with self._lock:
+            cur = self._conn.cursor()
             try:
-                return cur.fetchall()
-            except duckdb.InvalidInputException:
-                return []
-        finally:
-            cur.close()
+                cur.execute(sql, params or [])
+                cols = [d[0] for d in cur.description] if cur.description else []
+                try:
+                    return cur.fetchall(), cols
+                except duckdb.InvalidInputException:
+                    return [], cols
+            finally:
+                cur.close()
 
     def backup_to(self, target: Path) -> Path:
         """지금 DB를 target 파일로 통째로 복사한다(C12 자동 백업).

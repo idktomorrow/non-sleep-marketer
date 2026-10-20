@@ -276,6 +276,45 @@ def test_reports_link_hidden_without_reports_dir(env) -> None:
     assert 'href="/reports"' not in html
 
 
+def test_settings_presets_panel_and_actions(env, tmp_path: Path) -> None:
+    """C29: 프리셋 칸은 전환 함수가 있을 때만. 저장은 파일, 전환은 작업 스레드(Future), 삭제는 보호 규칙."""
+    from nsm.config.presets import PresetStore
+
+    html = env["client"].get("/settings").text
+    assert "프리셋" not in html.split("<h2>페르소나</h2>")[0]
+    store = PresetStore(tmp_path / "presets", tmp_path / "data.duckdb")
+    switched: list[str] = []
+
+    def switch(name: str) -> Future:
+        switched.append(name)
+        f: Future = Future()
+        f.set_result(name)
+        return f
+
+    env["state"].presets = store
+    env["state"].switch_preset = switch
+    html = env["client"].get("/settings").text
+    assert 'id="presets"' in html and "아직 저장 안 됨" in html
+    assert _post(env, "/settings/preset/save", name="카페").status_code == 303
+    assert store.exists("카페")
+    html = env["client"].get("/settings").text
+    assert "카페" in html and "전환" in html
+    assert _post(env, "/settings/preset/switch", name="카페").status_code == 303
+    assert switched == ["카페"]
+    assert (
+        _post(env, "/settings/preset/switch", name="없는것")
+        .headers["location"]
+        .startswith("/settings?preset_error=")
+    )
+    # 빈 이름·점만 있는 이름은 500이 아니라 안내로
+    assert "preset_error" in _post(env, "/settings/preset/switch", name="...").headers["location"]
+    # 다른 기존 프리셋은 덮어쓰지 않는다
+    assert "preset_error" in _post(env, "/settings/preset/save", name="카페").headers["location"]
+    assert _post(env, "/settings/preset/delete", name="카페").status_code == 303
+    assert not store.exists("카페")
+    assert "preset_error" in _post(env, "/settings/preset/delete", name="기본").headers["location"]
+
+
 def test_footer_shows_running_version(env) -> None:
     """C26: 화면 맨 아래 버전 번호. 사용자가 머지 뒤 다시 켰는지 이 번호로 안다."""
     import re
