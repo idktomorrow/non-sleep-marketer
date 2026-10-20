@@ -52,6 +52,8 @@ from nsm.app.materials import (
     verdict,
 )
 from nsm.app.next_publish import next_publishes
+from nsm.app.picks_routes import install_picks_routes, pick_view
+from nsm.app.review_actions import ActionError, ReviewActions
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
@@ -63,6 +65,7 @@ from nsm.app.settings_form import (
 )
 from nsm.app.style_preview import _photo_fingerprint
 from nsm.config.schema import AppConfig
+from nsm.domain.interest_presets import PRESETS, apply_preset
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
@@ -72,6 +75,7 @@ from nsm.engine.watchdog import STALLS_KEY
 from nsm.ports import CardRenderer, Clock, PlatformAdapter
 from nsm.render.character import character_art
 from nsm.store import queries
+from nsm.store.picks import PicksStore
 from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
@@ -88,7 +92,7 @@ UI_MODES = ("simple", "advanced")
 # 간단 모드 메뉴에서 빼는 화면(주소로는 그대로 열린다)
 ADVANCED_PATHS = ("/materials", "/logs")
 # 간단 모드 "오늘"의 지금 실행 버튼
-SIMPLE_JOBS = ("collect", "generate", "reply")
+SIMPLE_JOBS = ("collect", "generate", "picks", "reply")
 
 
 @dataclass
@@ -137,6 +141,8 @@ class AppState:
     run_keyword_now: Callable[[str], Future] | None = None  # 키워드 원고(C15)
     read_image: Callable[[Path], str] | None = None  # 올린 이미지 읽기(C16). 없으면 이미지는 거절
     brand_dir: Path | None = None  # 로고·캐릭터 그림 저장 폴더(C17). 없으면 올리기 칸이 안 보인다
+    picks: PicksStore | None = None  # 오늘의 추천(S11). 없으면 추천 화면·동작이 없다
+    picks_dir: Path | None = None  # 사진 후보 저장 폴더(media/picks)
 
 
 _ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
@@ -255,6 +261,15 @@ def create_app(state: AppState) -> FastAPI:
     def back(url: str) -> RedirectResponse:
         return RedirectResponse(url, status_code=303)
 
+    # 승인·폐기·게시 취소는 추천 원고(picks)에도 같은 뜻으로 동작해야 한다(S11)
+    actions = ReviewActions(state.repo, state.picks, state.clock)
+
+    def _act(fn: Callable[[], Any]) -> Any:
+        try:
+            return fn()
+        except ActionError as e:
+            raise HTTPException(e.status, e.detail) from e
+
     # ------------------------------------------------------------------ 개요·스위치
 
     @app.get("/", response_class=HTMLResponse)
@@ -274,10 +289,22 @@ def create_app(state: AppState) -> FastAPI:
             key=lambda p: (p.next_attempt_at is None, p.next_attempt_at, p.id),
         )
         cap = state.get_config().settings.daily_cost_cap_usd
+        picks_today: list[dict[str, Any]] = []
+        picks_saved = 0
+        if state.picks is not None:
+            for p in state.picks.list(state="ready", run_date=local(now, tz()).date()):
+                c = state.repo.get_content(p.content_id)
+                if c is not None:
+                    picks_today.append(pick_view(p, c, now, tz()))
+            picks_saved = state.picks.count(state="saved")
         return page(
             request,
             "overview.html",
             ov=ov,
+            picks_today=picks_today,
+            picks_saved=picks_saved,
+            picks_enabled=state.get_config().settings.picks.enabled,
+            pick_thumbs=_thumbs([v["content"] for v in picks_today]),
             human_approved=state.repo.count_human_approved(),
             runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
             stalls=state.repo.get_setting(STALLS_KEY, []) or [],  # 계속 0건(C12)
@@ -330,6 +357,7 @@ def create_app(state: AppState) -> FastAPI:
         q = request.query_params
         return {
             "periods": PERIODS,
+            "presets": PRESETS,
             "card_styles": CARD_STYLE_NAMES,
             "characters": CHARACTER_NAMES,
             "style_previews": hasattr(state.renderer, "render_sample"),
@@ -354,6 +382,14 @@ def create_app(state: AppState) -> FastAPI:
             error=None,
             saved=bool(saved),
         )
+
+    @app.post("/settings/interest-preset", dependencies=[Depends(check_csrf)])
+    def interest_preset(key: str = Form(...)) -> RedirectResponse:
+        """관심 분야 프리셋(S11): 관심 주제·검색 별칭·제외어를 채우고 추천 모드를 켠다."""
+        if key not in PRESETS:
+            raise HTTPException(400, "알 수 없는 관심 분야")
+        state.set_config(apply_preset(state.get_config(), key))
+        return RedirectResponse("/settings?saved=1#picks", status_code=303)
 
     @app.get("/settings/brand-image/{kind}.png")
     def brand_image_png(kind: str) -> FileResponse:
@@ -703,18 +739,7 @@ def create_app(state: AppState) -> FastAPI:
     @app.post("/queue/{cid}/unapprove", dependencies=[Depends(check_csrf)])
     def unapprove(cid: str) -> RedirectResponse:
         """게시 대기 → 검토 대기(고치려고). 게시 작업은 승인된 원고만 올리므로 바로 멈춘다."""
-        c = _content_or_404(cid)
-        pubs = state.repo.publications_for_content(cid)
-        if any(p.status == "publishing" for p in pubs):
-            raise HTTPException(409, "지금 올리는 중입니다. 잠시 뒤 다시 시도하세요")
-        if c.status != "approved":
-            raise HTTPException(409, "게시 대기 중인 원고만 되돌릴 수 있습니다")
-        try:
-            state.repo.transition_content(
-                cid, "pending_review", reason="사람이 게시 대기에서 되돌림"
-            )
-        except InvalidTransitionError as e:
-            raise HTTPException(409, str(e)) from e
+        _act(lambda: actions.unapprove(cid))  # 올리는 중·상태 검사는 ReviewActions가 한다
         return back(f"/review/{cid}")
 
     def _content_or_404(cid: str):
@@ -748,6 +773,11 @@ def create_app(state: AppState) -> FastAPI:
             overflow=overflow,
             can_preview=state.renderer is not None,
             max_upload_mb=MAX_UPLOAD_BYTES // (1024 * 1024),
+            pick=(
+                pick_view(pk, c, state.clock.now(), tz())
+                if state.picks is not None and (pk := state.picks.get(cid)) is not None
+                else None
+            ),
         )
 
     def _png_name_ok(name: str) -> bool:
@@ -784,30 +814,18 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.post("/review/{cid}/approve", dependencies=[Depends(check_csrf)])
     def approve(cid: str) -> RedirectResponse:
-        c = _content_or_404(cid)
-        banned = find_banned(all_texts(c.generated), state.get_config().persona)
-        if banned:
-            # 금칙어가 든 콘텐츠는 사람도 그대로 승인할 수 없다: 고친 뒤 승인
-            raise HTTPException(
-                409, f"금칙어·금칙 패턴이 있어 승인할 수 없습니다: {', '.join(banned)}"
+        cfg = state.get_config()
+        # 추천 원고(S11)면 승인과 함께 게시 레코드까지 한 트랜잭션으로 만든다
+        _act(
+            lambda: actions.approve(
+                cid, persona=cfg.persona, platforms=list(cfg.settings.enabled_platforms)
             )
-        try:
-            state.repo.transition_content(cid, "approved", approved_by="human")
-        except InvalidTransitionError as e:
-            raise HTTPException(409, str(e)) from e
-        state.repo.requeue_abandoned(cid)
+        )
         return back("/review")
 
     @app.post("/review/{cid}/discard", dependencies=[Depends(check_csrf)])
     def discard(cid: str, request: Request) -> RedirectResponse:
-        c = _content_or_404(cid)
-        if any(p.status == "publishing" for p in state.repo.publications_for_content(cid)):
-            raise HTTPException(409, "지금 올리는 중입니다. 잠시 뒤 다시 시도하세요")
-        was_queued = c.status == "approved"
-        try:
-            state.repo.transition_content(cid, "discarded", reason="사람이 폐기")
-        except InvalidTransitionError as e:
-            raise HTTPException(409, str(e)) from e
+        was_queued = _act(lambda: actions.discard(cid))
         return back("/queue" if was_queued else "/review")
 
     def _save_edit(cid: str, g: GeneratedContent) -> None:
@@ -816,6 +834,7 @@ def create_app(state: AppState) -> FastAPI:
             state.repo.update_generated(cid, g)
         except InvalidTransitionError as e:
             raise HTTPException(409, str(e)) from e
+        actions.invalidate_render(cid)  # 추천 원고의 "게시 준비 완료"는 고친 뒤 다시 확인(S11 리뷰)
 
     def _editable(cid: str):
         c = _content_or_404(cid)
@@ -894,6 +913,7 @@ def create_app(state: AppState) -> FastAPI:
                 renderer.render(labeled_deck(c), out)
                 overflow = list(getattr(renderer, "last_overflow", []) or [])
                 (out / "overflow.txt").write_text(",".join(map(str, overflow)), encoding="utf-8")
+                actions.mark_render_checked(cid, overflow)  # 추천 원고의 "게시 준비 완료" 조건(S11)
             except Exception:
                 clear_rendered(state.media_dir, cid, cards=False)
                 raise
@@ -1004,4 +1024,14 @@ def create_app(state: AppState) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    install_picks_routes(
+        app,
+        state,
+        page=page,
+        check_csrf=check_csrf,
+        back=back,
+        act=_act,
+        actions=actions,
+        thumbs=_thumbs,
+    )
     return app

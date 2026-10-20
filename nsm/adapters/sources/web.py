@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timedelta
 from urllib.parse import quote, urlsplit
 
 from nsm.adapters.drivers.base import BrowserDriver, Link
@@ -49,6 +50,45 @@ RECENT_PARAMS = {
 }
 
 
+# 네이버 검색 결과의 날짜 표기("3시간 전", "어제", "2026.10.19."). 공개 시각으로 쓴다(S11: 최신성 판단).
+# "20일 전후로", "7일 전체" 같은 낱말 속 "전"은 제외(뒤에 한글이 이어지면 날짜가 아니다, S11 리뷰)
+_REL_DATE = re.compile(r"(\d{1,3})\s*(분|시간|일|주)\s*전(?![가-힣])")
+_ABS_DATE = re.compile(r"(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})")
+
+
+def parse_naver_date(text: str, now: datetime) -> datetime | None:
+    """요약문에 섞인 날짜 표기 → 공개 시각(aware, now와 같은 시간대). 못 읽으면 None(수집 시각으로 대신하지 않는다)."""
+    if not text:
+        return None
+    m = _REL_DATE.search(text)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = {
+            "분": timedelta(minutes=n),
+            "시간": timedelta(hours=n),
+            "일": timedelta(days=n),
+            "주": timedelta(weeks=n),
+        }
+        return now - delta[unit]
+    if "어제" in text:
+        return now - timedelta(days=1)
+    m = _ABS_DATE.search(text)
+    if m:
+        try:
+            return now.replace(
+                year=int(m.group(1)),
+                month=int(m.group(2)),
+                day=int(m.group(3)),
+                hour=12,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+        except ValueError:
+            return None
+    return None
+
+
 def _items_from_links(
     links: list[Link],
     pattern: re.Pattern[str],
@@ -58,6 +98,7 @@ def _items_from_links(
     seen: set[str],
 ) -> list[SourceItem]:
     out: list[SourceItem] = []
+    now = clock.now()
     for link in links:
         if len(out) >= limit:
             break
@@ -76,7 +117,8 @@ def _items_from_links(
                 url=link.href,
                 title=title[:200],
                 text=context if title in context else f"{title}. {context}",
-                collected_at=clock.now(),
+                published_at=parse_naver_date(link.context, now),
+                collected_at=now,
                 url_hash=url_hash(link.href),
             )
         )

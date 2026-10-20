@@ -85,6 +85,22 @@
     <button class="btn-primary">저장</button>
     </form>
 
+    {% if pick %}
+    <h2 id="photo-candidate">사진 후보 <span class="badge {{ pick.readiness[0] }}">{{ pick.readiness[1] }}</span></h2>
+    <div class="panel">
+      {% if pick.pick.photo_status == 'candidate' %}
+      <div class="bg-row"><img src="/picks/{{ c.id }}/photo" alt="사진 후보" style="width:120px;height:150px;object-fit:cover;border-radius:8px">
+        <span class="small">기사 대표 이미지입니다. <b>쓸 권리가 있는지 먼저 확인하세요</b>(굿즈 사진의 캐릭터 저작권, 인물 사진의 초상권). 출처: <a href="{{ pick.pick.photo_source_url|safe_url }}" target="_blank" rel="noopener">{{ pick.pick.photo_source_url }}</a></span>
+        <form class="inline" method="post" action="/picks/{{ c.id }}/photo/use"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-primary">이 사진 쓰기(표지·마지막 장)</button></form>
+        <form class="inline" method="post" action="/picks/{{ c.id }}/photo/drop"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost">안 쓰기</button></form>
+      </div>
+      {% elif pick.pick.photo_status == 'applied' %}<p class="small" style="margin:0">후보 사진을 표지와 마지막 장에 넣었습니다. 아래 "배경 이미지"에서 바꾸거나 지울 수 있습니다.</p>
+      {% elif pick.pick.photo_status == 'dropped' %}<p class="muted small" style="margin:0">후보 사진을 쓰지 않기로 했습니다. 직접 찍은 사진은 아래에서 올릴 수 있습니다.</p>
+      {% else %}<p class="muted small" style="margin:0">자동으로 구한 사진 후보가 없습니다. 직접 찍은 사진은 아래에서 올릴 수 있습니다.</p>{% endif %}
+      <p class="muted small" style="margin:8px 0 0">추천 원고는 사진을 정하고(쓰기·안 쓰기) "미리보기 렌더"로 넘침이 없는지 확인해야 <b>게시 준비 완료</b>가 됩니다.</p>
+    </div>
+    {% endif %}
+
     <h2>배경 이미지</h2>
     <div class="panel">
     <p class="muted small" style="margin-top:0">PNG·JPEG·WebP, {{ max_upload_mb }}MB 이하. 글자는 사진 위에 올라가며, 직접 찍은 사진은 "AI 생성 이미지"가 아닙니다.</p>

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from nsm.domain.clock import new_id
 from nsm.domain.models import Content, ContentBrief, GeneratedContent, SourceItem
 from nsm.domain.policy import (
     TEMPLATES,
+    PublishDecision,
     assign_platforms,
     choose_template,
     daily_content_target,
@@ -163,6 +165,10 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
     if ctx.text_generator is None:
         result.skipped = "Claude API 키가 없어 생성할 수 없음 (`nsm init`)"
         return result
+    if s.picks.enabled and not manual:
+        # 추천 모드(S11)에서는 일일 원고 대신 "오늘의 추천" 잡이 돈다(둘 다 돌면 하루 원고가 두 배)
+        result.skipped = "추천 모드가 켜져 있어 오늘의 추천이 대신 만듭니다"
+        return result
 
     start, end = local_day_bounds(now, ctx.tz)
     target = daily_content_target(s.enabled_platforms, s.quotas)
@@ -206,14 +212,44 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
     return result
 
 
-def _make_one(
+@dataclass
+class Draft:
+    """생성·규칙 검사·출처 검증·게시 판정까지 끝난 원고(저장 전). 일일 원고와 오늘의 추천(S11)이 같이 쓴다."""
+
+    gen: GeneratedContent
+    relevance: float
+    violations: list[str]  # 페르소나 규칙 위반(다시 만들어도 남은 것)
+    decision: PublishDecision
+    is_ad: bool
+    template: str
+    item_ids: list[str]
+
+    @property
+    def approved(self) -> bool:
+        # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
+        return self.decision.status == "approved" and not self.violations
+
+    @property
+    def reason(self) -> str | None:
+        parts = []
+        if self.violations:
+            parts.append(f"페르소나 규칙 위반: {', '.join(self.violations)}")
+        if self.decision.reason_text:
+            parts.append(self.decision.reason_text)
+        return "; ".join(parts) or None
+
+
+def build_draft(
     ctx: JobContext,
     material: tuple[str, list[tuple[SourceItem, float]]],
-    index_today: int,
-    now: datetime,
     result: JobResult,
-    manual: bool = False,
-) -> str:
+    *,
+    with_background: bool = True,
+) -> Draft | str:
+    """자료 묶음 → 원고 초안. 실패하면 `_SKIP_MATERIAL`(자료 문제) 또는 `_RETRY_LATER`(장애)를 돌려준다.
+
+    with_background=False면 유료 AI 배경을 만들지 않는다(오늘의 추천은 사진 후보를 따로 다룬다).
+    """
     s = ctx.config.settings
     persona, brand = ctx.config.persona, ctx.config.brand
     persona_topic, chosen = material
@@ -238,7 +274,8 @@ def _make_one(
         result.errors.append(f"생성 실패: {network_error_text(e)}")
         return _RETRY_LATER
     gen, violations = _check_rules(ctx, brief, normalize_bullets(gen), result)
-    gen = _add_background(ctx, gen, result)
+    if with_background:
+        gen = _add_background(ctx, gen, result)
 
     claim_ids = [c.source_item_id for c in gen.claims]
     brief_ids = {i.id for i in items}
@@ -257,29 +294,47 @@ def _make_one(
         human_approved=ctx.repo.count_human_approved(),
         protect_count=s.protect_count,
     )
-    reason = decision.reason_text
-    approved = decision.status == "approved"
-    if violations:
-        # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
-        approved = False
-        reason = "; ".join(filter(None, [f"페르소나 규칙 위반: {', '.join(violations)}", reason]))
+    return Draft(
+        gen=gen,
+        relevance=relevance,
+        violations=violations,
+        decision=decision,
+        is_ad=brief.is_ad,
+        template=template,
+        item_ids=[i.id for i in items],
+    )
+
+
+def _make_one(
+    ctx: JobContext,
+    material: tuple[str, list[tuple[SourceItem, float]]],
+    index_today: int,
+    now: datetime,
+    result: JobResult,
+    manual: bool = False,
+) -> str:
+    s = ctx.config.settings
+    persona_topic, _ = material
+    d = build_draft(ctx, material, result)
+    if isinstance(d, str):
+        return d
     content = Content(
         id=new_id(),
-        status="draft" if approved else "pending_review",
-        generated=gen,
-        relevance_confidence=relevance,
-        is_ad=brief.is_ad,
+        status="draft" if d.approved else "pending_review",
+        generated=d.gen,
+        relevance_confidence=d.relevance,
+        is_ad=d.is_ad,
         created_at=now,
-        review_reason=reason,
+        review_reason=d.reason,
     )
     ctx.repo.save_generated(
         content,
         persona_topic=persona_topic,
-        approved_by_policy=approved,
-        item_ids=[i.id for i in items],
+        approved_by_policy=d.approved,
+        item_ids=d.item_ids,
         # 하루 쿼터를 넘겨 사람이 더 만든 원고는 모든 플랫폼에 배정한다(쿼터가 남는 날 차례로 올라감)
         platforms=assign_platforms(index_today, s.enabled_platforms, s.quotas)
         or (list(s.enabled_platforms) if manual else []),
     )
-    result.counts.setdefault("templates", []).append(template)
+    result.counts.setdefault("templates", []).append(d.template)
     return content.id

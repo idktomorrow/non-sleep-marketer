@@ -36,6 +36,7 @@
   <nav class="menu">
     <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>오늘</a>
     <a href="/review" {% if request.url.path.startswith('/review') %}class="active"{% endif %}>검토{% if pending_count %}<span class="count">{{ pending_count }}</span>{% endif %}</a>
+    {% if cfg.settings.picks.enabled or request.url.path.startswith('/picks') %}<a href="/picks" {% if request.url.path.startswith('/picks') %}class="active"{% endif %}>추천</a>{% endif %}
     <a href="/queue" {% if request.url.path.startswith('/queue') %}class="active"{% endif %}>게시 대기{% if queue_count %}<span class="count soft">{{ queue_count }}</span>{% endif %}</a>
     <a href="/comments" {% if request.url.path.startswith('/comments') %}class="active"{% endif %}>댓글</a>
     {% if not simple or request.url.path.startswith('/materials') %}<a href="/materials" {% if request.url.path.startswith('/materials') %}class="active"{% endif %}>자료</a>{% endif %}
