@@ -119,3 +119,13 @@
 .style-editorial .deco .scene { position: absolute; width: 520px; height: 370px; right: 20px; opacity: .95; }
 .style-editorial .cover .deco .scene { top: 150px; }
 .style-editorial .outro .deco .scene { top: 170px; }
+/* 상품 그리드·일정 패널(S12): 종이 위 흰 카드, 사진 위에서는 흰 카드에 진한 글자 */
+.style-editorial .product, .style-editorial .fact { background: #fff; border: 2px solid var(--line); }
+.style-editorial .slide.has-bg.products, .style-editorial .slide.has-bg.facts { color: var(--ink); }
+.style-editorial .slide.has-bg.products::before, .style-editorial .slide.has-bg.facts::before {
+  background: rgba(255,255,255,.60);
+  -webkit-backdrop-filter: blur(22px) saturate(1.1); backdrop-filter: blur(22px) saturate(1.1);
+}
+.style-editorial .slide.has-bg.products h2, .style-editorial .slide.has-bg.facts h2,
+.style-editorial .slide.has-bg .fact dt { color: var(--primary-ink); }
+.style-editorial .slide.has-bg .product, .style-editorial .slide.has-bg .fact { background: #fff; }

@@ -22,7 +22,15 @@ PUB_STATUS = {
     "abandoned": "포기(검토로 돌아옴)",
 }
 TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
-SLIDE_KIND = {"cover": "표지", "body": "본문", "list": "목록", "compare": "비교", "outro": "마무리"}
+SLIDE_KIND = {
+    "cover": "표지",
+    "body": "본문",
+    "list": "목록",
+    "compare": "비교",
+    "products": "상품",
+    "facts": "일정·정보",
+    "outro": "마무리",
+}
 PLATFORM = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
 COMMENT_CATEGORY = {
     "praise_general": "칭찬·일반",

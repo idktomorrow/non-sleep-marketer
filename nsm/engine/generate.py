@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -25,7 +25,7 @@ from nsm.domain.policy import (
     should_act,
     under_cost_cap,
 )
-from nsm.domain.quality import normalize_bullets, rule_violations
+from nsm.domain.quality import normalize_bullets, rule_violations, unverified_products
 from nsm.engine.collect import excluded_word
 from nsm.engine.context import JobContext, JobResult
 from nsm.ports import AdapterError
@@ -223,17 +223,22 @@ class Draft:
     is_ad: bool
     template: str
     item_ids: list[str]
+    checks: list[str] = field(
+        default_factory=list
+    )  # 상품 이름·가격이 자료에 없음(S12) 같은 사실 확인 사유
 
     @property
     def approved(self) -> bool:
-        # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
-        return self.decision.status == "approved" and not self.violations
+        # 다시 만들어도 규칙을 어기거나 확인할 사실이 남으면 자동 게시하지 않고 사람에게 넘긴다
+        return self.decision.status == "approved" and not self.violations and not self.checks
 
     @property
     def reason(self) -> str | None:
         parts = []
         if self.violations:
             parts.append(f"페르소나 규칙 위반: {', '.join(self.violations)}")
+        if self.checks:
+            parts.append(f"상품 정보 확인 필요: {', '.join(self.checks)}")
         if self.decision.reason_text:
             parts.append(self.decision.reason_text)
         return "; ".join(parts) or None
@@ -254,7 +259,9 @@ def build_draft(
     persona, brand = ctx.config.persona, ctx.config.brand
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
-    template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)))
+    # 사진 우선형 스타일이면 소식형(editorial: 개요·상품 그리드·일정 패널)도 돌려 쓴다(S12 제안)
+    templates = ("editorial", *TEMPLATES) if brand.card_style == "editorial" else TEMPLATES
+    template = choose_template(ctx.repo.recent_templates(len(templates)), templates)
     brief = ContentBrief(
         topic=f"{persona_topic}: {items[0].title}",
         template=template,
@@ -302,6 +309,7 @@ def build_draft(
         is_ad=brief.is_ad,
         template=template,
         item_ids=[i.id for i in items],
+        checks=unverified_products(gen, items),
     )
 
 

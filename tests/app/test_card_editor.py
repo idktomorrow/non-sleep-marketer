@@ -395,3 +395,58 @@ def test_edit_after_approval_is_refused_at_the_database(env) -> None:
     assert repo.get_content("c1").generated.threads_text == c.generated.threads_text
     r = _post(env, "/review/c1/edit", threads_text="바뀜")
     assert r.status_code == 409
+
+
+def test_products_and_facts_fields_and_item_images(env) -> None:
+    """S12: 상품 그리드·일정 패널 장의 글자를 고치고 상품 그림을 올리고 지운다."""
+    from pathlib import Path
+
+    from nsm.domain.models import CardDeck
+    from tests.render.test_html_renderer import FIXTURES
+
+    repo = env["repo"]
+    c = repo.get_content("c1")
+    deck = CardDeck.model_validate_json((FIXTURES / "editorial.json").read_text("utf-8"))
+    repo.update_generated(
+        "c1", c.generated.model_copy(update={"deck": deck, "template": "editorial"})
+    )
+    html = env["client"].get("/review/c1").text
+    assert (
+        'name="s2_item0_name"' in html
+        and 'name="s3_row0_label"' in html
+        and "/items/0/image" in html
+    )
+    r = _post(
+        env,
+        "/review/c1/edit",
+        s2_item0_name="머그컵(수정)",
+        s2_item0_price="19,000원",
+        s3_row1_value="11월 2일부터",
+    )
+    assert r.status_code == 303
+    d = repo.get_content("c1").generated.deck
+    assert d.slides[2].items[0].name == "머그컵(수정)" and d.slides[2].items[0].price == "19,000원"
+    assert d.slides[3].rows[1].value == "11월 2일부터"
+    assert _post(env, "/review/c1/edit", s2_item1_name="").status_code == 400  # 이름은 비울 수 없다
+    assert _post(env, "/review/c1/edit", s3_row0_label="").status_code == 400
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082"
+    )
+    r = env["client"].post(
+        "/review/c1/slides/2/items/1/image",
+        data={"csrf": env["state"].csrf_token},
+        files={"file": ("x.png", png, "image/png")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    img = repo.get_content("c1").generated.deck.slides[2].items[1].image
+    assert img and Path(img).is_file() and "uploads/backgrounds/c1" in img.replace("\\", "/")
+    assert not repo.get_content("c1").generated.deck.labels.ai_generated_image  # 사람이 올린 그림
+    assert _post(env, "/review/c1/slides/2/items/1/image/remove").status_code == 303
+    assert (
+        repo.get_content("c1").generated.deck.slides[2].items[1].image is None
+        and not Path(img).exists()
+    )
+    assert (
+        _post(env, "/review/c1/slides/1/items/0/image/remove").status_code == 400
+    )  # 상품 장이 아님

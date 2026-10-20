@@ -10,7 +10,7 @@ import logging
 import re
 from urllib.parse import urlsplit
 
-from nsm.domain.models import GeneratedContent, Persona
+from nsm.domain.models import GeneratedContent, Persona, SourceItem
 
 log = logging.getLogger(__name__)
 
@@ -172,6 +172,28 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
         hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
         if hit:
             out.append(f'{name}에 확인되지 않은 내용 "{hit}"')
+    return out
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
+
+
+def unverified_products(gen: GeneratedContent, sources: list[SourceItem]) -> list[str]:
+    """상품 그리드(S12)의 이름·가격이 자료 본문에 없으면 사유 목록. 가격·상품명은 틀리면 바로 민원이 되므로 검토로."""
+    hay = _squash(" ".join(f"{s.title} {s.text}" for s in sources))
+    hay_numbers = re.sub(r"[,.\s]", "", hay)  # "¥5,500"도 "5500"으로 찾히게
+    out: list[str] = []
+    for slide in gen.deck.slides:
+        if slide.kind != "products":
+            continue
+        for it in slide.items:
+            name = _squash(it.name)
+            if name and name not in hay:
+                out.append(f"상품 '{it.name}'이(가) 자료에 없음")
+            price = re.sub(r"[^0-9]", "", it.price)
+            if price and price not in hay_numbers:
+                out.append(f"'{it.name}' 가격 {it.price}이(가) 자료에 없음")
     return out
 
 

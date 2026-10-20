@@ -62,3 +62,4 @@
 | [0048](0048-gemini-classifier-replaces-jev.md) | 분류기는 Gemini 무료 구간(Flash-Lite, 10건 묶음)을 기본으로, jev·MotherDuck은 제거. 자동 선택 Gemini → Claude → 낱말 규칙, 실패하면 다음으로 넘어가며 알림 | 제안 |
 | [0049](0049-editorial-style-verified-photos.md) | 사진 우선형(editorial) 카드 스타일 추가: 사람이 올리거나 확인한 사진만 장별 배경으로 크게 깔고 글은 그 위 패널에. 프로그램이 고른 사진은 넣지 않음(ADR 0045 수정 제안) | 제안 |
 | [0050](0050-daily-picks-and-saved-drafts.md) | 오늘의 추천: 켜면 일일 원고 대신 수집→사건 묶기→최근 소식 최대 3건을 검토 대기 원고로. `picks` 표로 보관·사진 후보·재확인을 다루고(동결 상태 그대로), 사진 후보는 사람이 "쓰기"를 눌러야 카드에 | 제안 |
+| [0051](0051-deck-products-facts-slides.md) | 덱 JSON에 상품 그리드(products 2~4개: 이름·가격·보조·그림)·정보 패널(facts 2~6줄) 장과 가운데 장을 섞는 소식형(editorial) 템플릿을 더한다. 상품 이름·가격이 자료에 없으면 검토로. **동결 계약 변경, 합의 필요** | 제안 |

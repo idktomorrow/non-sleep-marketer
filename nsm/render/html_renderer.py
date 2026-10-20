@@ -240,7 +240,12 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
         bg = resolve_asset(s.background)
         if s.background and not bg:
             log.warning("배경 이미지가 없어 브랜드 색으로 대체: %s", s.background)
-        slides.append(s.model_copy(update={"background": bg}))
+        update: dict = {"background": bg}
+        if s.kind == "products":  # 상품 그림도 같은 규칙(S12): 없으면 이름만 크게
+            update["items"] = [
+                it.model_copy(update={"image": resolve_asset(it.image)}) for it in s.items
+            ]
+        slides.append(s.model_copy(update=update))
     logo = resolve_asset(deck.brand.logo_path)
     deck = deck.model_copy(
         update={"slides": slides, "brand": deck.brand.model_copy(update={"logo_path": logo})}

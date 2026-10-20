@@ -156,12 +156,17 @@ def assign_platforms(
 TEMPLATES: tuple[TemplateKind, ...] = ("info", "list", "compare")
 
 
-def choose_template(recent_newest_first: list[str]) -> TemplateKind:
-    """최근에 안 쓴 템플릿부터. 피드가 한 가지 형식으로 반복되지 않게 한다."""
-    for t in TEMPLATES:
+def choose_template(
+    recent_newest_first: list[str], templates: tuple[TemplateKind, ...] = TEMPLATES
+) -> TemplateKind:
+    """최근에 안 쓴 템플릿부터. 피드가 한 가지 형식으로 반복되지 않게 한다.
+
+    templates: 고를 후보(S12: 사진 우선형 스타일이면 소식형 `editorial`을 앞에 더한다).
+    """
+    for t in templates:
         if t not in recent_newest_first:
             return t
-    return max(TEMPLATES, key=recent_newest_first.index)
+    return max(templates, key=recent_newest_first.index)
 
 
 def under_cost_cap(spent_today: float, cap: float) -> bool:

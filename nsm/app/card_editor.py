@@ -28,6 +28,8 @@ TEXT_FIELDS = {
     "body": ("heading", "body"),
     "list": ("heading",),
     "compare": ("heading",),
+    "products": ("heading",),  # 항목은 s{i}_item{j}_name|price|note (S12)
+    "facts": ("heading",),  # 줄은 s{i}_row{j}_label|value (S12)
     "outro": ("cta",),
 }
 LIST_FIELDS = {"body": ("bullets",), "list": ("bullets",)}
@@ -37,6 +39,8 @@ REQUIRED_TEXT = {
     "body": ("heading", "body"),
     "list": ("heading",),
     "compare": ("heading",),
+    "products": ("heading",),
+    "facts": ("heading",),
     "outro": ("cta",),
 }
 
@@ -94,6 +98,22 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
                     data[side]["title"] = str(form[f"s{i}_{side}_title"]).strip()
                 if f"s{i}_{side}_points" in form:
                     data[side]["points"] = _lines(form[f"s{i}_{side}_points"])
+        if s.kind == "products":  # 항목 수는 그대로, 글자만(그림은 따로 올린다)
+            for j, it in enumerate(data["items"]):
+                for f in ("name", "price", "note"):
+                    key = f"s{i}_item{j}_{f}"
+                    if key in form:
+                        it[f] = str(form[key]).strip()
+                if not it["name"]:
+                    raise EditError(f"{i + 1}장 상품 {j + 1}: 이름을 비워 둘 수 없습니다")
+        if s.kind == "facts":
+            for j, row in enumerate(data["rows"]):
+                for f in ("label", "value"):
+                    key = f"s{i}_row{j}_{f}"
+                    if key in form:
+                        row[f] = str(form[key]).strip()
+                if not row["label"] or not row["value"]:
+                    raise EditError(f"{i + 1}장 {j + 1}번째 줄: 항목과 내용이 모두 필요합니다")
         for f in REQUIRED_TEXT.get(s.kind, ()):
             if not str(data.get(f) or "").strip():
                 raise EditError(f"{i + 1}장 {f}: 비워 둘 수 없습니다")
@@ -175,6 +195,21 @@ def set_background(
         }
     )
     return gen.model_copy(update={"deck": deck})
+
+
+def set_item_image(
+    gen: GeneratedContent, index: int, item: int, path: str | None
+) -> GeneratedContent:
+    """상품 그리드(S12)의 j번째 상품 그림을 바꾼다. 사람이 올린 사진이라 "AI 생성 이미지" 표기와 무관하다."""
+    slides = list(gen.deck.slides)
+    if not 0 <= index < len(slides) or slides[index].kind != "products":
+        raise EditError("상품 그리드 장이 아닙니다")
+    items = list(slides[index].items)
+    if not 0 <= item < len(items):
+        raise EditError("없는 상품입니다")
+    items[item] = items[item].model_copy(update={"image": path})
+    slides[index] = slides[index].model_copy(update={"items": items})
+    return gen.model_copy(update={"deck": gen.deck.model_copy(update={"slides": slides})})
 
 
 def clear_rendered(media_dir: Path, cid: str, cards: bool = True) -> None:

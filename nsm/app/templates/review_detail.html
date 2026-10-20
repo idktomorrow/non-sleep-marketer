@@ -69,6 +69,20 @@
     <label>오른쪽 제목<input type="text" name="s{{ i }}_right_title" value="{{ s.right.title }}"></label>
     <label>오른쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_right_points" rows="3">{{ s.right.points|join('\n') }}</textarea></label>
     {% endif %}
+    {% if s.kind == 'products' %}
+    {% for it in s.items %}{% set j = loop.index0 %}
+    <div class="field-row"><label>상품 {{ loop.index }} 이름<input type="text" name="s{{ i }}_item{{ j }}_name" value="{{ it.name }}"></label>
+      <label>가격(표기 그대로)<input type="text" name="s{{ i }}_item{{ j }}_price" value="{{ it.price }}"></label>
+      <label>보조 설명<input type="text" name="s{{ i }}_item{{ j }}_note" value="{{ it.note }}"></label></div>
+    {% endfor %}
+    <p class="muted small">상품 수(2~4개)는 여기서 바꾸지 않습니다. 가격·상품명은 자료와 맞는지 꼭 확인하세요(자료에 없으면 검토 사유에 표시됩니다). 상품 그림은 아래 "배경 이미지"에서 올립니다.</p>
+    {% endif %}
+    {% if s.kind == 'facts' %}
+    {% for r in s.rows %}{% set j = loop.index0 %}
+    <div class="field-row"><label>항목 {{ loop.index }}<input type="text" name="s{{ i }}_row{{ j }}_label" value="{{ r.label }}"></label>
+      <label>내용<input type="text" name="s{{ i }}_row{{ j }}_value" value="{{ r.value }}"></label></div>
+    {% endfor %}
+    {% endif %}
     {% if s.kind == 'outro' %}<label>마무리 문구<input type="text" name="s{{ i }}_cta" value="{{ s.cta }}"></label>
     <label>출처(한 줄에 하나, 웹 주소 또는 "브랜드 제공 자료" 같은 이름 · 1~5개)<textarea name="s{{ i }}_sources" rows="3">{{ s.sources|join('\n') }}</textarea></label>
     <p class="muted small">카드 마지막 장과 SNS 글 끝 "출처:" 줄에 나갑니다. 아래 "사실 주장과 출처"의 근거 자료는 바뀌지 않으니, 주장의 근거를 지우지 않았는지 확인하세요.</p>{% endif %}
@@ -111,6 +125,14 @@
         <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn-sm">올리기</button></form>
       {% if s.background %}<form class="inline" method="post" action="/review/{{ c.id }}/slides/{{ i }}/background/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost">배경 지우기</button></form>{% endif %}
     </div>
+    {% if s.kind == 'products' %}{% for it in s.items %}{% set j = loop.index0 %}
+    <div class="bg-row" style="padding-left:24px"><b style="min-width:72px">↳ 상품 {{ loop.index }}</b>
+      <span class="muted small">{{ it.name }} · {% if it.image %}{{ it.image.split('\\')[-1].split('/')[-1] }}{% else %}그림 없음(이름만 크게){% endif %}</span>
+      <form class="inline" method="post" action="/review/{{ c.id }}/slides/{{ i }}/items/{{ j }}/image" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn-sm">올리기</button></form>
+      {% if it.image %}<form class="inline" method="post" action="/review/{{ c.id }}/slides/{{ i }}/items/{{ j }}/image/remove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost">그림 지우기</button></form>{% endif %}
+    </div>
+    {% endfor %}{% endif %}
     {% endfor %}
     </div>
     {% else %}

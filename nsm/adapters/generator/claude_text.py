@@ -28,10 +28,14 @@ from nsm.domain.models import (
     DeckBrand,
     DeckLabels,
     DeckPersona,
+    FactRow,
+    FactsSlide,
     GeneratedContent,
     ListSlide,
     OutroSlide,
     Persona,
+    ProductItem,
+    ProductsSlide,
     SourceItem,
 )
 from nsm.domain.quality import STIFF_PHRASES, emoji_limit
@@ -61,6 +65,25 @@ _LLM_SCHEMA: dict[str, Any] = {
                     "left_points": _STRS,
                     "right_title": _STR,
                     "right_points": _STRS,
+                    # S12 제안: 상품 그리드·일정 패널(editorial 템플릿에서만 채운다)
+                    "products": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"name": _STR, "price": _STR, "note": _STR},
+                            "required": ["name", "price", "note"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "facts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"label": _STR, "value": _STR},
+                            "required": ["label", "value"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": [
                     "heading",
@@ -70,6 +93,8 @@ _LLM_SCHEMA: dict[str, Any] = {
                     "left_points",
                     "right_title",
                     "right_points",
+                    "products",
+                    "facts",
                 ],
                 "additionalProperties": False,
             },
@@ -120,6 +145,11 @@ _TEMPLATE_GUIDE = {
     "info": "정보형: slides 2~5장. 각 장은 heading(15자 이내)과 body(90자 이내). bullets는 0~3개. left/right 필드는 빈 값.",
     "list": "리스트형: slides 1~3장. 각 장은 heading과 bullets 3~5개(각 25자 이내). body와 left/right 필드는 빈 값.",
     "compare": "비교형: slides 1~2장. 각 장은 heading과 left_title·left_points(2~4개), right_title·right_points(2~4개). body·bullets는 빈 값.",
+    "editorial": (
+        "소식형: slides 1~4장. 첫 장은 개요(heading 15자 이내 + body 90자 이내). 자료에 상품이 여럿이면 한 장은 "
+        "products(2~4개, name·price·note. 가격은 자료 표기 그대로, 자료에 없으면 빈 값)로, 날짜·장소·구매처·수량 제한처럼 "
+        "확인 가능한 정보는 한 장은 facts(2~6줄, label 8자 이내·value 30자 이내)로. 쓰지 않는 칸은 빈 값."
+    ),
 }
 
 
@@ -218,6 +248,41 @@ def build_deck(
                     right=CompareSide(title=s["right_title"] or "B", points=s["right_points"][:4]),
                 )
             )
+        elif template == "editorial":
+            products = [x for x in s.get("products") or [] if str(x.get("name", "")).strip()][:4]
+            facts = [
+                x
+                for x in s.get("facts") or []
+                if str(x.get("label", "")).strip() and str(x.get("value", "")).strip()
+            ][:6]
+            if len(products) >= 2:
+                middle.append(
+                    ProductsSlide(
+                        heading=heading or "라인업",
+                        items=[
+                            ProductItem(
+                                name=x["name"].strip(),
+                                price=str(x.get("price", "")).strip(),
+                                note=str(x.get("note", "")).strip(),
+                            )
+                            for x in products
+                        ],
+                    )
+                )
+            elif len(facts) >= 2:
+                middle.append(
+                    FactsSlide(
+                        heading=heading or "확인할 것",
+                        rows=[
+                            FactRow(label=x["label"].strip(), value=x["value"].strip())
+                            for x in facts
+                        ],
+                    )
+                )
+            elif heading and s["body"].strip():
+                middle.append(
+                    BodySlide(heading=heading, body=s["body"].strip(), bullets=s["bullets"][:3])
+                )
     if not middle:
         raise AdapterError(f"생성 결과에 {template} 템플릿에 맞는 슬라이드가 없습니다")
     used = {c["source_item_id"] for c in out["claims"]}
