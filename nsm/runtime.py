@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -155,6 +156,37 @@ def build_context(
     return ctx
 
 
+def switch_preset(
+    ctx: JobContext, db: Database, name: str, save: Callable[[AppConfig], None]
+) -> str:
+    """프리셋 전환(C29). 작업 스레드에서 부른다(다른 잡과 겹치지 않게).
+
+    1) 지금 프리셋을 그 이름으로 저장해 두고(바꾼 설정이 사라지지 않게)
+    2) 대상 프리셋의 페르소나·브랜드를 입힌 설정을 만들고
+    3) DB를 그 프리셋 파일로 갈아끼운 뒤
+    4) 설정을 저장·반영하고, 새 DB에 남은 중단 작업을 복구한다.
+    """
+    from nsm.config.presets import PresetStore
+    from nsm.engine.publish import recover_interrupted
+    from nsm.engine.reply import recover_interrupted_replies
+
+    store = PresetStore()
+    cur = ctx.config.settings.preset
+    if name == cur:
+        return cur
+    store.save(ctx.config, cur)
+    new = store.load_into(ctx.config, name)
+    db.switch(store.db_path(name))
+    save(new)
+    recover_interrupted(ctx)
+    recover_interrupted_replies(ctx)
+    log.info("프리셋 전환: %s → %s (DB %s)", cur, name, db.path)
+    ctx.notifier.notify(
+        "프리셋 전환", f"'{name}'으로 바꿨습니다. 다음 작업부터 이 페르소나로 돕니다", "info"
+    )
+    return name
+
+
 def run_job_once(job: str, arg: str | None = None) -> None:
     from nsm.engine.runner import run_job
 
@@ -260,6 +292,9 @@ def run_forever() -> None:
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,
+            switch_preset=lambda name: scheduler.submit(
+                lambda: switch_preset(ctx, db, name, set_config)
+            ),
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")

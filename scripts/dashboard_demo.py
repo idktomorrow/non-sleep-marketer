@@ -25,6 +25,7 @@ import uvicorn  # noqa: E402
 import yaml  # noqa: E402
 
 from nsm.app.server import AppState, create_app  # noqa: E402
+from nsm.config.presets import PresetStore  # noqa: E402
 from nsm.config.schema import AppConfig  # noqa: E402
 from nsm.domain.clock import SystemClock  # noqa: E402
 from nsm.domain.models import AccountMetrics, Content, ContentBrief, PostMetrics  # noqa: E402
@@ -292,6 +293,14 @@ def main() -> None:
         run_keyword_now=_demo_keyword,
         read_image=_demo_read_image,
         brand_dir=home / "brand",
+        # 프리셋(C29): 데모에서는 DB를 갈아끼우지 않고 설정만 바꾼다
+        presets=PresetStore(home / "presets", home / "data.duckdb"),
+        switch_preset=lambda name: _now(
+            lambda: holder.__setitem__(
+                "cfg",
+                PresetStore(home / "presets", home / "data.duckdb").load_into(holder["cfg"], name),
+            )
+        ),
         job_names=frozenset(
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),

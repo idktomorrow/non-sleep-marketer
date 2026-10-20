@@ -83,14 +83,35 @@ class Database:
             cur.close()
 
     def cursor(self) -> duckdb.DuckDBPyConnection:
-        """스레드마다 별도 커서를 쓴다."""
-        return self._conn.cursor()
+        """스레드마다 별도 커서를 쓴다. 커서는 lock 안에서 만든다(switch 도중에 옛 연결을 잡지 않게)."""
+        with self._lock:
+            return self._conn.cursor()
+
+    def switch(self, path: str | Path) -> None:
+        """다른 DB 파일로 갈아끼운다(프리셋 전환, C29). 이 객체를 쥔 Repository들은 그대로 쓴다.
+
+        lock 안에서 옛 연결을 닫고 새 파일을 연다. 작업 스레드가 쉬는 틈에 불러야 한다(진행 중 트랜잭션이
+        있으면 lock이 그것이 끝날 때까지 기다린다).
+        """
+        new_path = str(path)
+        if new_path != ":memory:":
+            Path(new_path).parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            if new_path == self.path:
+                return
+            old = self._conn
+            self._conn = duckdb.connect(new_path)
+            self.path = new_path
+            try:
+                self._apply_schema()
+            finally:
+                old.close()
 
     @contextmanager
     def transaction(self) -> Iterator[duckdb.DuckDBPyConnection]:
         """여러 쓰기를 원자적으로 묶는다."""
-        cur = self._conn.cursor()
         with self._lock:
+            cur = self._conn.cursor()
             cur.execute("BEGIN TRANSACTION")
             try:
                 yield cur
@@ -104,10 +125,14 @@ class Database:
 
     def execute(self, sql: str, params: list | tuple | None = None) -> list[tuple]:
         """단일 문장 실행. lock으로 직렬화해 스레드 간 트랜잭션 충돌을 피한다."""
-        cur = self._conn.cursor()
-        try:
-            with self._lock:
+        with self._lock:
+            cur = self._conn.cursor()
+            try:
                 cur.execute(sql, params or [])
+            except Exception:
+                cur.close()
+                raise
+        try:
             try:
                 return cur.fetchall()
             except duckdb.InvalidInputException:

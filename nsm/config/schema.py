@@ -127,6 +127,7 @@ class Settings(_Model):
     )
     headless_collect: bool = True
     dashboard_port: int = 8765
+    preset: str = "기본"  # 지금 쓰는 프리셋(페르소나+브랜드+DB 묶음, C29 ADR 0049)
     collect: CollectSettings = Field(default_factory=CollectSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
 

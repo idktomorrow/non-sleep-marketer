@@ -8,6 +8,40 @@
 {% elif request.query_params.get('notified') %}<div class="notice info">테스트 알림을 보냈습니다. 화면 오른쪽 아래에 "논슬립 마케터 알림 테스트"가 보이지 않으면 Windows 설정 → 시스템 → 알림에서 알림과 "방해 금지"를 확인하세요.</div>{% endif %}
 {% if error %}<div class="notice bad">저장하지 못했습니다. {{ error }}</div>{% endif %}
 
+{% if can_presets %}
+<h2 id="presets">프리셋 <span class="hint">페르소나·브랜드·자료·원고·성과를 묶어 갈아끼웁니다. 계정과 API 키는 공통</span></h2>
+<div class="panel preset-panel">
+  {% if preset_msg %}<div class="notice info">{{ preset_msg }}</div>{% endif %}
+  {% if preset_error %}<div class="notice bad">{{ preset_error }}</div>{% endif %}
+  <p class="small" style="margin-top:0">지금: <b>{{ cfg.settings.preset }}</b>{% if not presets or cfg.settings.preset not in presets|map(attribute='name')|list %} <span class="muted">(아직 저장 안 됨 — 아래 "지금 설정을 저장"으로 남기세요)</span>{% endif %}</p>
+  {% if presets %}
+  <table class="preset-list">
+    <thead><tr><th>이름</th><th>페르소나</th><th>브랜드</th><th>관심 주제</th><th></th></tr></thead>
+    <tbody>
+    {% for p in presets %}
+      <tr{% if p.name == cfg.settings.preset %} class="current"{% endif %}>
+        <td><b>{{ p.name }}</b>{% if p.name == cfg.settings.preset %} <span class="badge on">지금</span>{% endif %}</td>
+        <td>{{ p.persona_name }}</td><td>{{ p.brand_name }}</td>
+        <td class="muted small">{{ p.topics[:4]|join(', ') }}{% if p.topics|length > 4 %} …{% endif %}</td>
+        <td class="actions-cell">
+          {% if p.name != cfg.settings.preset %}
+          <form method="post" action="/settings/preset/switch" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ p.name }}"><button class="btn-sm btn-primary">전환</button></form>
+          {% if p.name != '기본' %}<form method="post" action="/settings/preset/delete" class="inline" onsubmit="return confirm('{{ p.name }} 프리셋과 그 자료·원고·성과를 모두 지웁니다. 계속할까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ p.name }}"><button class="btn-sm">지우기</button></form>{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <form method="post" action="/settings/preset/save" class="preset-save"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="grow">지금 설정을 저장 <span class="hint">같은 이름이면 덮어쓰고, 새 이름이면 새 프리셋이 됩니다</span><input type="text" name="name" value="{{ cfg.settings.preset }}" maxlength="30" required></label>
+    <button class="btn-sm">저장</button>
+  </form>
+  <p class="muted small" style="margin-bottom:0">전환하면 지금 설정은 현재 이름으로 자동 저장되고, 새 프리셋은 자료·원고·댓글·성과가 비어 있는 상태로 시작합니다(계정·로그인·API 키는 그대로). 전환 뒤 아래 페르소나·브랜드 칸을 고쳐 저장하면 그 프리셋에 반영됩니다.</p>
+</div>
+{% endif %}
+
 <form method="post" action="/settings" class="settings-form" id="settings-form"{% if simple %} novalidate{% endif %}><input type="hidden" name="csrf" value="{{ csrf }}">
 
 <h2>페르소나</h2>
