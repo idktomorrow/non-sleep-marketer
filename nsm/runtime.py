@@ -16,6 +16,7 @@ from nsm.config.store import load_config
 from nsm.domain.clock import SystemClock
 from nsm.engine.context import JobContext
 from nsm.store.db import Database
+from nsm.store.picks import PicksStore
 from nsm.store.repo import Repository
 
 log = logging.getLogger(__name__)
@@ -260,6 +261,8 @@ def run_forever() -> None:
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,
+            picks=PicksStore(db, ctx.clock),  # 오늘의 추천(S11)
+            picks_dir=paths.media_dir() / "picks",
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")

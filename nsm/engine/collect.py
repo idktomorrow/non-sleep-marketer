@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from nsm.domain.interest_presets import search_terms
 from nsm.domain.models import Classification, SourceItem
 from nsm.domain.policy import should_act
 from nsm.domain.quality import excluded_genre
@@ -50,7 +51,8 @@ def run_collect(ctx: JobContext) -> JobResult:
         return result
 
     s = ctx.config.settings
-    topics = ctx.config.persona.topics
+    # 검색에는 별칭(ちいかわ, Chiikawa)까지 쓰고, 분류 라벨은 대표 주제(persona.topics)만 쓴다(S11)
+    topics = search_terms(ctx.config.persona.topics, s.picks.aliases)
     words = s.collect.exclude_words
     new = dup = excluded = 0
     for source in ctx.sources:

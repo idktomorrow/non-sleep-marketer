@@ -111,6 +111,36 @@ def _period(form: dict[str, Any]) -> str:
     return v
 
 
+def _aliases(form: dict[str, Any], current: dict[str, list[str]]) -> dict[str, list[str]]:
+    """검색 별칭(S11): 한 줄에 "대표 주제: 별칭, 별칭". 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    if "picks_aliases" not in form:
+        return current
+    out: dict[str, list[str]] = {}
+    for line in _lines(form, "picks_aliases", "검색 별칭"):
+        if ":" not in line:
+            raise SettingsError(
+                f"검색 별칭: '대표 주제: 별칭1, 별칭2' 형식으로 적어 주세요 ({line})"
+            )
+        topic, rest = line.split(":", 1)
+        names = [x.strip() for x in rest.split(",") if x.strip()]
+        if topic.strip() and names:
+            out[topic.strip()] = names
+    return out
+
+
+def _picks(form: dict[str, Any], cfg: AppConfig) -> dict[str, Any]:
+    """오늘의 추천(S11) 설정. 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    cur = cfg.settings.picks
+    if "picks_count" not in form:
+        return cur.model_dump()
+    return {
+        **cur.model_dump(),
+        "enabled": form.get("picks_enabled") == "on",
+        "count": int(_number(form, "picks_count", "하루 추천 수", 1, 5)),
+        "aliases": _aliases(form, cur.aliases),
+    }
+
+
 def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
     """폼 값을 반영한 새 설정. 형식이 틀리면 SettingsError(아무것도 바뀌지 않음)."""
     topics = _lines(form, "topics", "관심 주제", MAX_TOPICS)
@@ -165,6 +195,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
+        picks=_picks(form, cfg),
         # 칸이 없는 옛 폼은 지금 값을 지킨다
         instagram_comment_interval_minutes=int(
             _number(form, IG_INTERVAL, "인스타그램 댓글 확인 간격", 10, 180)
@@ -221,4 +252,7 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
         "exclude_words": "\n".join(s.collect.exclude_words),
+        "picks_enabled": "on" if s.picks.enabled else "",
+        "picks_count": str(s.picks.count),
+        "picks_aliases": "\n".join(f"{k}: {', '.join(v)}" for k, v in s.picks.aliases.items()),
     }
