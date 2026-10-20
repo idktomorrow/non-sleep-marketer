@@ -29,6 +29,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
+from nsm.domain.quality import slide_texts
 from nsm.render.character import DRAWN, CharacterArt
 from nsm.render.mascot import pick_prop
 
@@ -219,14 +220,9 @@ def resolve_asset(path: str | None) -> str | None:
 
 
 def _deck_texts(deck: CardDeck) -> list[str]:
-    out: list[str] = []
-    for s in deck.slides:
-        for key in ("title", "subtitle", "heading", "body", "cta"):
-            v = getattr(s, key, None)
-            if isinstance(v, str):
-                out.append(v)
-        out.extend(getattr(s, "bullets", None) or [])
-    return out
+    return [
+        t for s in deck.slides for t in slide_texts(s)
+    ]  # 장 종류별 글자 추출은 quality에 한 곳만
 
 
 def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
@@ -240,7 +236,12 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
         bg = resolve_asset(s.background)
         if s.background and not bg:
             log.warning("배경 이미지가 없어 브랜드 색으로 대체: %s", s.background)
-        slides.append(s.model_copy(update={"background": bg}))
+        update: dict = {"background": bg}
+        if s.kind == "products":  # 상품 그림도 같은 규칙(S12): 없으면 이름만 크게
+            update["items"] = [
+                it.model_copy(update={"image": resolve_asset(it.image)}) for it in s.items
+            ]
+        slides.append(s.model_copy(update=update))
     logo = resolve_asset(deck.brand.logo_path)
     deck = deck.model_copy(
         update={"slides": slides, "brand": deck.brand.model_copy(update={"logo_path": logo})}

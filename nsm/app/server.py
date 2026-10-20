@@ -33,10 +33,12 @@ from nsm.app.card_editor import (
     MAX_UPLOAD_BYTES,
     EditError,
     apply_slide_edits,
+    check_item_slot,
     clear_rendered,
     drop_old_upload,
     save_upload,
     set_background,
+    set_item_image,
 )
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
 from nsm.app.ko import FILTERS as KO_FILTERS
@@ -890,6 +892,45 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         _save_edit(cid, new)
         drop_old_upload(state.media_dir, cid, c.generated.deck.slides[index].background)
+        clear_rendered(state.media_dir, cid)
+        return back(f"/review/{cid}")
+
+    @app.post("/review/{cid}/slides/{index}/items/{item}/image", dependencies=[Depends(check_csrf)])
+    async def upload_item_image(
+        cid: str, index: int, item: int, file: UploadFile = File(...)
+    ) -> RedirectResponse:
+        """상품 그리드(S12)의 상품 그림. 배경 올리기와 같은 검사·저장 규칙(10MB, PNG·JPEG·WebP, 이름은 우리가)."""
+        c = _editable(cid)
+        data = await file.read(MAX_UPLOAD_BYTES + 1)
+        try:
+            check_item_slot(c.generated, index, item)  # 저장 전에 자리부터(고아 파일 방지)
+            path = save_upload(state.media_dir, cid, index, data)
+            new = set_item_image(c.generated, index, item, str(path))
+        except EditError as e:
+            raise HTTPException(400, str(e)) from e
+        _save_edit(cid, new)
+        old = c.generated.deck.slides[index]
+        drop_old_upload(
+            state.media_dir, cid, old.items[item].image if old.kind == "products" else None
+        )
+        clear_rendered(state.media_dir, cid)
+        return back(f"/review/{cid}")
+
+    @app.post(
+        "/review/{cid}/slides/{index}/items/{item}/image/remove",
+        dependencies=[Depends(check_csrf)],
+    )
+    def remove_item_image(cid: str, index: int, item: int) -> RedirectResponse:
+        c = _editable(cid)
+        try:
+            new = set_item_image(c.generated, index, item, None)
+        except EditError as e:
+            raise HTTPException(400, str(e)) from e
+        _save_edit(cid, new)
+        old = c.generated.deck.slides[index]
+        drop_old_upload(
+            state.media_dir, cid, old.items[item].image if old.kind == "products" else None
+        )
         clear_rendered(state.media_dir, cid)
         return back(f"/review/{cid}")
 

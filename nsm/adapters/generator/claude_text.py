@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -28,14 +29,20 @@ from nsm.domain.models import (
     DeckBrand,
     DeckLabels,
     DeckPersona,
+    FactRow,
+    FactsSlide,
     GeneratedContent,
     ListSlide,
     OutroSlide,
     Persona,
+    ProductItem,
+    ProductsSlide,
     SourceItem,
 )
 from nsm.domain.quality import STIFF_PHRASES, emoji_limit
 from nsm.ports import AdapterError, CostSink
+
+log = logging.getLogger(__name__)
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_MIDDLE_SLIDES = 8
@@ -61,6 +68,25 @@ _LLM_SCHEMA: dict[str, Any] = {
                     "left_points": _STRS,
                     "right_title": _STR,
                     "right_points": _STRS,
+                    # S12 제안: 상품 그리드·일정 패널(editorial 템플릿에서만 채운다)
+                    "products": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"name": _STR, "price": _STR, "note": _STR},
+                            "required": ["name", "price", "note"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "facts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"label": _STR, "value": _STR},
+                            "required": ["label", "value"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": [
                     "heading",
@@ -70,6 +96,8 @@ _LLM_SCHEMA: dict[str, Any] = {
                     "left_points",
                     "right_title",
                     "right_points",
+                    "products",
+                    "facts",
                 ],
                 "additionalProperties": False,
             },
@@ -107,19 +135,42 @@ _LLM_SCHEMA: dict[str, Any] = {
 _BLOG_FIELDS = ("blog_title", "blog_markdown")
 
 
-def llm_schema(include_blog: bool) -> dict[str, Any]:
-    """블로그를 게시하지 않으면(ADR 0016) 블로그 원고 칸을 요청하지 않는다(출력 비용 절약, #43)."""
-    if include_blog:
-        return _LLM_SCHEMA
-    props = {k: v for k, v in _LLM_SCHEMA["properties"].items() if k not in _BLOG_FIELDS}
-    required = [k for k in _LLM_SCHEMA["required"] if k not in _BLOG_FIELDS]
-    return {**_LLM_SCHEMA, "properties": props, "required": required}
+_EDITORIAL_FIELDS = ("products", "facts")
+
+
+def llm_schema(include_blog: bool, template: str = "info") -> dict[str, Any]:
+    """블로그를 게시하지 않으면(ADR 0016) 블로그 원고 칸을 요청하지 않는다(출력 비용 절약, #43).
+
+    상품·일정 칸(S12)은 소식형(editorial)에서만 요청한다. 다른 템플릿은 칸 자체가 없어 모델이 채우지 않는다.
+    """
+    schema = _LLM_SCHEMA
+    if not include_blog:
+        props = {k: v for k, v in schema["properties"].items() if k not in _BLOG_FIELDS}
+        required = [k for k in schema["required"] if k not in _BLOG_FIELDS]
+        schema = {**schema, "properties": props, "required": required}
+    if template != "editorial":
+        slide = schema["properties"]["slides"]["items"]
+        slide = {
+            **slide,
+            "properties": {
+                k: v for k, v in slide["properties"].items() if k not in _EDITORIAL_FIELDS
+            },
+            "required": [k for k in slide["required"] if k not in _EDITORIAL_FIELDS],
+        }
+        slides = {**schema["properties"]["slides"], "items": slide}
+        schema = {**schema, "properties": {**schema["properties"], "slides": slides}}
+    return schema
 
 
 _TEMPLATE_GUIDE = {
     "info": "정보형: slides 2~5장. 각 장은 heading(15자 이내)과 body(90자 이내). bullets는 0~3개. left/right 필드는 빈 값.",
     "list": "리스트형: slides 1~3장. 각 장은 heading과 bullets 3~5개(각 25자 이내). body와 left/right 필드는 빈 값.",
     "compare": "비교형: slides 1~2장. 각 장은 heading과 left_title·left_points(2~4개), right_title·right_points(2~4개). body·bullets는 빈 값.",
+    "editorial": (
+        "소식형: slides 1~4장. 첫 장은 개요(heading 15자 이내 + body 90자 이내). 자료에 상품이 여럿이면 한 장은 "
+        "products(2~4개, name·price·note. 가격은 자료 표기 그대로, 자료에 없으면 빈 값)로, 날짜·장소·구매처·수량 제한처럼 "
+        "확인 가능한 정보는 한 장은 facts(2~6줄, label 8자 이내·value 30자 이내)로. 쓰지 않는 칸은 빈 값."
+    ),
 }
 
 
@@ -218,6 +269,53 @@ def build_deck(
                     right=CompareSide(title=s["right_title"] or "B", points=s["right_points"][:4]),
                 )
             )
+        elif template == "editorial":
+            products = [x for x in s.get("products") or [] if str(x.get("name", "")).strip()][:4]
+            facts = [
+                x
+                for x in s.get("facts") or []
+                if str(x.get("label", "")).strip() and str(x.get("value", "")).strip()
+            ][:6]
+            made = 0
+            # 한 장에 상품·일정이 같이 오면 둘 다 장으로(안내문은 따로 쓰라고 하지만 스키마가 막지 않는다, S12 리뷰)
+            if len(products) >= 2:
+                middle.append(
+                    ProductsSlide(
+                        heading=heading or "라인업",
+                        items=[
+                            ProductItem(
+                                name=x["name"].strip(),
+                                price=str(x.get("price", "")).strip(),
+                                note=str(x.get("note", "")).strip(),
+                            )
+                            for x in products
+                        ],
+                    )
+                )
+                made += 1
+            if len(facts) >= 2:
+                middle.append(
+                    FactsSlide(
+                        heading=heading or "확인할 것",
+                        rows=[
+                            FactRow(label=x["label"].strip(), value=x["value"].strip())
+                            for x in facts
+                        ],
+                    )
+                )
+                made += 1
+            if not made and heading and s["body"].strip():
+                middle.append(
+                    BodySlide(heading=heading, body=s["body"].strip(), bullets=s["bullets"][:3])
+                )
+                made += 1
+            if not made:
+                log.info(
+                    "소식형 장 버림(상품 %d개·정보 %d줄·본문 없음): %s",
+                    len(products),
+                    len(facts),
+                    heading,
+                )
     if not middle:
         raise AdapterError(f"생성 결과에 {template} 템플릿에 맞는 슬라이드가 없습니다")
     used = {c["source_item_id"] for c in out["claims"]}
@@ -309,7 +407,10 @@ class ClaudeTextGenerator:
             system=_system(persona, brand, self.include_blog),
             output_config={
                 "effort": "medium",
-                "format": {"type": "json_schema", "schema": llm_schema(self.include_blog)},
+                "format": {
+                    "type": "json_schema",
+                    "schema": llm_schema(self.include_blog, brief.template),
+                },
             },
             messages=[
                 {

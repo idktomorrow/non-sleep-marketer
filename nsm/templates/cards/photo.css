@@ -67,3 +67,8 @@
 .style-photo .compare .col, .style-photo .compare .col.right { background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.18); }
 .style-photo .compare .col.right { border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
 .style-photo .outro .sources { opacity: .9; }
+
+/* 상품 그리드·일정 패널(S12): 어두운 바탕 위 반투명 카드, 흰 글자 */
+.style-photo .products h2, .style-photo .facts h2, .style-photo .fact dt { color: #fff; }
+.style-photo .product, .style-photo .fact { background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.18); }
+.style-photo .product-price { background: var(--accent); color: var(--on-accent); }

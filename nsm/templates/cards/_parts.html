@@ -254,6 +254,43 @@
 </section>
 {%- endmacro %}
 
+{#- S12 제안(ADR 0051): 상품 그리드. 그림은 장별 background처럼 사람이 올린 로컬 파일이고 이름·가격은 HTML 글자다 -#}
+{% macro products(s, i, n, deck) -%}
+{%- set bg = s.background -%}
+{{ open('products', s, bg) }}
+  {{ chrome(s, i, n, deck, bg) }}
+  <div class="content">
+    <h2 data-fit="44">{{ s.heading }}</h2>
+    <div class="grid items-{{ s.items | length }}">
+      {% for it in s.items %}
+      <div class="product">
+        {% if it.image %}<img class="product-img" src="{{ it.image | file_uri }}" alt="">{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
+        <div class="product-name" data-fit="22">{{ it.name }}</div>
+        {% if it.note %}<div class="product-note" data-fit="16">{{ it.note }}</div>{% endif %}
+        {% if it.price %}<div class="product-price" data-fit="20">{{ it.price }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{%- endmacro %}
+
+{#- S12 제안: 일정·구매처 같은 확인 가능한 정보 줄 -#}
+{% macro facts(s, i, n, deck) -%}
+{%- set bg = s.background -%}
+{{ open('facts', s, bg) }}
+  {{ chrome(s, i, n, deck, bg) }}
+  <div class="content">
+    <h2 data-fit="44">{{ s.heading }}</h2>
+    <dl class="rows">
+      {% for r in s.rows %}
+      <div class="fact"><dt data-fit="20">{{ r.label }}</dt><dd data-fit="22">{{ r.value }}</dd></div>
+      {% endfor %}
+    </dl>
+  </div>
+</section>
+{%- endmacro %}
+
 {% macro outro(s, i, n, deck) -%}
 {%- set bg = s.background -%}
 {{ open('outro brand', s, bg) }}

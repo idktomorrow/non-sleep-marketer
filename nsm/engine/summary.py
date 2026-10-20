@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 PLATFORMS = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
-TEMPLATES = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
+TEMPLATES = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
 SEP = " · "
 
 
