@@ -7,16 +7,17 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import re
 import shutil
 import threading
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
 from nsm.config.schema import CARD_STYLES, AppConfig
 from nsm.domain.models import CardDeck
+from nsm.render.html_renderer import TEMPLATES_DIR
 
 HEX = re.compile(r"#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})")
 MAX_KEPT = 24
@@ -31,11 +32,14 @@ class StylePreviewError(ValueError):
 
 
 # 사진 우선형(editorial, S10 제안) 견본에 까는 동봉 사진. 저작권 없는 합성 이미지(nsm/templates/samples/)
-SAMPLE_PHOTO = Path(str(resources.files("nsm.templates"))) / "samples" / "sample-photo.jpg"
+SAMPLE_PHOTO = TEMPLATES_DIR / "samples" / "sample-photo.jpg"
 
 
+@functools.cache
 def _photo_fingerprint() -> str:
-    """견본 사진 파일을 바꾸면 editorial 견본도 다시 그리게(템플릿 지문은 html·css·woff2만 본다)."""
+    """견본 사진 파일을 바꾸면 editorial 견본도 다시 그리게(템플릿 지문은 html·css·woff2만 본다).
+
+    파일은 업그레이드 때만 바뀌므로 프로세스당 한 번만 읽는다."""
     try:
         return hashlib.sha256(SAMPLE_PHOTO.read_bytes()).hexdigest()[:12]
     except OSError:

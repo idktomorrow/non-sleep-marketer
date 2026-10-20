@@ -201,6 +201,22 @@ def check_style(style: str) -> str:
     return style
 
 
+# 저장소 루트(nsm 패키지의 부모). 픽스처처럼 저장소 기준 상대 경로로 적힌 그림을 어느 폴더에서 실행해도 찾게
+PACKAGE_ROOT = TEMPLATES_DIR.parent.parent
+
+
+def resolve_asset(path: str | None) -> str | None:
+    """그림 경로: 절대 경로나 현재 폴더 기준으로 있으면 그것, 없으면 저장소 루트 기준으로 한 번 더 찾는다(S10 리뷰)."""
+    if not path:
+        return None
+    p = Path(path)
+    if p.exists():
+        return str(p)
+    if not p.is_absolute() and (PACKAGE_ROOT / p).exists():
+        return str(PACKAGE_ROOT / p)
+    return None
+
+
 def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
     """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다.
 
@@ -209,15 +225,11 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
     check_style(style)
     slides = []
     for s in deck.slides:
-        bg = s.background if s.background and Path(s.background).exists() else None
+        bg = resolve_asset(s.background)
         if s.background and not bg:
             log.warning("배경 이미지가 없어 브랜드 색으로 대체: %s", s.background)
         slides.append(s.model_copy(update={"background": bg}))
-    logo = (
-        deck.brand.logo_path
-        if deck.brand.logo_path and Path(deck.brand.logo_path).exists()
-        else None
-    )
+    logo = resolve_asset(deck.brand.logo_path)
     deck = deck.model_copy(
         update={"slides": slides, "brand": deck.brand.model_copy(update={"logo_path": logo})}
     )

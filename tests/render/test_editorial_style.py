@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from nsm.domain.models import CardDeck
-from nsm.render.html_renderer import HtmlCardRenderer, _contrast, build_html
+from nsm.render.html_renderer import HtmlCardRenderer, _contrast, _luminance, build_html
 from tests.render.test_html_renderer import (
     FIXTURES,
     THUMB_SCALE,
@@ -182,15 +182,6 @@ def _white_photo(tmp_path: Path, shade: int = 255) -> Path:
     return p
 
 
-def _luminance(rgb) -> float:
-    def ch(v: float) -> float:
-        v /= 255
-        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
-
-    r, g, b = rgb
-    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
-
-
 @pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
 def test_cover_text_readable_on_bright_photo(extreme: bool, tmp_path) -> None:
     """가장 밝은 사진(순백)에서도 표지 제목·키커·이름·페이지 번호 뒤 바탕이 흰 글자와 대비 3.0 이상(큰 글자 기준).
@@ -240,7 +231,7 @@ def test_cover_text_readable_on_bright_photo(extreme: bool, tmp_path) -> None:
     for name, (left, top, right, bottom) in boxes.items():
         region = shot.crop((int(left), int(top), int(right), int(bottom)))
         mean = tuple(ImageStat.Stat(region).mean[:3])
-        contrast = 1.05 / (_luminance(mean) + 0.05)  # 흰 글자(1.0) 대 바탕
+        contrast = 1.05 / (_luminance(tuple(v / 255 for v in mean)) + 0.05)  # 흰 글자(1.0) 대 바탕
         if contrast < 3.0:
             bad.append(f"{name}: {contrast:.2f} (바탕 평균 {tuple(round(m) for m in mean)})")
     assert bad == []
@@ -273,3 +264,22 @@ def test_long_caption_panel_shrinks_instead_of_clipping_upward(tmp_path) -> None
     assert r["panelTop"] >= r["contentTop"] - 1, r  # 위로 잘리지 않음
     assert r["panelBottom"] <= r["contentBottom"] + 1, r
     assert r["h2"] < 56, r  # 글자가 실제로 줄었다
+
+
+def test_repo_relative_background_resolves_from_any_cwd(tmp_path, monkeypatch) -> None:
+    """픽스처의 저장소 기준 상대 경로는 다른 폴더에서 render-preview해도 사진을 찾는다(S10 리뷰)."""
+    monkeypatch.chdir(tmp_path)
+    deck = CardDeck.model_validate_json((FIXTURES / "editorial-photo.json").read_text("utf-8"))
+    html = build_html(deck, STYLE)
+    assert html.count("has-bg") == 3 and SAMPLE.resolve().as_uri() in html
+    missing = deck.model_copy(
+        update={
+            "slides": [
+                deck.slides[0].model_copy(update={"background": "nope/x.jpg"}),
+                *deck.slides[1:],
+            ]
+        }
+    )
+    assert (
+        "has-bg" in build_html(missing, STYLE) and build_html(missing, STYLE).count("has-bg") == 2
+    )

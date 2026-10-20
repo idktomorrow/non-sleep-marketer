@@ -51,7 +51,7 @@
     {% for k, label in card_styles.items() %}{% set name, desc = label.split(': ', 1) %}
       <label class="style-option">
         <span class="style-head"><input type="radio" name="card_style" value="{{ k }}" {% if v.card_style == k %}checked{% endif %}> <b>{{ name }}</b></span>
-        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}{% if k == 'illust' %}&amp;c={{ character_fp }}{% endif %}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
+        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}{% if k == 'illust' %}&amp;c={{ character_fp }}{% elif k == 'editorial' %}&amp;c={{ photo_fp }}{% endif %}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
         <span class="hint">{{ desc }}</span>
       </label>
     {% endfor %}
