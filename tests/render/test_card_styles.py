@@ -16,7 +16,7 @@ import pytest
 from nsm.render.html_renderer import HtmlCardRenderer, build_html, template_version
 from tests.render.test_html_renderer import _extreme, load, png_size, slots
 
-STYLES = ["clean", "photo", "illust"]
+STYLES = ["clean", "photo", "illust", "editorial"]
 TEMPLATES = ["info", "list", "compare"]
 
 
@@ -42,7 +42,7 @@ def test_each_style_renders_1080x1350_without_overflow(
         )
 
 
-@pytest.mark.parametrize("style", ["photo", "illust"])
+@pytest.mark.parametrize("style", ["photo", "illust", "editorial"])
 @pytest.mark.parametrize("template", TEMPLATES)
 def test_label_slots_do_not_depend_on_style(style: str, template: str) -> None:
     deck = load(template)
@@ -82,7 +82,7 @@ def test_code_drawn_background_has_no_ai_caption(style: str, tmp_path: Path) -> 
     assert ["ai-generated" in x["labels"] for x in s] == [False, True, False, False]
 
 
-@pytest.mark.parametrize("style", ["photo", "illust"])
+@pytest.mark.parametrize("style", ["photo", "illust", "editorial"])
 def test_slides_with_background_photo_skip_code_decoration(style: str, tmp_path: Path) -> None:
     """배경 사진이 있는 장은 장식(언덕·캐릭터 등)을 그리지 않는다: 아래 띠의 흰 페이지 번호가 밝은 언덕에 묻히던 문제."""
     import re
@@ -127,6 +127,10 @@ def test_style_specific_parts() -> None:
     # illust: 표지 캐릭터 1, 마무리 손 흔드는 캐릭터 1. 캐릭터도 가상인물이라 배지가 있는 이 두 장에만(ADR 0043)
     assert illust.count("mascot-stand") == 1 and illust.count("mascot-wave") == 1
     assert "mascot-mini" not in illust
+    # editorial(S10): 사진이 없으면 패널·팔로우 카드 없이 종이색 카드, 형광펜 상자도 없다
+    editorial = build_html(deck, "editorial")
+    assert "editorial.css" in editorial and '<span class="hl">' not in editorial
+    assert "caption-panel" not in editorial and "follow-card" not in editorial
 
 
 def test_unknown_style_is_rejected() -> None:

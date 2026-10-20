@@ -78,7 +78,7 @@ def render_preview(
     style: str | None = typer.Option(
         None,
         "--style",
-        help="카드 스타일 clean|photo|illust. 기본: 설정 파일의 brand.card_style(없으면 clean)",
+        help="카드 스타일 clean|photo|illust|editorial. 기본: 설정 파일의 brand.card_style(없으면 clean)",
     ),
 ) -> None:
     """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α, 스타일은 S8)."""

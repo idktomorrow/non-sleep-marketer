@@ -55,7 +55,7 @@ def env(db, clock, app_config, tmp_path: Path):
 
 def test_settings_page_shows_style_samples(env) -> None:
     html = env["client"].get("/settings").text
-    for style in ("clean", "photo", "illust"):
+    for style in ("clean", "photo", "illust", "editorial"):
         assert f'value="{style}"' in html
         assert f"/settings/style-preview/{style}/1.png?primary=%231E3A5F" in html
         assert f"/settings/style-preview/{style}/2.png" in html
@@ -125,3 +125,12 @@ def test_sample_deck_uses_persona_and_ad_label(app_config) -> None:
     assert deck.persona.name == app_config.persona.name
     assert deck.labels.virtual_person and deck.labels.ad == app_config.persona.ad_label
     assert [s.kind for s in deck.slides] == ["cover", "list", "outro"]
+
+
+def test_editorial_sample_has_bundled_photo_only_on_cover_and_outro(app_config) -> None:
+    """사진 우선형(S10) 견본은 동봉 사진을 표지·마지막 장에만 깐다. 다른 스타일 견본은 사진이 없다."""
+    deck = sample_deck(app_config, "#111111", "#222222", "editorial")
+    bgs = [s.background for s in deck.slides]
+    assert bgs[0] and bgs[0] == bgs[2] and bgs[1] is None
+    assert Path(bgs[0]).is_file() and "sample-photo" in bgs[0]
+    assert all(s.background is None for s in sample_deck(app_config, "#111111", "#222222").slides)

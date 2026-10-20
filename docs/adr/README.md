@@ -60,3 +60,4 @@
 | [0046](0046-persona-character-images.md) | 일러스트형 카드 캐릭터는 설정 `brand.character`(기본 앵무새, 햄스터, 직접 올린 그림, 도형, 없음). 올린 캐릭터는 바탕을 자동으로 지우고, 로고도 설정 화면에서 올림. AI로 만든 그림이면 그 장에 "AI 생성 이미지"(기본 켬) | 제안 |
 | [0047](0047-replies-grounded-in-post-sources.md) | 댓글 답글은 게시물 본문 + 그 원고에 쓴 자료(최대 3개, 원문 앞 1500자)를 보고 쓴다. 자료에 없으면 지어내지 않되 "모르겠어요"로 딱 자르지 않고 아는 만큼 + "아직 발표 전인 것 같아요". 댓글마다 새 검색은 하지 않음 | 제안 |
 | [0048](0048-gemini-classifier-replaces-jev.md) | 분류기는 Gemini 무료 구간(Flash-Lite, 10건 묶음)을 기본으로, jev·MotherDuck은 제거. 자동 선택 Gemini → Claude → 낱말 규칙, 실패하면 다음으로 넘어가며 알림 | 제안 |
+| [0049](0049-editorial-style-verified-photos.md) | 사진 우선형(editorial) 카드 스타일 추가: 사람이 올리거나 확인한 사진만 장별 배경으로 크게 깔고 글은 그 위 패널에. 프로그램이 고른 사진은 넣지 않음(ADR 0045 수정 제안) | 제안 |

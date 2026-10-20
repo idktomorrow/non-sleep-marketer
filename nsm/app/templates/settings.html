@@ -46,7 +46,7 @@
     <label>보조 색(카드 강조)<span class="color-input"><input type="color" value="{{ v.accent_color if v.accent_color|length == 7 else '#F2A541' }}" data-for="accent_color"><input type="text" name="accent_color" value="{{ v.accent_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
   </div>
   <fieldset class="style-picker">
-    <legend>카드 스타일 <span class="hint">모든 원고의 카드 모양. 견본은 지금 색과 페르소나로 그린 표지·본문 장입니다(색을 바꾸면 저장 전에도 따라 바뀜). 저장하면 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그립니다(글이 넘치면 올리지 않고 검토로). 배경은 코드로 그려서 추가 비용이 없습니다</span></legend>
+    <legend>카드 스타일 <span class="hint">모든 원고의 카드 모양. 견본은 지금 색과 페르소나로 그린 표지·본문 장입니다(색을 바꾸면 저장 전에도 따라 바뀜). 저장하면 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그립니다(글이 넘치면 올리지 않고 검토로). 배경은 코드로 그려서 추가 비용이 없습니다. 사진 우선형은 검토 상세에서 올린 사진을 크게 쓰는 스타일이라 직접 찍었거나 쓸 권리가 있는 사진만 올리세요</span></legend>
     <div class="style-options">
     {% for k, label in card_styles.items() %}{% set name, desc = label.split(': ', 1) %}
       <label class="style-option">
