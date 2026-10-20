@@ -17,8 +17,9 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
-CardStyle = Literal["clean", "photo", "illust"]
+# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. clean·photo·illust는 배경을 코드(CSS·SVG)로 그린다.
+# editorial(S10 제안, ADR 0049): 사람이 확인한 사진을 크게 깔고 글은 그 위 패널에 올리는 사진 우선 레이아웃.
+CardStyle = Literal["clean", "photo", "illust", "editorial"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 

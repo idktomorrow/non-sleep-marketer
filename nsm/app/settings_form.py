@@ -70,6 +70,7 @@ CARD_STYLE_NAMES = {
     "clean": "깔끔(기본): 브랜드 색 면 + 흰 카드",
     "photo": "사진형: 꽉 찬 어두운 배경 + 형광펜 제목 + 말풍선",
     "illust": "일러스트형: 파스텔 배경 + 번호 카드 + 캐릭터",
+    "editorial": "사진 우선형(제안): 올린 사진을 크게 + 짧은 제목 + 설명 패널. 사진이 없으면 종이색 카드",
 }
 
 
@@ -99,7 +100,7 @@ def _card_style(form: dict[str, Any], current: str) -> str:
     # 폼에 칸이 없으면(옛 화면·테스트) 지금 값을 지킨다
     v = str(form.get("card_style", current))
     if v not in CARD_STYLE_NAMES:
-        raise SettingsError("카드 스타일: 깔끔·사진형·일러스트형 중 하나를 고르세요")
+        raise SettingsError("카드 스타일: 깔끔·사진형·일러스트형·사진 우선형 중 하나를 고르세요")
     return v
 
 

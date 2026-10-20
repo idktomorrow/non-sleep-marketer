@@ -4,8 +4,9 @@
 - 슬라이드 한 장 = 1080×1350. 한 페이지에 모든 슬라이드를 그려 놓고 슬라이드 요소마다 스크린샷을 찍는다.
 - 글이 넘치면 템플릿의 `nsmFit()`이 `data-fit` 글자를 최소 크기까지 줄인다. 그래도 넘친 슬라이드 번호는
   `last_overflow`에 남는다(테스트·로그용).
-- 스타일(S8, ADR 0036): `clean`(기본)·`photo`·`illust`. `<body class="style-…">`와 스타일별 장식(코드로 그린
-  도형·SVG 캐릭터)만 바뀌고, 글자와 표기 슬롯은 세 스타일 모두 같은 HTML이다(글자를 이미지에 굽지 않는다).
+- 스타일(S8, ADR 0036 · S10 제안, ADR 0049): `clean`(기본)·`photo`·`illust`·`editorial`. `<body class="style-…">`와
+  스타일별 장식(코드로 그린 도형·SVG 캐릭터, editorial은 사진 위 패널)만 바뀌고, 글자와 표기 슬롯은 모든 스타일이
+  같은 HTML이다(글자를 이미지에 굽지 않는다).
 - Playwright 동기 API는 스레드에 하나만 띄울 수 있다. 수집용 브라우저 드라이버가 같은 작업 스레드에서
   이미 떠 있을 수 있으므로, 렌더는 전용 스레드 하나에서 하고 크로미움은 한 번 띄워 재사용한다.
 """
@@ -29,6 +30,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
 from nsm.render.character import DRAWN, CharacterArt
+from nsm.render.mascot import pick_prop
 
 log = logging.getLogger(__name__)
 
@@ -200,6 +202,33 @@ def check_style(style: str) -> str:
     return style
 
 
+# 저장소 루트(nsm 패키지의 부모). 픽스처처럼 저장소 기준 상대 경로로 적힌 그림을 어느 폴더에서 실행해도 찾게
+PACKAGE_ROOT = TEMPLATES_DIR.parent.parent
+
+
+def resolve_asset(path: str | None) -> str | None:
+    """그림 경로: 절대 경로나 현재 폴더 기준으로 있으면 그것, 없으면 저장소 루트 기준으로 한 번 더 찾는다(S10 리뷰)."""
+    if not path:
+        return None
+    p = Path(path)
+    if p.exists():
+        return str(p)
+    if not p.is_absolute() and (PACKAGE_ROOT / p).exists():
+        return str(PACKAGE_ROOT / p)
+    return None
+
+
+def _deck_texts(deck: CardDeck) -> list[str]:
+    out: list[str] = []
+    for s in deck.slides:
+        for key in ("title", "subtitle", "heading", "body", "cta"):
+            v = getattr(s, key, None)
+            if isinstance(v, str):
+                out.append(v)
+        out.extend(getattr(s, "bullets", None) or [])
+    return out
+
+
 def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
     """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다.
 
@@ -208,15 +237,11 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
     check_style(style)
     slides = []
     for s in deck.slides:
-        bg = s.background if s.background and Path(s.background).exists() else None
+        bg = resolve_asset(s.background)
         if s.background and not bg:
             log.warning("배경 이미지가 없어 브랜드 색으로 대체: %s", s.background)
         slides.append(s.model_copy(update={"background": bg}))
-    logo = (
-        deck.brand.logo_path
-        if deck.brand.logo_path and Path(deck.brand.logo_path).exists()
-        else None
-    )
+    logo = resolve_asset(deck.brand.logo_path)
     deck = deck.model_copy(
         update={"slides": slides, "brand": deck.brand.model_copy(update={"logo_path": logo})}
     )
@@ -228,6 +253,8 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
             style=style,
             character=character,
+            # 사진 우선형의 몽글 캐릭터 소품: 카드 글에서 고른다(항공→조종사 모자, 커피→머그컵 …)
+            prop=pick_prop(_deck_texts(deck)),
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),
         )
     )

@@ -61,6 +61,7 @@ from nsm.app.settings_form import (
     apply_settings_form,
     form_values,
 )
+from nsm.app.style_preview import _photo_fingerprint
 from nsm.config.schema import AppConfig
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -340,6 +341,7 @@ def create_app(state: AppState) -> FastAPI:
             "image_error": q.get("image_error"),
             # 캐릭터를 바꾸면 일러스트형 견본 주소도 바뀌게(브라우저 캐시 때문에 옛 견본이 남지 않게)
             "character_fp": character_art(b).fingerprint,
+            "photo_fp": _photo_fingerprint(),  # 견본 사진이 바뀌면 사진 우선형 견본 주소도(S10)
         }
 
     @app.get("/settings", response_class=HTMLResponse)
