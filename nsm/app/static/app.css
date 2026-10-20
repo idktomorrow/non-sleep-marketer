@@ -15,6 +15,7 @@
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; font-family: "Pretendard", system-ui, -apple-system, "Malgun Gothic", sans-serif; color: var(--fg);
+  word-break: keep-all;  /* 한국어는 기본이 음절 단위 줄바꿈이라 "스레/드"처럼 끊긴다. 어절 단위로(C28) */
   background: var(--bg); line-height: 1.55; font-size: 15px; }
 a { color: var(--accent); }
 h1 { font-size: 24px; font-weight: 800; margin: 4px 0 16px; letter-spacing: -.01em; }
@@ -86,7 +87,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 @media (max-width: 640px) { .job-status .col-every { display: none; } }
 
 /* ---------------------------------------------------------------- 개요 */
-.today { display: grid; gap: 12px; grid-template-columns: 1.6fr 1fr; align-items: start; }
+.today { display: grid; gap: 12px; grid-template-columns: 1.25fr 1fr; align-items: start; }
 .todo h2 { margin-top: 0; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
 .todo-item { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--fg); }
@@ -96,9 +97,10 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 .todo-text b { display: block; font-size: 16px; } .todo-text span { color: var(--muted); font-size: 13px; }
 .todo-go { margin-left: auto; }
 .all-done { padding: 22px 4px; font-size: 16px; }
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.stats { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; min-width: 0; }
 .stat .label { color: var(--muted); font-size: 13px; } .stat b { display: block; font-size: 22px; font-weight: 800; }
+.next-pubs span { display: inline-block; white-space: nowrap; }  /* "인스타그램 08:00"은 한 덩어리, 줄은 플랫폼 사이에서만(C28) */
 .progress { height: 8px; background: #eceff3; border-radius: 999px; overflow: hidden; margin-top: 6px; }
 .progress > i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .progress.warn > i { background: var(--warn); } .progress.bad > i { background: var(--bad); }
@@ -113,7 +115,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 .jobs form { display: flex; }
 .job { text-align: left; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px;
   width: 100%; height: 100%; white-space: normal; padding: 12px 14px; }
-.job b { display: block; } .job span { display: block; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; word-break: keep-all; }
+.job b { display: block; } .job span { display: block; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
 
 /* ---------------------------------------------------------------- 검토 */
 .review-list { display: grid; gap: 10px; }

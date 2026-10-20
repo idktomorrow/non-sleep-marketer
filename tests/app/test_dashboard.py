@@ -292,3 +292,5 @@ def test_overview_shows_next_publish_time_when_waiting(env) -> None:
     assert _post(env, "/review/c1/approve").status_code == 303
     html = env["client"].get("/").text
     assert "다음 게시" in html and ("스레드" in html or "인스타그램" in html)
+    # C28: 플랫폼+시각은 한 덩어리(span)로 감싸 줄이 단어 중간에서 끊기지 않게 한다
+    assert 'class="muted small next-pubs">다음 게시 <span>' in html
