@@ -82,7 +82,7 @@ def test_code_drawn_background_has_no_ai_caption(style: str, tmp_path: Path) -> 
     assert ["ai-generated" in x["labels"] for x in s] == [False, True, False, False]
 
 
-@pytest.mark.parametrize("style", ["photo", "illust", "editorial"])
+@pytest.mark.parametrize("style", ["photo", "illust"])
 def test_slides_with_background_photo_skip_code_decoration(style: str, tmp_path: Path) -> None:
     """배경 사진이 있는 장은 장식(언덕·캐릭터 등)을 그리지 않는다: 아래 띠의 흰 페이지 번호가 밝은 언덕에 묻히던 문제."""
     import re
@@ -130,6 +130,7 @@ def test_style_specific_parts() -> None:
     # editorial(S10): 사진이 없으면 패널·팔로우 카드 없이 종이색 카드, 형광펜 상자도 없다
     editorial = build_html(deck, "editorial")
     assert "editorial.css" in editorial and '<span class="hl">' not in editorial
+    assert editorial.count('class="kawaii') == 2  # 몽글 캐릭터는 표지·마지막 장에만
     assert "caption-panel" not in editorial and "follow-card" not in editorial
 
 
@@ -200,7 +201,9 @@ def test_text_on_filled_boxes_is_readable(style: str, with_bg: bool, tmp_path: P
                 pg.goto(page.resolve().as_uri(), wait_until="load")
                 pairs = pg.evaluate(
                     r"""() => {
-                      const rgba = (c) => (c.match(/[\d.]+/g) || []).map(Number);
+                      // color-mix()는 'color(srgb r g b)'(0~1)로 계산된다 → 0~255로 맞춘다
+                      const rgba = (c) => { const n = (c.match(/[\d.]+/g) || []).map(Number);
+                        return c.startsWith('color(') ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] === undefined ? 1 : n[3]] : n; };
                       const out = [];
                       for (const box of document.querySelectorAll('.content li, .content .col, .content .subtitle, .content .text, .content .cta')) {
                         const b = rgba(getComputedStyle(box).backgroundColor);

@@ -139,14 +139,14 @@ def test_caption_panel_leaves_most_of_the_photo_visible(tmp_path) -> None:
         """() => {
           const h = (el) => el ? el.getBoundingClientRect().height : 0;
           return { panel: h(document.querySelector('.caption-panel')),
-                   cover: h(document.querySelector('section[data-kind="cover"] .content')),
+                   cover: h(document.querySelector('section[data-kind="cover"] .titles')),
                    follow: h(document.querySelector('.follow-card')) };
         }""",
     )
     assert 0 < r["panel"] <= 1350 * 0.35, r
     assert 0 < r["follow"] <= 1350 * 0.40, r
-    # 표지 글 묶음(.content)은 아래 정렬이라 실제 글자가 차지하는 높이는 더 작다. 여기서는 상자 자체가 사진 절반을 넘지 않는지
-    assert r["cover"] <= 1350 * 0.8
+    # 표지 글 묶음(띠 포함)은 카드의 아래 절반 안에
+    assert 0 < r["cover"] <= 1350 * 0.5, r
 
 
 def test_text_on_white_panels_is_readable(tmp_path) -> None:
@@ -210,28 +210,30 @@ def test_cover_text_readable_on_bright_photo(extreme: bool, tmp_path) -> None:
             page.goto(page_path.resolve().as_uri(), wait_until="load")
             page.evaluate("document.fonts.ready.then(() => true)")
             page.evaluate("window.nsmFit()")
-            page.add_style_tag(
-                content=".slide * { color: transparent !important; text-shadow: none !important; }"
-            )
             boxes = page.evaluate(
                 """() => {
                   const s = document.querySelector('section.slide[data-kind="cover"]');
+                  const rgba = (c) => { const n = (c.match(/[\\d.]+/g) || []).map(Number); return (c.startsWith('color(') ? n.map(v => v * 255) : n).slice(0, 3); };
                   const out = {};
                   for (const [k, sel] of [['title','h1'], ['kicker','.subtitle'], ['who','.who'], ['page','[data-page]']]) {
-                    const r = s.querySelector(sel).getBoundingClientRect();
-                    out[k] = [r.left, r.top, r.right, r.bottom];
+                    const el = s.querySelector(sel); const r = el.getBoundingClientRect();
+                    out[k] = [[r.left, r.top, r.right, r.bottom], rgba(getComputedStyle(el).color)];
                   }
                   return out;
                 }"""
+            )
+            page.add_style_tag(
+                content=".slide * { color: transparent !important; text-shadow: none !important; }"
             )
             shot = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
         finally:
             browser.close()
     bad = []
-    for name, (left, top, right, bottom) in boxes.items():
+    for name, ((left, top, right, bottom), fg) in boxes.items():
         region = shot.crop((int(left), int(top), int(right), int(bottom)))
         mean = tuple(ImageStat.Stat(region).mean[:3])
-        contrast = 1.05 / (_luminance(tuple(v / 255 for v in mean)) + 0.05)  # 흰 글자(1.0) 대 바탕
+        lf, lb = _luminance(tuple(v / 255 for v in fg)), _luminance(tuple(v / 255 for v in mean))
+        contrast = (max(lf, lb) + 0.05) / (min(lf, lb) + 0.05)  # 글자색 대 글자 자리 바탕
         if contrast < 3.0:
             bad.append(f"{name}: {contrast:.2f} (바탕 평균 {tuple(round(m) for m in mean)})")
     assert bad == []
@@ -283,3 +285,30 @@ def test_repo_relative_background_resolves_from_any_cwd(tmp_path, monkeypatch) -
     assert (
         "has-bg" in build_html(missing, STYLE) and build_html(missing, STYLE).count("has-bg") == 2
     )
+
+
+def test_fluffy_mascot_only_on_cover_and_outro_with_topic_prop() -> None:
+    """몽글 캐릭터는 배지가 있는 표지·마지막 장에만(ADR 0043), 가운데 장은 소품 아이콘만. 소품·장면은 카드 글에서 고른다."""
+    html = build_html(photo_deck(True), STYLE)  # 구름항공·기내 → 조종사 모자(plane)
+    assert html.count('class="kawaii') == 2 and "prop-plane" in html
+    assert html.count('class="prop-icon') == 2  # 본문 2장(사진 있음·없음 모두)
+    assert "<img" not in html.replace('class="logo"', "")  # 전부 SVG, 저작권 캐릭터 그림 없음
+    assert "scene-plane" not in html  # 사진이 있으면 사진이 장면이다
+    no_bg = build_html(photo_deck(False), STYLE)
+    assert no_bg.count("scene-plane") == 2  # 사진이 없으면 비행기·구름 장면
+    raw = json.loads((FIXTURES / "editorial-photo.json").read_text("utf-8"))
+    raw["slides"][0]["title"], raw["slides"][0]["subtitle"] = (
+        "핸드드립 물 온도\n왜 92도일까",
+        "원두와 카페 이야기",
+    )
+    for s in raw["slides"]:
+        s["background"] = None
+        for k in ("heading", "body"):
+            if k in s:
+                s[k] = "커피 추출 팁"
+        if "cta" in s:
+            s["cta"] = "오늘도 홈카페"
+    coffee = build_html(CardDeck.model_validate(raw), STYLE)
+    assert "prop-mug" in coffee and "scene-mug" in coffee and "prop-plane" not in coffee
+    plain = build_html(photo_deck(False), "clean")
+    assert "kawaii" not in plain and "prop-icon" not in plain  # 다른 스타일에는 없다

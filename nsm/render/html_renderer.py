@@ -30,6 +30,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
 from nsm.render.character import DRAWN, CharacterArt
+from nsm.render.mascot import pick_prop
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +218,17 @@ def resolve_asset(path: str | None) -> str | None:
     return None
 
 
+def _deck_texts(deck: CardDeck) -> list[str]:
+    out: list[str] = []
+    for s in deck.slides:
+        for key in ("title", "subtitle", "heading", "body", "cta"):
+            v = getattr(s, key, None)
+            if isinstance(v, str):
+                out.append(v)
+        out.extend(getattr(s, "bullets", None) or [])
+    return out
+
+
 def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
     """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다.
 
@@ -241,6 +253,8 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
             style=style,
             character=character,
+            # 사진 우선형의 몽글 캐릭터 소품: 카드 글에서 고른다(항공→조종사 모자, 커피→머그컵 …)
+            prop=pick_prop(_deck_texts(deck)),
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),
         )
     )
