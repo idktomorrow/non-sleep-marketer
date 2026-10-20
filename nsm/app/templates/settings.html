@@ -26,7 +26,7 @@
         <td class="actions-cell">
           {% if p.name != cfg.settings.preset %}
           <form method="post" action="/settings/preset/switch" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ p.name }}"><button class="btn-sm btn-primary">전환</button></form>
-          {% if p.name != '기본' %}<form method="post" action="/settings/preset/delete" class="inline" onsubmit="return confirm('{{ p.name }} 프리셋과 그 자료·원고·성과를 모두 지웁니다. 계속할까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ p.name }}"><button class="btn-sm">지우기</button></form>{% endif %}
+          {% if p.name != default_preset %}<form method="post" action="/settings/preset/delete" class="inline" onsubmit="return confirm('{{ p.name }} 프리셋과 그 자료·원고·성과를 모두 지웁니다. 계속할까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ p.name }}"><button class="btn-sm">지우기</button></form>{% endif %}
           {% endif %}
         </td>
       </tr>

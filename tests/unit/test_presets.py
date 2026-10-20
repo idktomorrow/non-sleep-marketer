@@ -70,6 +70,28 @@ def test_name_rules_and_delete_guards(app_config: AppConfig, tmp_path: Path) -> 
         store.load_into(app_config, "셋")
     store.delete("둘", current="하나")
     assert [i.name for i in store.list()] == ["하나"]
+    # 같은 폴더가 되는 다른 이름: 지우기 보호는 폴더 기준, 저장은 거부
+    with pytest.raises(PresetError):
+        store.delete("하-나", current="하 나")  # "하 나"와 "하-나"는 같은 폴더
+    store.save(app_config, "내 브랜드")
+    with pytest.raises(PresetError, match="같은 폴더"):
+        store.save(app_config, "내-브랜드")
+    with pytest.raises(PresetError, match="이미 있습니다"):
+        store.save(app_config, "내 브랜드", overwrite=False)
+    assert store.db_path("기본") == store.default_db and store.db_path("기본 ") == store.default_db
+    assert store.exists("") is False
+
+
+def test_database_switch_failure_keeps_old_connection(tmp_path: Path) -> None:
+    db = Database(tmp_path / "a.duckdb")
+    db.execute("INSERT INTO settings_kv VALUES ('k', 'a')")
+    bad = tmp_path / "bad.duckdb"
+    bad.write_bytes(b"not a duckdb file")
+    with pytest.raises(Exception):  # noqa: B017  깨진 파일은 duckdb가 거부한다
+        db.switch(bad)
+    assert db.path.endswith("a.duckdb")
+    assert db.execute("SELECT value FROM settings_kv WHERE key = 'k'") == [("a",)]
+    db.close()
 
 
 def test_database_switch_keeps_object_and_isolates_data(tmp_path: Path) -> None:

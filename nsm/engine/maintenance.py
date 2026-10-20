@@ -19,6 +19,14 @@ log = logging.getLogger(__name__)
 PATTERN = "data-*.duckdb"
 
 
+def backup_prefix(preset: str) -> str:
+    """백업 파일 앞부분. 기본 프리셋은 예전 그대로 `data-날짜`, 다른 프리셋은 `data-<프리셋>-날짜`(C29).
+    프리셋 백업이 기본 백업을 덮어쓰거나 서로의 보관 개수에 섞이지 않게."""
+    from nsm.config.presets import DEFAULT_PRESET, same, slugify
+
+    return "data" if same(preset, DEFAULT_PRESET) else f"data-{slugify(preset)}"
+
+
 def run_maintenance(ctx: JobContext) -> JobResult:
     result = JobResult("maintenance")
     s = ctx.config.settings
@@ -26,10 +34,11 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     pruned = ctx.repo.prune_runs(s.run_log_keep_days)
     if ctx.backups_dir is not None and ctx.repo.db.path != ":memory:":
         day = local(ctx.clock.now(), ctx.tz).date().isoformat()
-        path = ctx.repo.db.backup_to(ctx.backups_dir / f"data-{day}.duckdb")
+        prefix = backup_prefix(s.preset)
+        path = ctx.repo.db.backup_to(ctx.backups_dir / f"{prefix}-{day}.duckdb")
         removed = 0
-        # 방금 만든 것은 지우지 않는다(날짜가 뒤로 가도 오늘 백업이 남게)
-        others = [p for p in ctx.backups_dir.glob(PATTERN) if p != path]
+        # 방금 만든 것은 지우지 않는다(날짜가 뒤로 가도 오늘 백업이 남게). 같은 프리셋 것만 센다
+        others = [p for p in ctx.backups_dir.glob(f"{prefix}-????-??-??.duckdb") if p != path]
         for old in sorted(others, reverse=True)[s.backup_keep - 1 :]:
             old.unlink(missing_ok=True)
             removed += 1

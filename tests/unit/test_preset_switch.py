@@ -49,4 +49,19 @@ def test_switch_preset_saves_current_and_swaps_db(
     assert repo.get_setting("marker") == "기본의 값" and ctx.config.settings.preset == "기본"
     assert switch_preset(ctx, db, "기본", save) == "기본"  # 같은 프리셋이면 아무 일 없음
     assert len(saved) == 2
+    # 켤 때는 설정이 가리키는 프리셋의 DB를 연다(재시작 뒤에도 이어지게)
+    from nsm.config.presets import workspace_db_path
+
+    assert workspace_db_path(ctx.config) == store.db_path("기본")
+    assert workspace_db_path(store.load_into(ctx.config, "카페")) == store.db_path("카페")
+    # DB 교체가 실패하면 설정도 원래대로
+    store.save(cafe, "깨짐")
+    bad = store.db_path("깨짐")
+    bad.parent.mkdir(parents=True, exist_ok=True)
+    bad.write_bytes(b"broken")
+    import pytest
+
+    with pytest.raises(Exception):  # noqa: B017
+        switch_preset(ctx, db, "깨짐", save)
+    assert ctx.config.settings.preset == "기본" and db.path == str(store.db_path("기본"))
     db.close()

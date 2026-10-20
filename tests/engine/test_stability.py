@@ -273,3 +273,18 @@ def test_todays_backup_survives_even_if_date_goes_back(
     clock.advance(days=-1)  # 시간대·시계가 바뀌어 날짜가 뒤로
     r = run_maintenance(ctx)
     assert [p.name for p in (tmp_path / "b").glob("*.duckdb")] == [r.counts["backup"]]
+
+
+def test_backup_name_includes_preset_for_non_default(file_db, clock, app_config, tmp_path) -> None:
+    """C29: 프리셋 백업은 `data-<프리셋>-날짜`로, 기본 백업과 섞이거나 덮어쓰지 않는다."""
+    backups = tmp_path / "b"
+    ctx = _ctx(file_db, clock, app_config, backups_dir=backups)
+    run_maintenance(ctx)
+    cafe = app_config.model_copy(
+        update={"settings": app_config.settings.model_copy(update={"preset": "카페 브랜드"})}
+    )
+    ctx.config = cafe
+    r = run_maintenance(ctx)
+    names = sorted(p.name for p in backups.glob("*.duckdb"))
+    assert len(names) == 2 and any(n.startswith("data-카페-브랜드-") for n in names)
+    assert r.counts["backup"].startswith("data-카페-브랜드-") and r.counts["backups_removed"] == 0

@@ -10,13 +10,9 @@ from nsm.store.db import Database, from_db, to_db
 
 
 def _rows(db: Database, sql: str, params: list | None = None) -> list[dict[str, Any]]:
-    cur = db.cursor()
-    try:
-        cur.execute(sql, params or [])
-        cols = [d[0] for d in cur.description]
-        return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
-    finally:
-        cur.close()
+    # 커서 생성부터 fetch까지 lock 안에서(프리셋 전환 중 옛 연결의 커서를 잡지 않게, C29)
+    rows, cols = db.query(sql, params or [])
+    return [dict(zip(cols, r, strict=True)) for r in rows]
 
 
 def overview(db: Database, day_start: datetime, day_end: datetime) -> dict[str, Any]:

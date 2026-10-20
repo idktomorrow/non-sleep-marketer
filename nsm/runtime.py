@@ -11,6 +11,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from nsm.config import paths
+from nsm.config.presets import PresetStore, workspace_db_path
 from nsm.config.schema import AppConfig
 from nsm.config.secrets import KeyringSecretStore, SecretStore
 from nsm.config.store import load_config
@@ -157,34 +158,44 @@ def build_context(
 
 
 def switch_preset(
-    ctx: JobContext, db: Database, name: str, save: Callable[[AppConfig], None]
+    ctx: JobContext,
+    db: Database,
+    name: str,
+    save: Callable[[AppConfig], None],
+    store: PresetStore | None = None,
 ) -> str:
     """프리셋 전환(C29). 작업 스레드에서 부른다(다른 잡과 겹치지 않게).
 
     1) 지금 프리셋을 그 이름으로 저장해 두고(바꾼 설정이 사라지지 않게)
-    2) 대상 프리셋의 페르소나·브랜드를 입힌 설정을 만들고
-    3) DB를 그 프리셋 파일로 갈아끼운 뒤
-    4) 설정을 저장·반영하고, 새 DB에 남은 중단 작업을 복구한다.
+    2) 대상 프리셋의 페르소나·브랜드를 입힌 설정을 저장·반영한 뒤
+    3) DB를 그 프리셋 파일로 갈아끼운다. 실패하면 설정을 되돌려 설정과 DB가 어긋나지 않게 한다.
+    4) 새 DB에 남은 중단 작업을 복구한다.
     """
-    from nsm.config.presets import PresetStore
     from nsm.engine.publish import recover_interrupted
     from nsm.engine.reply import recover_interrupted_replies
 
-    store = PresetStore()
-    cur = ctx.config.settings.preset
-    if name == cur:
+    store = store or PresetStore()
+    old = ctx.config
+    cur = old.settings.preset
+    if store.exists(name) and store.stored_name(name) == cur:
         return cur
-    store.save(ctx.config, cur)
-    new = store.load_into(ctx.config, name)
-    db.switch(store.db_path(name))
+    store.save(old, cur)
+    new = store.load_into(old, name)
     save(new)
+    try:
+        db.switch(store.db_path(new.settings.preset))
+    except Exception:
+        save(old)  # DB는 그대로이므로 설정도 원래대로
+        raise
     recover_interrupted(ctx)
     recover_interrupted_replies(ctx)
-    log.info("프리셋 전환: %s → %s (DB %s)", cur, name, db.path)
+    log.info("프리셋 전환: %s → %s (DB %s)", cur, new.settings.preset, db.path)
     ctx.notifier.notify(
-        "프리셋 전환", f"'{name}'으로 바꿨습니다. 다음 작업부터 이 페르소나로 돕니다", "info"
+        "프리셋 전환",
+        f"'{new.settings.preset}'으로 바꿨습니다. 다음 작업부터 이 페르소나로 돕니다",
+        "info",
     )
-    return name
+    return new.settings.preset
 
 
 def run_job_once(job: str, arg: str | None = None) -> None:
@@ -194,7 +205,7 @@ def run_job_once(job: str, arg: str | None = None) -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     cfg = load_config()
-    db = Database(paths.db_path())
+    db = Database(workspace_db_path(cfg))  # 전환해 둔 프리셋의 DB(C29)
     try:
         with ExitStack() as stack:
             ctx = build_context(cfg, db, stack)
@@ -242,7 +253,7 @@ def run_forever() -> None:
     cfg = load_config()
     port = cfg.settings.dashboard_port
     url = f"http://127.0.0.1:{port}"
-    db = Database(paths.db_path())
+    db = Database(workspace_db_path(cfg))  # 전환해 둔 프리셋의 DB(C29)
     stack = ExitStack()
     drivers = ExitStack()  # 브라우저는 작업 스레드에서 열리므로 닫기도 작업 스레드에서
     scheduler = None
@@ -273,6 +284,7 @@ def run_forever() -> None:
                     ", ".join(scheduler.reschedule(new)),
                 )
 
+        presets = PresetStore()
         state = AppState(
             repo=ctx.repo,
             clock=ctx.clock,
@@ -292,8 +304,9 @@ def run_forever() -> None:
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
             notify=ctx.notifier.notify,
+            presets=presets,
             switch_preset=lambda name: scheduler.submit(
-                lambda: switch_preset(ctx, db, name, set_config)
+                lambda: switch_preset(ctx, db, name, set_config, presets)
             ),
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")

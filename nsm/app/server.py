@@ -61,7 +61,8 @@ from nsm.app.settings_form import (
     apply_settings_form,
     form_values,
 )
-from nsm.config.presets import PresetError, PresetStore
+from nsm.config.presets import DEFAULT_PRESET, PresetError, PresetStore, check_name
+from nsm.config.presets import same as preset_same
 from nsm.config.schema import AppConfig
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -169,6 +170,7 @@ def create_app(state: AppState) -> FastAPI:
     )
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.globals["asset"] = asset_url
+    templates.env.globals["default_preset"] = DEFAULT_PRESET  # 프리셋 칸·상단 배지(C29)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     # 카드 렌더러와 같은 Pretendard를 대시보드도 쓴다(nsm/templates/fonts)
     app.mount(
@@ -372,19 +374,21 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.post("/settings/preset/save", dependencies=[Depends(check_csrf)])
     async def preset_save(request: Request) -> RedirectResponse:
-        """지금 페르소나·브랜드를 프리셋으로 저장. 새 이름이면 새 프리셋(DB는 전환할 때 만든다)."""
+        """지금 페르소나·브랜드를 프리셋으로 저장. 현재 프리셋이면 덮어쓰고, 새 이름이면 새 프리셋.
+        다른 기존 프리셋은 덮어쓰지 않는다(그 프리셋의 DB가 다른 페르소나 것이 되지 않게)."""
         form = await request.form()
-        name = str(form.get("name", "")).strip()
+        cfg = state.get_config()
         try:
-            cfg = state.get_config()
-            _presets().save(cfg, name)
-            if name == cfg.settings.preset or cfg.settings.preset == name:
-                return _preset_redirect(msg=f"'{name}' 프리셋을 저장했습니다")
-            return _preset_redirect(
-                msg=f"'{name}' 프리셋을 만들었습니다. 바꾸려면 목록에서 고르고 '전환'을 누르세요"
-            )
+            name = check_name(str(form.get("name", "")))
+            is_current = preset_same(name, cfg.settings.preset)
+            _presets().save(cfg, name, overwrite=is_current)
         except PresetError as e:
             return _preset_redirect(error=str(e))
+        if is_current:
+            return _preset_redirect(msg=f"'{name}' 프리셋을 저장했습니다")
+        return _preset_redirect(
+            msg=f"'{name}' 프리셋을 만들었습니다. 바꾸려면 목록에서 고르고 '전환'을 누르세요"
+        )
 
     @app.post("/settings/preset/switch", dependencies=[Depends(check_csrf)])
     async def preset_switch(request: Request) -> RedirectResponse:
@@ -392,10 +396,13 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(status_code=404)
         form = await request.form()
         name = str(form.get("name", "")).strip()
-        store = _presets()
-        if not store.exists(name):
-            return _preset_redirect(error=f"프리셋 '{name}'이 없습니다")
-        if name == state.get_config().settings.preset:
+        try:
+            name = check_name(name)
+            if not _presets().exists(name):
+                raise PresetError(f"프리셋 '{name}'이 없습니다")
+        except PresetError as e:
+            return _preset_redirect(error=str(e))
+        if preset_same(name, state.get_config().settings.preset):
             return _preset_redirect(msg=f"이미 '{name}' 프리셋입니다")
         # 작업 스레드에서 DB까지 갈아끼운다. 진행 중인 작업이 있으면 그 뒤에 바뀐다(오른쪽 아래 진행 표시)
         _track("preset", state.switch_preset(name), detail=name)

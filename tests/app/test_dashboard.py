@@ -306,6 +306,10 @@ def test_settings_presets_panel_and_actions(env, tmp_path: Path) -> None:
         .headers["location"]
         .startswith("/settings?preset_error=")
     )
+    # 빈 이름·점만 있는 이름은 500이 아니라 안내로
+    assert "preset_error" in _post(env, "/settings/preset/switch", name="...").headers["location"]
+    # 다른 기존 프리셋은 덮어쓰지 않는다
+    assert "preset_error" in _post(env, "/settings/preset/save", name="카페").headers["location"]
     assert _post(env, "/settings/preset/delete", name="카페").status_code == 303
     assert not store.exists("카페")
     assert "preset_error" in _post(env, "/settings/preset/delete", name="기본").headers["location"]
