@@ -19,12 +19,16 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
 from nsm.adapters.generator.prompts import (
+    MEME_FORMAT_SCHEMA,
     MEME_IDEAS_SCHEMA,
     MEME_SCRIPT_SCHEMA,
     REPLY_SCHEMA,
     content_from_output,
+    format_plan_from_output,
     ideas_from_output,
     llm_schema,
+    meme_format_system,
+    meme_format_user,
     meme_ideas_user,
     meme_script_user,
     meme_system,
@@ -37,7 +41,16 @@ from nsm.adapters.generator.prompts import (
 from nsm.adapters.openai_common import OpenAIClient, OpenAIError
 from nsm.adapters.pricing import openai_text_cost
 from nsm.domain.models import Brand, Comment, ContentBrief, GeneratedContent, Persona
-from nsm.ports import AdapterError, CostLedger, CostSink, MemeIdea, MemeRequest, MemeScript
+from nsm.ports import (
+    AdapterError,
+    CostLedger,
+    CostSink,
+    MemeFormatPlan,
+    MemeFormatRequest,
+    MemeIdea,
+    MemeRequest,
+    MemeScript,
+)
 
 log = logging.getLogger(__name__)
 
@@ -234,3 +247,18 @@ class OpenAITextGenerator:
             return script_from_output(self._parse(self._text(out)), idea)
         except (KeyError, TypeError) as e:
             raise AdapterError(f"밈 대본 형식이 맞지 않습니다: {e}") from e
+
+    def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan:
+        """유명·유행 밈 형식 하나를 골라 구도·연출·레이아웃까지 재해석(S17 제안, ADR 0061)."""
+        body = self._body(
+            meme_format_system(req),
+            meme_format_user(req),
+            MEME_FORMAT_SCHEMA,
+            "meme_format",
+            MEME_MAX_TOKENS * 2,
+        )
+        out = self._call("meme:format", body, ESTIMATE_MEME_USD * 2)
+        try:
+            return format_plan_from_output(self._parse(self._text(out)), req)
+        except (KeyError, TypeError, ValueError) as e:
+            raise AdapterError(f"밈 형식 계획이 맞지 않습니다: {e}") from e

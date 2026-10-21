@@ -354,10 +354,12 @@ def install_production_routes(
         return to_settings(msg=f"'{p.name}' 캐릭터를 만들었습니다. 참조 이미지를 올리세요")
 
     @app.post("/settings/characters/{pid}/refs", dependencies=[Depends(check_csrf)])
-    async def add_ref(pid: str, file: UploadFile = File(...)) -> RedirectResponse:
+    async def add_ref(
+        pid: str, file: UploadFile = File(...), source: str = Form("")
+    ) -> RedirectResponse:
         data, ext = await _read_image(file)
         try:
-            chars().add_reference(pid, data, ext)
+            chars().add_reference(pid, data, ext, source=source)
         except CharacterError as e:
             return to_settings(error=str(e))
         return to_settings(msg="참조 이미지를 추가했습니다")

@@ -52,6 +52,21 @@
 </section>
 {%- endmacro %}
 
+{#- 밈 한 장(S17 제안, ADR 0061): 재해석한 밈 그림이 장 전체를 채우고, 글자는 계획한 자리에 HTML로 얹는다.
+    말풍선 꼬리는 렌더 때 실제 화자(tail_x·tail_y)를 향해 그린다(nsmFit). 작은 출처 표기(credits)는 아래 띠에. -#}
+{% macro meme_image(s, i, n, deck) -%}
+<section class="slide meme-image{% if not s.image %} missing{% endif %}" data-kind="meme_image">
+  {%- if s.image %}<img class="meme-img" src="{{ s.image.path | file_uri }}" alt="{{ s.image.alt }}">{% else %}<div class="panel-empty">그림 없음</div>{% endif %}
+  <svg class="mo-tails" viewBox="0 0 1080 1350" aria-hidden="true"></svg>
+  {%- for o in s.overlays %}
+  <div class="mo mo-{{ o.kind }} mo-{{ o.size }} mo-{{ o.align }}" style="left: {{ o.x }}%; top: {{ o.y }}%; width: {{ o.w }}%; --w: {{ o.w }}%;"
+       data-fit="{{ {'s': 22, 'm': 26, 'l': 32, 'xl': 40}[o.size] }}"{% if o.kind == 'bubble' and o.tail_x is not none %} data-tx="{{ o.tail_x }}" data-ty="{{ o.tail_y }}"{% endif %}>{{ o.text }}</div>
+  {%- endfor %}
+  {{ chrome(s, i, n, deck, s.image) }}
+  {%- if s.credits %}<div class="mo-credits" data-sources>{{ s.credits | join(' · ') }}</div>{% endif %}
+</section>
+{%- endmacro %}
+
 {#- 코드로 그린 배경 장식(이미지 아님 → "AI 생성 이미지" 표기 대상이 아니다).
     배경 사진이 있는 장은 장식 없이 사진 + 어두운 그라디언트(.has-bg)로 그린다(아래 띠의 흰 글자가 읽히게). -#}
 {% macro deco(s, bg) -%}
@@ -87,7 +102,7 @@
 <div class="topbar">
   {#- 가상인물 배지는 인물(페르소나 이름) 바로 옆: 심사지침 "가상인물과 근접한 위치" (ADR 0019).
       이름(인물)과 배지는 표지와 마지막 장에만 함께 둔다. 중간 장에는 둘 다 없다(ADR 0043) -#}
-  {%- if s.kind in ('cover', 'outro') or (s.kind == 'comic' and i == 1) %}
+  {%- if s.kind in ('cover', 'outro') or (s.kind in ('comic', 'meme_image') and i == 1) %}
   <div class="ident">
     <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
     {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}

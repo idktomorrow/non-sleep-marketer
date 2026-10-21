@@ -130,9 +130,13 @@ def main() -> int:
         ref = Path(a.hero_ref)
         store_c = characters(cfg)
         prof = store_c.create(a.hero_name or a.topic, a.hero_look)
-        store_c.add_reference(prof.id, ref.read_bytes(), ref.suffix.lower())
+        store_c.add_reference(prof.id, ref.read_bytes(), ref.suffix.lower(), source=a.hero_source)
         cfg = cfg.model_copy(
-            update={"workspace": cfg.workspace.model_copy(update={"hero_default": prof.id})}
+            update={
+                "workspace": cfg.workspace.model_copy(
+                    update={"hero_default": prof.id, "production_mode": "full"}
+                )
+            }
         )
     db = Database(home / "data.duckdb")
     summary: dict = {"topic": a.topic, "home": str(home)}
@@ -195,6 +199,8 @@ def main() -> int:
             c = ctx.repo.get_content(p.content_id)
             sl = by_key.get(p.slot_key or "")
             entry = {
+                "content_id": p.content_id,
+                "rank": p.rank,
                 "kind": p.kind,
                 "reason": p.reason,
                 "freshness": p.freshness,
@@ -229,26 +235,10 @@ def main() -> int:
                     entry["photo"]["applied"] = True
                 except Exception as e:  # noqa: BLE001
                     entry["photo"]["error"] = str(e)
-            # 밈: 고른 주인공(기본 주인공 프로필)이 출연진에 있을 때만 그림
+            # 밈: 완성본 모드면 추천이 그림 작업을 이미 넣었다. 작업을 끝까지 돌린다(예산 안에서)
             if p.kind == "meme" and a.hero_ref:
-                if a.hero_source:  # 참조 그림 출처를 마지막 장에(기사 이미지는 출처 표기 조건)
-                    c0 = ctx.repo.get_content(p.content_id)
-                    deck = c0.generated.deck
-                    last = deck.slides[-1]
-                    if last.kind == "outro" and a.hero_source not in last.sources:
-                        new_last = last.model_copy(
-                            update={"sources": [*last.sources, a.hero_source]}
-                        )
-                        g = c0.generated.model_copy(
-                            update={
-                                "deck": deck.model_copy(
-                                    update={"slides": [*deck.slides[:-1], new_last]}
-                                )
-                            }
-                        )
-                        ctx.repo.update_generated(p.content_id, g)
-                enqueue_production(ctx, p.content_id)
-                for _ in range(4):
+                enqueue_production(ctx, p.content_id)  # 이미 있으면 다시 넣지 않는다
+                for _ in range(6):
                     rr = run_images(ctx, max_jobs=2)
                     if rr.skipped:
                         break
@@ -271,6 +261,25 @@ def main() -> int:
                     entry["render_error"] = f"{type(e).__name__}: {e}"
             picks_out.append(entry)
         summary["picks"] = picks_out
+        # 밈: 참고한 원 밈과 결과를 나란히(검토용)
+        from PIL import Image
+
+        from nsm.engine.production import meme_ref_path
+
+        for e in picks_out:
+            ref = meme_ref_path(ctx.media_dir, e["content_id"]) if e["kind"] == "meme" else None
+            if ref and e.get("cards"):
+                a_img = Image.open(ref).convert("RGB")
+                b_img = Image.open(e["cards"][0]).convert("RGB")
+                h = 900
+                a_img = a_img.resize((int(a_img.width * h / a_img.height), h))
+                b_img = b_img.resize((int(b_img.width * h / b_img.height), h))
+                sheet = Image.new("RGB", (a_img.width + b_img.width + 30, h), "white")
+                sheet.paste(a_img, (0, 0))
+                sheet.paste(b_img, (a_img.width + 30, 0))
+                cmp_path = out / f"compare-{e['rank']}.png"
+                sheet.save(cmp_path)
+                e["compare"] = str(cmp_path)
         now = ctx.clock.now()
         summary["cost_usd"] = ctx.cost_ledger.breakdown(
             now - timedelta(days=1), now + timedelta(minutes=1)

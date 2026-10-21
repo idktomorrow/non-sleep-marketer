@@ -69,6 +69,7 @@ def ref_from_profile(
         profile_id=p.id,
         profile_revision=p.revision,
         references=tuple(copies),
+        sources=tuple(p.sources()),
     )
 
 
@@ -94,6 +95,7 @@ def default_cast(ctx: JobContext, cid: str, copy: bool = True) -> Cast:
                 profile_id=p.id,
                 profile_revision=p.revision,
                 references=tuple(p.references),
+                sources=tuple(p.sources()),
             )
         except CharacterError as e:  # 주인공이 없어도 보조는 따로 불러온다(S15 리뷰)
             log.warning("기본 %s 캐릭터를 불러오지 못함: %s", role, e)
@@ -121,7 +123,18 @@ def current_slots(
         raise AdapterError("원고가 없습니다")
     cast = ensure_cast(ctx, prod, cid, persist)
     _raw, scenes = prod.get_production(cid)
-    return c.generated, cast, image_slots(c.generated.deck, cast, scenes)
+    return (
+        c.generated,
+        cast,
+        image_slots(c.generated.deck, cast, scenes, meme_ref_path(ctx.media_dir, cid)),
+    )
+
+
+def meme_ref_path(media_dir: Path, cid: str) -> str | None:
+    """원고의 밈 참조 그림(S17). 캐릭터 참조(cast/)와 다른 폴더(meme_ref/)에 둔다."""
+    d = content_dir(media_dir, cid) / "meme_ref"
+    files = sorted(p for p in d.glob("*") if p.is_file()) if d.is_dir() else []
+    return str(files[0]) if files else None
 
 
 def spec_for(ctx: JobContext, prod: ProductionStore, cid: str, slot: SlotPlan, cast: Cast):
@@ -454,6 +467,8 @@ def _with_asset(
         panels = list(s.panels)
         panels[slot.panel] = panels[slot.panel].model_copy(update={"image": asset})
         slides[slot.slide] = s.model_copy(update={"panels": panels})
+    elif slot.role == "meme":
+        slides[slot.slide] = s.model_copy(update={"image": asset})
     else:
         slides[slot.slide] = s.model_copy(update={"sticker": asset})
     deck = gen.deck

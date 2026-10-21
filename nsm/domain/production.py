@@ -22,6 +22,7 @@ Kind = Literal["account", "content", "custom"]
 Use = Literal["generate", "real_only"]
 
 PANEL_SIZE = (1536, 1024)
+MEME_SIZE = (1024, 1280)  # 밈 한 장(S17): 4:5 세로 카드
 STICKER_SIZE = (1024, 1024)
 NEGATIVE = (
     "text, letters, numbers, captions, speech bubbles, logos, watermarks, signatures, "
@@ -44,6 +45,9 @@ class CharacterRef:
     profile_id: str | None = None
     profile_revision: int = 0
     references: tuple[str, ...] = ()
+    sources: tuple[
+        str, ...
+    ] = ()  # 참조 그림 출처(S17). 생성 → 편집 → 최종 산출물 표기까지 따라간다
 
     @property
     def refs_sha(self) -> str:
@@ -56,6 +60,7 @@ class CharacterRef:
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["references"] = list(self.references)
+        d["sources"] = list(self.sources)
         return d
 
     @staticmethod
@@ -70,6 +75,7 @@ class CharacterRef:
             profile_id=d.get("profile_id"),
             profile_revision=int(d.get("profile_revision", 0)),
             references=tuple(d.get("references") or ()),
+            sources=tuple(d.get("sources") or ()),
         )
 
 
@@ -98,7 +104,7 @@ class Cast:
 @dataclass(frozen=True)
 class SlotPlan:
     target: str  # "s1.panel0"
-    role: Literal["panel", "sticker"]
+    role: Literal["panel", "sticker", "meme"]
     slide: int
     panel: int | None
     scene: str
@@ -107,15 +113,49 @@ class SlotPlan:
     height: int
     transparent: bool
     chain_from: str | None = None  # 1번째 컷 target(2번째 컷만)
+    meme_ref: str | None = None  # 밈 참조 그림(구도·연출 이해용, 캐릭터 참조 아님, S17)
+    text_zones: tuple[str, ...] = ()  # 글자가 들어갈 자리(그림에서 비워 둘 곳, S17)
 
 
-def image_slots(deck: CardDeck, cast: Cast, scenes: dict[str, str] | None = None) -> list[SlotPlan]:
-    """덱에서 그림이 필요한 자리. 만화 컷은 주인공, 정보 카드는 첫 메모(body·facts) 한 곳에 보조 캐릭터 스티커."""
+def _zone(o) -> str:
+    where = (
+        ("top" if o.y < 33 else "middle" if o.y < 66 else "bottom")
+        + "-"
+        + ("left" if o.x + o.w / 2 < 40 else "right" if o.x + o.w / 2 > 60 else "center")
+    )
+    return f"{o.kind} at {where} ({int(o.x)}%,{int(o.y)}%, width {int(o.w)}%)"
+
+
+def image_slots(
+    deck: CardDeck,
+    cast: Cast,
+    scenes: dict[str, str] | None = None,
+    meme_ref: str | None = None,
+) -> list[SlotPlan]:
+    """덱에서 그림이 필요한 자리. 만화 컷은 주인공, 정보 카드는 첫 메모(body·facts) 한 곳에 보조 캐릭터 스티커,
+    밈 한 장(S17)은 장 전체 그림 하나(캐릭터 참조 + 밈 참조)."""
     scenes = scenes or {}
     out: list[SlotPlan] = []
     sticker_done = False
     for i, s in enumerate(deck.slides):
-        if s.kind == "comic":
+        if s.kind == "meme_image":
+            t = f"s{i}.image"
+            out.append(
+                SlotPlan(
+                    target=t,
+                    role="meme",
+                    slide=i,
+                    panel=None,
+                    scene=scenes.get(t) or s.scene,
+                    who="hero",
+                    width=MEME_SIZE[0],
+                    height=MEME_SIZE[1],
+                    transparent=False,
+                    meme_ref=meme_ref if meme_ref and Path(meme_ref).is_file() else None,
+                    text_zones=tuple(_zone(o) for o in s.overlays),
+                )
+            )
+        elif s.kind == "comic":
             for j, p in enumerate(s.panels):
                 t = f"s{i}.panel{j}"
                 out.append(
@@ -190,6 +230,30 @@ def compose_prompt(slot: SlotPlan, ref: CharacterRef, chained: bool) -> str:
             " The last reference is the previous panel: same character, but a DIFFERENT scene, "
             "background, pose and camera angle (do not copy the composition)."
         )
+    if slot.role == "meme":
+        roles = (
+            " Reference images: the FIRST image(s) are the CHARACTER reference — keep only the character's face, "
+            "body shape, colors and proportions; ignore their background, pose, other characters and any text."
+        )
+        if slot.meme_ref:
+            roles += (
+                " The LAST image is the MEME FORMAT reference — use it only to understand the composition: "
+                "panel layout, camera distance, framing, pose, gaze and expression contrast. Do NOT copy its people, "
+                "characters, art style, text or logos; re-stage the scene with our character in its own world."
+            )
+        zones = (
+            " Keep these areas calm and uncluttered for typeset text added later: "
+            + "; ".join(slot.text_zones)
+            + "."
+            if slot.text_zones
+            else ""
+        )
+        frame = (
+            " Vertical 4:5 meme image, cute rounded illustration, clear readable expression at small size."
+            " Keep the top-left strip (about 75% width, 10% height) and the bottom 6% free of faces, hands and key props"
+            " (small labels sit there)."
+        )
+        return f"{who}. {slot.scene}.{look}{roles}{frame}{zones}"
     if slot.role == "panel":
         space = (
             " Leave the top-left corner calm and empty for a black caption box, and some empty space on one side "
@@ -222,6 +286,8 @@ def build_spec(
         )
     if chain_image:
         refs.append(chain_image)
+    if slot.meme_ref:  # 밈 참조는 항상 마지막(프롬프트가 역할을 순서로 밝힌다)
+        refs.append(slot.meme_ref)
     prompt = compose_prompt(slot, ref, chained=chain_image is not None)
     detail = {
         "target": slot.target,
@@ -235,6 +301,8 @@ def build_spec(
             "appearance": ref.appearance,
         },
         "refs": [file_sha(r)[:16] for r in refs],
+        "meme_ref": file_sha(slot.meme_ref)[:16] if slot.meme_ref else None,
+        "text_zones": list(slot.text_zones),
         "size": [slot.width, slot.height],
         "transparent": slot.transparent,
         "quality": quality,

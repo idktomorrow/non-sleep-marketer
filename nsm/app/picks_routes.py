@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -221,6 +222,16 @@ def install_picks_routes(
     @app.post("/picks/{cid}/dismiss", dependencies=[Depends(check_csrf)])
     def dismiss_pick(cid: str) -> RedirectResponse:
         _run(lambda: actions.discard(cid))
+        return back("/picks")
+
+    @app.post("/picks/{cid}/meme/remake", dependencies=[Depends(check_csrf)])
+    def remake_meme(cid: str, key: str = Form(...)) -> RedirectResponse:
+        """다른 밈으로 다시 만들기(S17): 고른 후보 형식으로 다시 기획한다(작업 스레드에서, AI 호출 1회)."""
+        if state.run_job_now is None:
+            raise HTTPException(503, "작업 실행기가 없습니다")
+        if not re.fullmatch(r"[a-z0-9\-]{1,80}", key):
+            raise HTTPException(400, "밈 후보 이름 형식이 아닙니다")
+        state.run_job_now("meme_remake", f"{cid}|{key}")
         return back("/picks")
 
     @app.post("/picks/{cid}/recheck", dependencies=[Depends(check_csrf)])

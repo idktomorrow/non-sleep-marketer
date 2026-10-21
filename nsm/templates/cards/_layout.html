@@ -39,6 +39,7 @@ window.nsmFit = function () {
   const overflowing = [];
   document.querySelectorAll('.slide').forEach((slide, idx) => {
     const box = slide.querySelector('.content');
+    if (!box) return;  // 밈 한 장(S17)은 아래에서 따로 맞춘다
     const items = [...slide.querySelectorAll('[data-fit]')];
     const over = () => box.scrollHeight > box.clientHeight + 1 || box.scrollWidth > box.clientWidth + 1;
     for (let step = 0; step < 60 && over(); step++) {
@@ -51,6 +52,39 @@ window.nsmFit = function () {
       if (!shrunk) break;
     }
     if (over()) overflowing.push(idx + 1);
+  });
+  // 밈 한 장(S17): 얹은 글자가 장 밖으로 나가면 줄이고, 말풍선 꼬리를 화자(data-tx·ty) 쪽으로 그린다
+  document.querySelectorAll('.slide.meme-image').forEach((slide) => {
+    const sr = slide.getBoundingClientRect();
+    const scale = 1080 / sr.width;
+    const outside = (el) => { const r = el.getBoundingClientRect(); return r.right > sr.right + 1 || r.bottom > sr.bottom + 1; };
+    let bad = false;
+    slide.querySelectorAll('.mo').forEach((el) => {
+      for (let step = 0; step < 40 && outside(el); step++) {
+        const size = parseFloat(getComputedStyle(el).fontSize), min = parseFloat(el.dataset.fit || 20);
+        if (size <= min) break;
+        el.style.fontSize = Math.max(min, size * 0.94) + 'px';
+      }
+      if (outside(el)) bad = true;
+    });
+    if (bad) { const n = [...document.querySelectorAll('.slide')].indexOf(slide) + 1; if (!overflowing.includes(n)) overflowing.push(n); }
+    const svg = slide.querySelector('.mo-tails');
+    slide.querySelectorAll('.mo-bubble[data-tx]').forEach((b) => {
+      const r = b.getBoundingClientRect();
+      const x0 = (r.left - sr.left) * scale, y0 = (r.top - sr.top) * scale, w = r.width * scale, h = r.height * scale;
+      const tx = parseFloat(b.dataset.tx) / 100 * 1080, ty = parseFloat(b.dataset.ty) / 100 * 1350;
+      const cx = x0 + w / 2, cy = y0 + h / 2;
+      if (tx > x0 && tx < x0 + w && ty > y0 && ty < y0 + h) return;  // 화자가 말풍선 안이면 꼬리 없음
+      // 꼬리 밑변: 말풍선 가장자리 중 화자 쪽, 중심에서 화자 방향으로 조금 치우친 곳
+      const dx = tx - cx, dy = ty - cy;
+      let bx, by, ox, oy;
+      if (Math.abs(dy) * w >= Math.abs(dx) * h) { by = dy > 0 ? y0 + h - 10 : y0 + 10; bx = Math.min(x0 + w - 60, Math.max(x0 + 60, cx + dx * 0.35)); ox = 30; oy = 0; }
+      else { bx = dx > 0 ? x0 + w - 10 : x0 + 10; by = Math.min(y0 + h - 40, Math.max(y0 + 40, cy + dy * 0.35)); ox = 0; oy = 24; }
+      // 끝점은 화자까지 다 가지 않고 70%만(입을 찌르지 않게)
+      const ex = bx + (tx - bx) * 0.7, ey = by + (ty - by) * 0.7;
+      const d = `M ${bx - ox} ${by - oy} Q ${(bx + ex) / 2} ${(by + ey) / 2 - 4} ${ex} ${ey} L ${bx + ox} ${by + oy} Z`;
+      svg.insertAdjacentHTML('beforeend', `<path d="${d}" fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`);
+    });
   });
   return overflowing;
 };

@@ -238,6 +238,39 @@ class ComicSlide(_Model):
     background: str | None = None
 
 
+class MemeOverlay(_Model):
+    """밈 한 장 위의 글자 하나(S17 제안, ADR 0061). 글자는 HTML로 조판한다(ADR 0007). 위치는 장 안의 백분율.
+
+    - caption: 그림 위·아래 짧은 캡션 / headline: 뉴스 자막 띠 / label: 작은 이름표 / stamp: 마지막 단어를 덮는 상자 등
+    - bubble: 말풍선. tail_x·tail_y(백분율)는 **실제 화자**(입 근처)를 가리킨다. 없으면 꼬리 없음
+    """
+
+    kind: Literal["caption", "headline", "label", "stamp", "bubble"]
+    text: str = Field(min_length=1, max_length=60)
+    x: float = Field(ge=0, le=100)  # 상자 왼쪽(%)
+    y: float = Field(ge=0, le=100)  # 상자 위(%)
+    w: float = Field(default=40, gt=0, le=100)  # 상자 너비(%), 높이는 글 길이에 따라
+    align: Literal["left", "center", "right"] = "center"
+    size: Literal["s", "m", "l", "xl"] = "m"
+    tail_x: float | None = Field(default=None, ge=0, le=100)
+    tail_y: float | None = Field(default=None, ge=0, le=100)
+
+
+class MemeImageSlide(_Model):
+    """유명·유행 밈의 구도를 재해석한 한 장(S17 제안, ADR 0061). 컷 나눔·배경·표정은 그림이 담고 글자는 overlays.
+
+    credits: 작은 출처 표기(캐릭터 출처·참고 밈). 출처 표기는 사용 허락이 아니다.
+    """
+
+    kind: Literal["meme_image"] = "meme_image"
+    image: ImageAsset | None = None  # 없으면 "그림 없음" 자리
+    overlays: list[MemeOverlay] = Field(default_factory=list, max_length=8)
+    scene: str = ""  # 생성 지시(카드에는 안 그린다)
+    format_key: str = ""  # 재해석한 밈 형식(예: this-is-fine)
+    credits: list[str] = Field(default_factory=list, max_length=4)
+    background: str | None = None
+
+
 Slide = Annotated[
     CoverSlide
     | BodySlide
@@ -246,6 +279,7 @@ Slide = Annotated[
     | ProductsSlide
     | FactsSlide
     | ComicSlide
+    | MemeImageSlide
     | OutroSlide,
     Field(discriminator="kind"),
 ]
@@ -256,10 +290,18 @@ class CardDeck(_Model):
     brand: DeckBrand
     persona: DeckPersona
     labels: DeckLabels = Field(default_factory=DeckLabels)
-    slides: list[Slide] = Field(min_length=2, max_length=10)
+    slides: list[Slide] = Field(min_length=1, max_length=10)
 
     @model_validator(mode="after")
     def _shape(self) -> CardDeck:
+        # 밈 한 장(S17 제안): 그 한 장이 완결이면 마무리 장을 억지로 붙이지 않는다(출처는 장 안 작은 표기·캡션)
+        if self.template == "meme" and self.slides[0].kind == "meme_image":
+            rest = {s.kind for s in self.slides[1:-1]}
+            if self.slides[-1].kind not in ("meme_image", "outro") or not rest <= {"meme_image"}:
+                raise ValueError("밈 한 장 덱은 meme_image 뒤에 meme_image 또는 마지막 outro만")
+            return self
+        if len(self.slides) < 2:
+            raise ValueError("슬라이드는 2장 이상")
         # 밈(S14 제안): 첫 장이 만화 자체일 수 있다(레퍼런스는 2컷이 곧 첫 이미지). 다른 템플릿은 표지로 시작
         first_ok = {"cover", "comic"} if self.template == "meme" else {"cover"}
         if self.slides[0].kind not in first_ok:
@@ -275,7 +317,7 @@ class CardDeck(_Model):
             "compare": {"compare"},
             # 소식형: 개요(body) + 상품 그리드 + 일정·구매처 패널(S12) + 만화 한 장(혼합 표현, S14)
             "editorial": {"body", "products", "facts", "comic"},
-            "meme": {"comic", "body"},
+            "meme": {"comic", "body", "meme_image"},
         }[self.template]
         if not middle <= allowed:
             raise ValueError(f"{self.template} 템플릿에 허용되지 않는 슬라이드: {middle - allowed}")

@@ -33,6 +33,15 @@ class CharacterProfile:
     references: list[str] = field(default_factory=list)
     ai_made: bool = False
     revision: int = 1
+    # 참조 그림마다 출처(파일 이름 → URL·설명, S17). 출처 표기는 사용 허락과 같지 않다
+    reference_sources: dict[str, str] = field(default_factory=dict)
+
+    def sources(self) -> list[str]:
+        return [
+            self.reference_sources[Path(r).name]
+            for r in self.references
+            if self.reference_sources.get(Path(r).name)
+        ]
 
     def to_yaml(self) -> dict:
         return {
@@ -43,6 +52,7 @@ class CharacterProfile:
             "references": [Path(r).name for r in self.references],
             "ai_made": self.ai_made,
             "revision": self.revision,
+            "reference_sources": dict(self.reference_sources),
         }
 
 
@@ -82,6 +92,9 @@ class CharacterStore:
             references=refs,
             ai_made=bool(raw.get("ai_made", False)),
             revision=int(raw.get("revision", 1)),
+            reference_sources={
+                str(k): str(v) for k, v in (raw.get("reference_sources") or {}).items() if v
+            },
         )
 
     def _write(self, p: CharacterProfile) -> None:
@@ -128,7 +141,7 @@ class CharacterStore:
         return p
 
     def add_reference(
-        self, cid: str, data: bytes, ext: str, ai_made: bool = False
+        self, cid: str, data: bytes, ext: str, ai_made: bool = False, source: str = ""
     ) -> CharacterProfile:
         p = self.get(cid)
         if len(p.references) >= MAX_REFS:
@@ -137,6 +150,8 @@ class CharacterStore:
         name = f"ref-{new_id()[-10:]}{ext}"
         (d / name).write_bytes(data)
         p.references.append(str(d / name))
+        if source.strip():
+            p.reference_sources[name] = source.strip()[:300]
         p.ai_made = p.ai_made or ai_made
         p.revision += 1
         self._write(p)
