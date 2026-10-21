@@ -3,10 +3,10 @@
    글자 크기 최소값은 base.css·data-fit 그대로라 표지 가독성(ADR 0035)이 유지된다.
    표기 슬롯(가상인물·광고·AI 생성 이미지·출처·페이지)은 _parts.html 그대로다. */
 
-/* 키치 톤(2026-10-20 레퍼런스): 브랜드 파스텔 크림 바탕, 형광 칩 키커, 점선 메모 상자, 몽글 캐릭터 스티커 */
+/* 2026-10-21(S14) 레퍼런스 재정리: 큰 실제 사진이 주인공, 종이색은 소재 사진의 색(덱 brand 색)에서, 본문은 여백 큰
+   점선 메모, 보조 캐릭터는 사람이 고른 스티커(ImageAsset)만. 코드 도형 캐릭터·키워드 소품·형광 칩은 쓰지 않는다. */
 .style-editorial {
-  --paper: color-mix(in srgb, var(--illust-bg) 30%, #FFF6DC); --panel: #FFFFFF; --line: rgba(27, 29, 34, .10);
-  --chip: color-mix(in srgb, var(--accent) 42%, #fff);
+  --paper: color-mix(in srgb, var(--primary) 9%, #FFFCF5); --panel: #FFFFFF; --line: rgba(27, 29, 34, .10);
 }
 .slide > .deco { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 .style-editorial .slide,
@@ -36,11 +36,8 @@
 .style-editorial .cover .titles::before {
   content: "WHAT'S NEW"; font-size: 26px; font-weight: 700; letter-spacing: .16em; opacity: .85; margin-bottom: -6px;
 }
-/* 키커는 형광 칩: 파스텔 바탕에 진한 글자(사진 위에서도 같은 칩이라 밝은 사진에서도 읽힌다) */
-.style-editorial .cover .subtitle {
-  background: var(--chip); color: var(--ink); opacity: 1; padding: 6px 20px; border-radius: 12px;
-  -webkit-box-decoration-break: clone; box-decoration-break: clone; text-shadow: none;
-}
+/* 키커: 칩 없이 짧은 글자(레퍼런스 "치이카와 × ANA 항공 콜라보 총정리"). 사진 위에서는 띠가 대비를 만든다 */
+.style-editorial .cover .subtitle { opacity: .92; }
 /* 사진 위 글 묶음 뒤에 글 높이만큼 따라가는 어두운 띠(순백 사진에서도 흰 글자 대비 ≥3). 가로는 카드 끝까지.
    .content를 먼저 카드 폭으로 넓혀 두어야(음수 여백 + 같은 패딩) 띠가 .content 밖으로 삐져나가 nsmFit()이 가로 넘침으로 보지 않는다 */
 .style-editorial .cover.has-bg .content { margin: 0 -88px -120px; padding: 0 88px 144px; }
@@ -50,7 +47,7 @@
 }
 .style-editorial .cover .subtitle { font-size: 52px; font-weight: 600; line-height: 1.3; opacity: .94; }
 .style-editorial .cover h1 { font-size: 112px; line-height: 1.14; letter-spacing: -0.04em; }
-.style-editorial .cover:not(.has-bg) h1 { color: var(--primary-ink); }
+.style-editorial .cover:not(.has-bg) h1 { color: var(--ink); }
 .style-editorial .cover.has-bg h1 { text-shadow: 0 2px 18px rgba(0,0,0,.35); }
 /* 사진 위 이름: 밝은 사진(눈·흰 상품)에서도 읽히게 진한 알약 바탕(흰 글자 대비 ≥3, 큰 글자 기준) */
 .style-editorial .slide.has-bg .who { opacity: 1; background: rgba(0,0,0,.72); padding: 8px 20px; border-radius: 999px; }
@@ -62,7 +59,7 @@
   margin-top: auto; background: var(--panel); color: var(--ink); border-radius: 36px; padding: 40px 44px;
   display: flex; flex-direction: column; gap: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.18);
 }
-.style-editorial .caption-panel h2 { font-size: 56px; color: var(--primary-ink); }
+.style-editorial .caption-panel h2 { font-size: 56px; color: var(--ink); }
 .style-editorial .caption-panel h2::after { width: 72px; height: 8px; margin-top: 18px; }
 .style-editorial .caption-panel .text { font-size: 38px; line-height: 1.45; }
 .style-editorial .caption-panel ul { gap: 12px; }
@@ -102,23 +99,21 @@
 .style-editorial .outro.has-bg .sources { color: #fff; opacity: .92; align-self: stretch; }
 .style-editorial .outro:not(.has-bg) .cta { color: var(--primary-ink); }
 
-/* 본문(사진 없음): 점선 메모 상자(레퍼런스의 메모 카드) */
+/* 본문(사진 없음): 여백 큰 점선 메모(레퍼런스의 메모 카드). 제목은 잉크색, 밑줄 막대는 가늘게 */
 .style-editorial .body:not(.has-bg) .content {
-  margin: 24px 0; padding: 48px 52px; border: 4px dashed color-mix(in srgb, var(--ink) 30%, transparent);
-  border-radius: 32px; background: rgba(255,255,255,.55);
+  margin: 36px 0 24px; padding: 56px 60px; border: 3px dashed color-mix(in srgb, var(--ink) 34%, transparent);
+  border-radius: 36px; background: rgba(255,255,255,.72); justify-content: flex-start; gap: 28px;
 }
-
-/* 몽글 캐릭터·소품 스티커. 표지·마지막 장에만 캐릭터, 가운데 장은 소품만(ADR 0043) */
-/* 다이컷 스티커 느낌: 흰 테두리 두 겹 + 그림자(2026 스티커·컷아웃 트렌드) */
-.style-editorial .deco .kawaii { position: absolute; width: 230px; height: 230px; filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 3px #fff) drop-shadow(0 10px 18px rgba(0,0,0,.22)); }
-.style-editorial .cover .deco .kawaii { right: 64px; bottom: 560px; transform: rotate(-6deg); }
-.style-editorial .outro .deco .kawaii { right: 72px; bottom: 150px; transform: rotate(6deg); }
-.style-editorial .deco .prop-icon { position: absolute; right: 88px; top: 176px; width: 112px; height: 112px; transform: rotate(10deg); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 3px #fff) drop-shadow(0 6px 12px rgba(0,0,0,.18)); }
-.style-editorial .body.has-bg .deco .prop-icon { top: auto; bottom: 440px; }
-/* 장면 그림: 사진이 없는 표지·마지막 장에서 캐릭터 둘레에(사진이 있으면 사진이 장면이다) */
-.style-editorial .deco .scene { position: absolute; width: 520px; height: 370px; right: 20px; opacity: .95; }
-.style-editorial .cover .deco .scene { top: 150px; }
-.style-editorial .outro .deco .scene { top: 170px; }
+.style-editorial .body:not(.has-bg) h2 { font-size: 54px; color: var(--ink); }
+.style-editorial .body:not(.has-bg) h2::after { width: 64px; height: 6px; margin-top: 16px; background: var(--primary); }
+.style-editorial .body:not(.has-bg) .text { font-size: 38px; line-height: 1.55; }
+.style-editorial .body:not(.has-bg) li { font-size: 32px; }
+/* 스티커가 메모 테두리에 걸치려면 위 여백이 필요하다(스티커는 base.css) */
+.style-editorial .body:not(.has-bg) .sticker { top: -92px; left: 36px; }
+.style-editorial .body:not(.has-bg) .content.has-sticker { padding-top: 112px; }
+.style-editorial .products .sticker, .style-editorial .facts .sticker { top: -40px; right: 40px; left: auto; transform: rotate(8deg); width: 150px; height: 150px; }
+/* 만화 컷(S14): 종이 위에 둥근 컷 두 장 */
+.style-editorial .comic .panel { box-shadow: 0 12px 30px rgba(0,0,0,.12); }
 /* 상품 그리드·일정 패널(S12): 종이 위 흰 카드, 사진 위에서는 흰 카드에 진한 글자 */
 .style-editorial .product, .style-editorial .fact { background: #fff; border: 2px solid var(--line); }
 .style-editorial .slide.has-bg.products, .style-editorial .slide.has-bg.facts { color: var(--ink); }
@@ -126,6 +121,5 @@
   background: rgba(255,255,255,.60);
   -webkit-backdrop-filter: blur(22px) saturate(1.1); backdrop-filter: blur(22px) saturate(1.1);
 }
-.style-editorial .slide.has-bg.products h2, .style-editorial .slide.has-bg.facts h2,
-.style-editorial .slide.has-bg .fact dt { color: var(--primary-ink); }
+.style-editorial .products h2, .style-editorial .facts h2, .style-editorial .fact dt { color: var(--ink); }
 .style-editorial .slide.has-bg .product, .style-editorial .slide.has-bg .fact { background: #fff; }

@@ -11,7 +11,13 @@ import re
 from typing import Any
 
 PLATFORMS = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
-TEMPLATES = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
+TEMPLATES = {
+    "info": "정보형",
+    "list": "리스트형",
+    "compare": "비교형",
+    "editorial": "소식형",
+    "meme": "밈형",
+}
 SEP = " · "
 
 
@@ -137,7 +143,12 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
 
 def _picks(c: dict[str, Any]) -> list[str]:
     made = _n(c, "made")
-    parts = [f"추천 {made}건 만듦" if made else "추천 없음"]
+    detail = f"(정보 {_n(c, 'made_info')}·밈 {_n(c, 'made_meme')})" if "made_meme" in c else ""
+    parts = [f"추천 {made}건 만듦{detail}" if made else "추천 없음"]
+    if c.get("failed"):
+        parts.append(f"실패 {_n(c, 'failed')}(재시도 예정)")
+    if c.get("empty"):
+        parts.append(f"빈 슬롯 {_n(c, 'empty')}")
     if c.get("candidates") is not None:
         parts.append(f"서로 다른 소재 {_n(c, 'candidates')}개 중")
     if c.get("reason"):
@@ -148,6 +159,7 @@ def _picks(c: dict[str, Any]) -> list[str]:
 _JOBS = {
     "collect": _collect,
     "picks": _picks,
+    "slots_retry": _picks,
     "generate": _generate,
     "keyword": _keyword,
     "publish": _publish,

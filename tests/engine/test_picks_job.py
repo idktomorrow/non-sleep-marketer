@@ -128,7 +128,7 @@ def test_makes_three_distinct_pending_picks_without_quota_or_publications(ctx: J
 def test_second_run_same_day_is_idempotent_and_generate_defers(ctx: JobContext) -> None:
     run_picks(ctx, fetch_photo=_fake_photo)
     again = run_picks(ctx, fetch_photo=_fake_photo)
-    assert again.skipped.startswith("오늘 추천 3건")
+    assert again.skipped.startswith("오늘 슬롯이 모두 찼음")  # 슬롯 기반 멱등(S14)
     assert ctx.repo.count_contents() == 3
     g = run_generate(ctx)
     assert "추천 모드" in g.skipped and ctx.repo.count_contents() == 3

@@ -29,115 +29,34 @@
 </svg>
 {%- endmacro %}
 
-{#- 사진 우선형의 몽글몽글 캐릭터(S10 제안): 자체 그림(콩 모양 몸 + 새싹 + 홍조). 저작권 캐릭터가 아니다.
-    prop: 카드 주제에서 고른 소품(plane·mug·popcorn·gift·star·wave). 캐릭터도 가상인물의 모습이라 배지가 있는
-    표지·마지막 장에만 두고, 가운데 장에는 소품만 스티커로 둔다(ADR 0043·0046). -#}
-{% macro prop_shape(prop) -%}
-{%- if prop == 'plane' %}
-  <path class="pp" d="M8 60 L112 18 L78 66 L92 108 L68 82 L36 92 Z" fill="#fff" stroke="#2B2B33" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M78 66 L112 18" stroke="#2B2B33" stroke-width="6"/>
-{%- elif prop == 'mug' %}
-  <path d="M20 34 H88 V96 C88 108, 78 116, 66 116 H42 C30 116, 20 108, 20 96 Z" fill="#fff" stroke="#2B2B33" stroke-width="6"/>
-  <path d="M88 50 C110 50, 110 86, 88 86" fill="none" stroke="#2B2B33" stroke-width="6"/>
-  <path d="M40 22 C36 12, 46 10, 42 2 M58 22 C54 12, 64 10, 60 2" fill="none" stroke="#2B2B33" stroke-width="5" opacity=".6"/>
-{%- elif prop == 'popcorn' %}
-  <path d="M26 44 L36 116 H84 L94 44 Z" fill="var(--accent)" stroke="#2B2B33" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M38 44 V116 M60 44 V116 M82 44 V116" stroke="#fff" stroke-width="7" opacity=".85"/>
-  <circle cx="40" cy="36" r="14" fill="#fff" stroke="#2B2B33" stroke-width="5"/><circle cx="64" cy="26" r="15" fill="#fff" stroke="#2B2B33" stroke-width="5"/><circle cx="86" cy="36" r="13" fill="#fff" stroke="#2B2B33" stroke-width="5"/>
-{%- elif prop == 'gift' %}
-  <rect x="22" y="48" width="76" height="66" rx="10" fill="#fff" stroke="#2B2B33" stroke-width="6"/>
-  <path d="M22 70 H98 M60 48 V114" stroke="var(--accent)" stroke-width="9"/>
-  <path d="M60 48 C40 48, 36 24, 52 24 C62 24, 60 46, 60 48 C60 46, 58 24, 68 24 C84 24, 80 48, 60 48 Z" fill="var(--accent)" stroke="#2B2B33" stroke-width="5" stroke-linejoin="round"/>
-{%- elif prop == 'star' %}
-  <path d="M60 10 L74 46 L112 48 L82 72 L92 110 L60 88 L28 110 L38 72 L8 48 L46 46 Z" fill="var(--accent)" stroke="#2B2B33" stroke-width="6" stroke-linejoin="round"/>
-{%- endif %}
+{#- 보조 캐릭터 스티커(S14 제안): 사람이 올리거나 AI로 만든 투명 PNG를 메모 상자 테두리에 걸친다.
+    코드로 그린 도형 캐릭터로 대체하지 않는다(그림이 없으면 아무것도 안 그린다). -#}
+{% macro sticker(s) -%}
+{%- if s.sticker %}<img class="sticker" src="{{ s.sticker.path | file_uri }}" alt="{{ s.sticker.alt }}">{% endif -%}
 {%- endmacro %}
 
-{#- 장면 요소: 카드 주제에 맞는 그림을 캐릭터 둘레에(항공→비행기·구름, 커피→원두·김, 극장판→필름, 굿즈→색종이, 행사→반짝이) -#}
-{% macro scene(prop) -%}
-<svg class="scene scene-{{ prop }}" viewBox="0 0 420 300" aria-hidden="true">
-  {%- if prop == 'plane' %}
-  <g fill="#fff" stroke="#2B2B33" stroke-width="6" stroke-linejoin="round">
-    <path d="M40 120 C 30 90, 70 80, 80 100 C 90 70, 140 76, 136 108 C 160 104, 166 136, 140 138 L 48 138 C 26 138, 24 124, 40 120 Z"/>
-    <path d="M300 60 C 292 36, 326 30, 332 48 C 342 28, 382 34, 376 62 C 394 60, 398 86, 376 88 L 306 88 C 286 88, 284 68, 300 60 Z"/>
-    <path d="M150 190 C 150 170, 190 160, 240 160 L 380 160 C 404 160, 410 176, 400 186 C 392 194, 372 198, 350 198 L 180 206 C 160 206, 150 200, 150 190 Z" fill="#fff"/>
-    <path d="M250 162 L 300 120 L 322 120 L 300 162 Z" fill="var(--accent)"/>
-    <path d="M230 200 L 270 236 L 292 234 L 266 200 Z" fill="var(--accent)"/>
-    <path d="M362 160 L 384 132 L 400 134 L 386 160 Z" fill="var(--accent)"/>
-    <circle cx="300" cy="176" r="7" fill="#9AD0F5"/><circle cx="326" cy="176" r="7" fill="#9AD0F5"/><circle cx="352" cy="176" r="7" fill="#9AD0F5"/>
-  </g>
-  <path d="M120 240 C 160 236, 200 246, 240 236" fill="none" stroke="#2B2B33" stroke-width="5" stroke-dasharray="14 12" opacity=".6"/>
-  {%- elif prop == 'mug' %}
-  <g fill="#8C5A3C" stroke="#2B2B33" stroke-width="5">
-    <ellipse cx="70" cy="200" rx="26" ry="36" transform="rotate(-25 70 200)"/><ellipse cx="340" cy="90" rx="26" ry="36" transform="rotate(20 340 90)"/><ellipse cx="370" cy="210" rx="22" ry="30" transform="rotate(-10 370 210)"/>
-  </g>
-  <path d="M70 180 C 76 196, 62 210, 68 222 M340 70 C 346 86, 332 100, 338 112 M370 190 C 374 204, 364 216, 368 228" fill="none" stroke="#2B2B33" stroke-width="4"/>
-  <path d="M190 120 C 178 96, 202 84, 190 60 M230 116 C 218 92, 242 80, 230 56 M270 122 C 258 98, 282 86, 270 62" fill="none" stroke="#2B2B33" stroke-width="5" opacity=".45"/>
-  {%- elif prop == 'popcorn' %}
-  <g stroke="#2B2B33" stroke-width="6" fill="#2B2B33">
-    <path d="M20 60 H400 V130 H20 Z" fill="#3A3A44"/>
-    {% for x in [40, 110, 180, 250, 320] %}<rect x="{{ x }}" y="70" width="50" height="18" fill="#fff"/><rect x="{{ x }}" y="102" width="50" height="18" fill="#fff"/>{% endfor %}
-  </g>
-  <path d="M60 210 l12 -18 l12 18 M330 230 l12 -18 l12 18" fill="var(--accent)" stroke="#2B2B33" stroke-width="5" stroke-linejoin="round"/>
-  {%- elif prop == 'gift' %}
-  <g stroke="#2B2B33" stroke-width="4">
-    <rect x="40" y="40" width="26" height="14" fill="var(--accent)" transform="rotate(-20 53 47)"/><rect x="330" y="60" width="26" height="14" fill="#F7A8B8" transform="rotate(25 343 67)"/>
-    <rect x="90" y="220" width="26" height="14" fill="#9AD0F5" transform="rotate(40 103 227)"/><rect x="370" y="200" width="26" height="14" fill="var(--accent)" transform="rotate(-35 383 207)"/>
-    <circle cx="200" cy="40" r="9" fill="#F7A8B8"/><circle cx="300" cy="250" r="9" fill="#9AD0F5"/>
-  </g>
-  {%- elif prop == 'star' %}
-  <g fill="var(--accent)" stroke="#2B2B33" stroke-width="5" stroke-linejoin="round">
-    <path d="M60 40 l10 24 l26 2 l-20 17 l6 26 l-22 -14 l-22 14 l6 -26 l-20 -17 l26 -2 Z"/><path d="M340 60 l8 20 l22 2 l-17 14 l5 22 l-18 -12 l-18 12 l5 -22 l-17 -14 l22 -2 Z"/><path d="M360 220 l7 16 l18 2 l-14 11 l4 18 l-15 -10 l-15 10 l4 -18 l-14 -11 l18 -2 Z"/>
-  </g>
-  {%- endif %}
-</svg>
-{%- endmacro %}
-
-{% macro kawaii(prop, pose) -%}
-<svg class="kawaii kawaii-{{ pose }} prop-{{ prop }}" viewBox="0 0 260 260" aria-hidden="true">
-  <g stroke="#2B2B33" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    {#- 귀(작은 봉우리)와 새싹 -#}
-    <path d="M74 62 C 62 28, 96 24, 96 54" fill="#fff"/>
-    <path d="M186 62 C 198 28, 164 24, 164 54" fill="#fff"/>
-    <path d="M130 44 C 134 26, 150 20, 164 26 C 154 34, 142 40, 132 48 Z" fill="var(--accent)"/>
-    {#- 콩 모양 몸 -#}
-    <path d="M130 44 C 196 44, 236 96, 236 158 C 236 214, 190 244, 130 244 C 70 244, 24 214, 24 158 C 24 96, 64 44, 130 44 Z" fill="#fff"/>
-    {#- 팔: 손 흔들기 또는 소품 들기 -#}
-    {%- if pose == 'wave' and prop in ('wave', 'star') %}
-    <path d="M226 128 C 250 110, 254 84, 244 70" fill="none"/><circle cx="242" cy="66" r="11" fill="#fff"/>
-    {%- else %}
-    <path d="M44 170 C 28 180, 30 200, 48 206" fill="none"/>
-    {%- endif %}
-    <path d="M216 170 C 232 180, 230 200, 212 206" fill="none"/>
-  </g>
-  {#- 눈·볼·입 -#}
-  <ellipse cx="98" cy="140" rx="10" ry="13" fill="#2B2B33"/><ellipse cx="162" cy="140" rx="10" ry="13" fill="#2B2B33"/>
-  <circle cx="102" cy="134" r="4" fill="#fff"/><circle cx="166" cy="134" r="4" fill="#fff"/>
-  <ellipse cx="72" cy="166" rx="16" ry="9" fill="#F7A8B8" opacity=".85"/><ellipse cx="188" cy="166" rx="16" ry="9" fill="#F7A8B8" opacity=".85"/>
-  <path d="M118 170 C 124 180, 136 180, 142 170" fill="none" stroke="#2B2B33" stroke-width="6" stroke-linecap="round"/>
-  {#- 소품: 머리 위(조종사 모자) 또는 손에 -#}
-  {%- if prop == 'plane' %}
-  <g transform="translate(78 10) scale(0.62)"><path d="M10 70 C 30 20, 130 20, 150 70 Z" fill="#2B4A70" stroke="#2B2B33" stroke-width="7" stroke-linejoin="round"/><path d="M0 70 H160" stroke="#2B2B33" stroke-width="9" stroke-linecap="round"/><circle cx="80" cy="46" r="12" fill="var(--accent)" stroke="#2B2B33" stroke-width="5"/></g>
-  {%- elif prop in ('mug', 'popcorn', 'gift') %}
-  <g transform="translate(86 142) scale(0.8)">{{ prop_shape(prop) }}</g>
-  {%- elif prop == 'star' %}
-  <g transform="translate(176 6) scale(0.5)">{{ prop_shape(prop) }}</g>
-  {%- endif %}
-</svg>
-{%- endmacro %}
-
-{% macro prop_icon(prop) -%}
-{%- if prop != 'wave' %}<svg class="prop-icon prop-{{ prop }}" viewBox="0 0 120 120" aria-hidden="true">{{ prop_shape(prop) }}</svg>{% endif -%}
+{#- 2컷 만화(S14 제안, ADR 0055): 같은 캐릭터의 두 장면. 라벨(검은 상자)·말풍선은 HTML 글자(ADR 0007).
+    그림이 없는 컷은 "그림 없음" 자리로 둔다(도형 대체 금지). 첫 장이면 표지처럼 이름·배지를 단다. -#}
+{% macro comic(s, i, n, deck) -%}
+{{ open('comic' ~ (' brand' if i == 1 else ''), s, s.background) }}
+  {{ chrome(s, i, n, deck, s.background) }}
+  <div class="content comic-content">
+    {%- for p in s.panels %}
+    <figure class="panel bubble-{{ p.bubble_side }}{% if not p.image %} missing{% endif %}">
+      {%- if p.image %}<img class="panel-img" src="{{ p.image.path | file_uri }}" alt="{{ p.image.alt }}">{% else %}<div class="panel-empty">그림 없음</div>{% endif %}
+      {%- if p.label %}<div class="label{% if title_style == 'sticker' %} sticker-title{% endif %}" data-fit="40">{{ p.label | one_break }}</div>{% endif %}
+      {%- if p.bubble %}<div class="bubble" data-fit="30">{{ p.bubble }}</div>{% endif %}
+    </figure>
+    {%- endfor %}
+  </div>
+</section>
 {%- endmacro %}
 
 {#- 코드로 그린 배경 장식(이미지 아님 → "AI 생성 이미지" 표기 대상이 아니다).
     배경 사진이 있는 장은 장식 없이 사진 + 어두운 그라디언트(.has-bg)로 그린다(아래 띠의 흰 글자가 읽히게). -#}
 {% macro deco(s, bg) -%}
 {%- if style == 'editorial' %}
-{#- 사진 우선형: 사진이 있어도 스티커처럼 몽글 캐릭터(표지·마지막 장)와 소품(가운데 장)을 얹는다 -#}
-<div class="deco" aria-hidden="true">
-  {%- if s.kind in ('cover', 'outro') %}{% if not bg %}{{ scene(prop) }}{% endif %}{{ kawaii(prop, 'wave' if s.kind == 'outro' else 'stand') }}{% else %}{{ prop_icon(prop) }}{% endif %}
-</div>
+{#- 사진 우선형(S14): 코드로 그린 캐릭터·소품을 더 얹지 않는다. 그림은 사람이 고른 사진과 스티커(ImageAsset)뿐 -#}
 {%- elif bg %}
 {%- elif style == 'photo' %}
 <div class="deco" aria-hidden="true"><i class="ring"></i><i class="band"></i><i class="dots"></i></div>
@@ -168,7 +87,7 @@
 <div class="topbar">
   {#- 가상인물 배지는 인물(페르소나 이름) 바로 옆: 심사지침 "가상인물과 근접한 위치" (ADR 0019).
       이름(인물)과 배지는 표지와 마지막 장에만 함께 둔다. 중간 장에는 둘 다 없다(ADR 0043) -#}
-  {%- if s.kind in ('cover', 'outro') %}
+  {%- if s.kind in ('cover', 'outro') or (s.kind == 'comic' and i == 1) %}
   <div class="ident">
     <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
     {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}
@@ -179,8 +98,11 @@
   </div>
 </div>
 <div class="bottombar">
-  {#- AI로 만든 캐릭터 그림이 들어간 장에도 같은 표기(C17, ADR 0046). 슬롯은 그대로다 -#}
-  {%- if (bg and deck.labels.ai_generated_image) or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
+  {#- AI 표기(S14, ADR 0055): ai_slides가 있으면 **그 목록**이 기준(자산별로 계산한 값). None이면 레거시 규칙
+      (덱 플래그 + 그 장에 background). AI로 만든 캐릭터 그림이 들어간 일러스트 장도 같은 표기(C17, ADR 0046) -#}
+  {%- set ai_slides = deck.labels.ai_slides -%}
+  {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
+  {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
   <span class="page" data-page>{{ i }} / {{ n }}</span>
 </div>
 {%- endmacro %}
@@ -199,11 +121,11 @@
     {#- 사진 우선형: 부제를 제목 위 키커로(부제 슬롯·최소 크기는 그대로, ADR 0035) -#}
     <div class="titles">
       {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
-      <h1 data-fit="88">{{ title_text(s) }}</h1>
+      <h1 data-fit="88"{% if title_style == 'sticker' %} class="sticker-title"{% endif %}>{{ title_text(s) }}</h1>
     </div>
     {%- else %}
     <div class="kicker"></div>
-    <h1 data-fit="88">{{ title_text(s) }}</h1>
+    <h1 data-fit="88"{% if title_style == 'sticker' %} class="sticker-title"{% endif %}>{{ title_text(s) }}</h1>
     {% if s.subtitle %}<p class="subtitle" data-fit="48">{{ s.subtitle }}</p>{% endif %}
     {%- endif %}
   </div>
@@ -214,7 +136,8 @@
 {%- set bg = s.background -%}
 {{ open('body', s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content{% if s.sticker %} has-sticker{% endif %}">
+    {{- sticker(s) }}
     {%- set panel = style == 'editorial' and bg %}
     {%- if panel %}<div class="caption-panel">{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
@@ -259,7 +182,8 @@
 {%- set bg = s.background -%}
 {{ open('products', s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content{% if s.sticker %} has-sticker{% endif %}">
+    {{- sticker(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <div class="grid items-{{ s.items | length }}">
       {% for it in s.items %}
@@ -280,7 +204,8 @@
 {%- set bg = s.background -%}
 {{ open('facts', s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content{% if s.sticker %} has-sticker{% endif %}">
+    {{- sticker(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <dl class="rows">
       {% for r in s.rows %}

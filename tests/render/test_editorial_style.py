@@ -287,28 +287,9 @@ def test_repo_relative_background_resolves_from_any_cwd(tmp_path, monkeypatch) -
     )
 
 
-def test_fluffy_mascot_only_on_cover_and_outro_with_topic_prop() -> None:
-    """몽글 캐릭터는 배지가 있는 표지·마지막 장에만(ADR 0043), 가운데 장은 소품 아이콘만. 소품·장면은 카드 글에서 고른다."""
-    html = build_html(photo_deck(True), STYLE)  # 구름항공·기내 → 조종사 모자(plane)
-    assert html.count('class="kawaii') == 2 and "prop-plane" in html
-    assert html.count('class="prop-icon') == 2  # 본문 2장(사진 있음·없음 모두)
-    assert "<img" not in html.replace('class="logo"', "")  # 전부 SVG, 저작권 캐릭터 그림 없음
-    assert "scene-plane" not in html  # 사진이 있으면 사진이 장면이다
-    no_bg = build_html(photo_deck(False), STYLE)
-    assert no_bg.count("scene-plane") == 2  # 사진이 없으면 비행기·구름 장면
-    raw = json.loads((FIXTURES / "editorial-photo.json").read_text("utf-8"))
-    raw["slides"][0]["title"], raw["slides"][0]["subtitle"] = (
-        "핸드드립 물 온도\n왜 92도일까",
-        "원두와 카페 이야기",
-    )
-    for s in raw["slides"]:
-        s["background"] = None
-        for k in ("heading", "body"):
-            if k in s:
-                s[k] = "커피 추출 팁"
-        if "cta" in s:
-            s["cta"] = "오늘도 홈카페"
-    coffee = build_html(CardDeck.model_validate(raw), STYLE)
-    assert "prop-mug" in coffee and "scene-mug" in coffee and "prop-plane" not in coffee
-    plain = build_html(photo_deck(False), "clean")
-    assert "kawaii" not in plain and "prop-icon" not in plain  # 다른 스타일에는 없다
+def test_no_code_drawn_character_or_props(tmp_path) -> None:
+    """S14: 사진 우선형은 코드 도형 캐릭터·키워드 소품을 그리지 않는다(그림은 사람이 고른 사진·스티커뿐)."""
+    html = build_html(photo_deck(), STYLE)
+    assert "kawaii" not in html and "prop-icon" not in html and "<svg" not in html
+    nobg = build_html(photo_deck(with_bg=False), STYLE)
+    assert "<svg" not in nobg and "<img" not in nobg.replace('class="logo"', "")

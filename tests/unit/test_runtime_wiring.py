@@ -22,9 +22,10 @@ def test_renderer_reads_card_style_from_current_config(
         def render(self, deck, out_dir):
             return []
 
-    def fake_get_renderer(style="clean", character=None):
+    def fake_get_renderer(style="clean", character=None, title_style="plain"):
         seen["style"] = style
         seen["character"] = character
+        seen["title_style"] = title_style
         return Fake()
 
     monkeypatch.setattr(render, "get_renderer", fake_get_renderer)

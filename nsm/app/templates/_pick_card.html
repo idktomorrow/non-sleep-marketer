@@ -6,12 +6,14 @@
   <div>
     <h3><a href="/review/{{ c.id }}">{{ c.generated.deck.slides[0].title.replace('\n', ' ') }}</a></h3>
     <div class="actions small">
+      <span class="badge">{{ v.kind }}{% if v.substituted %} <span class="muted">({{ v.requested_kind }} 대신)</span>{% endif %}</span>
       <span class="badge {{ v.readiness[0] }}">{{ v.readiness[1] }}</span>
       <span class="badge {{ 'ok' if p.freshness == 'fresh' else ('warn' if p.freshness == 'unknown' else 'gray') }}">{{ v.fresh }}</span>
       <span class="badge">{{ c.generated.template|ko_template }}</span>
       {% if v.age_days >= 1 %}<span class="badge gray">{{ v.age_days }}일 전 자료</span>{% endif %}
     </div>
     <p class="muted small" style="margin:6px 0 0">{{ p.reason }}{% if v.published_local %} · 공개 {{ v.published_local.strftime('%m/%d %H:%M') }}{% endif %}{% if p.photo_status == 'candidate' %} · 사진 후보 있음(검토 상세에서 확인){% endif %}</p>
+    {% if v.slot and v.slot.last_error %}<p class="warn small" style="margin:6px 0 0">{{ v.slot.last_error }}</p>{% endif %}
     {% if v.needs_recheck %}<p class="warn small" style="margin:6px 0 0">보관한 지 오래됐습니다. 자료의 날짜·가격·행사 종료 여부를 다시 확인한 뒤 "다시 확인했어요"를 누르면 게시로 보낼 수 있습니다.</p>{% endif %}
   </div>
   <div class="actions">

@@ -21,7 +21,13 @@ PUB_STATUS = {
     "failed": "실패(다시 시도 예정)",
     "abandoned": "포기(검토로 돌아옴)",
 }
-TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
+TEMPLATE = {
+    "info": "정보형",
+    "list": "리스트형",
+    "compare": "비교형",
+    "editorial": "소식형",
+    "meme": "밈형",
+}
 SLIDE_KIND = {
     "cover": "표지",
     "body": "본문",
@@ -30,6 +36,7 @@ SLIDE_KIND = {
     "products": "상품",
     "facts": "일정·정보",
     "outro": "마무리",
+    "comic": "만화",
 }
 PLATFORM = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
 COMMENT_CATEGORY = {
@@ -73,6 +80,7 @@ JOBS: dict[str, tuple[str, str]] = {
         "백업·정리",
         "데이터를 백업하고(설정한 개수만큼 보관, 기본 7개) 오래된 실행 기록을 정리합니다",
     ),
+    "slots_retry": ("추천 재시도", "실패했거나 미뤄 둔 추천 슬롯을 다시 채웁니다(15분마다 자동)"),
     "picks": (
         "오늘의 추천 만들기",
         "자료를 모은 뒤 최근 소식 중 서로 다른 소재 원고를 만들어 추천합니다(전부 검토 대기, 1건에 약 4~6센트)",

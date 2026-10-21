@@ -19,18 +19,25 @@ from zoneinfo import ZoneInfo
 from pydantic import ValidationError
 
 from nsm.adapters.generator.prompts import (
+    MEME_IDEAS_SCHEMA,
+    MEME_SCRIPT_SCHEMA,
     REPLY_SCHEMA,
     content_from_output,
+    ideas_from_output,
     llm_schema,
+    meme_ideas_user,
+    meme_script_user,
+    meme_system,
     reply_system,
     reply_user,
+    script_from_output,
     system_prompt,
     user_prompt,
 )
 from nsm.adapters.openai_common import OpenAIClient, OpenAIError
 from nsm.adapters.pricing import openai_text_cost
 from nsm.domain.models import Brand, Comment, ContentBrief, GeneratedContent, Persona
-from nsm.ports import AdapterError, CostLedger, CostSink
+from nsm.ports import AdapterError, CostLedger, CostSink, MemeIdea, MemeRequest, MemeScript
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +45,8 @@ GENERATE_MAX_TOKENS = 16000  # 추론 토큰 포함 상한(공식 문서: 추론
 REPLY_MAX_TOKENS = 3000
 ESTIMATE_GENERATE_USD = 0.06  # 예약액(확정 전). gpt-6.1-sol 기준 입력 6k·출력 4k 정도
 ESTIMATE_REPLY_USD = 0.01
+ESTIMATE_MEME_USD = 0.02
+MEME_MAX_TOKENS = 4000
 
 
 class ProviderUnavailable(Exception):
@@ -199,3 +208,28 @@ class OpenAITextGenerator:
         )
         out = self._call("reply", body, ESTIMATE_REPLY_USD)
         return str(self._parse(self._text(out))["reply"]).strip()
+
+    # ------------------------------------------------------------------ ScenarioWriter(S14)
+    def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]:
+        body = self._body(
+            meme_system(req), meme_ideas_user(req), MEME_IDEAS_SCHEMA, "meme_ideas", MEME_MAX_TOKENS
+        )
+        out = self._call("meme:ideas", body, ESTIMATE_MEME_USD)
+        ideas = ideas_from_output(self._parse(self._text(out)))
+        if not ideas:
+            raise AdapterError("밈 아이디어가 비었습니다")
+        return ideas
+
+    def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript:
+        body = self._body(
+            meme_system(req),
+            meme_script_user(req, idea),
+            MEME_SCRIPT_SCHEMA,
+            "meme_script",
+            MEME_MAX_TOKENS,
+        )
+        out = self._call("meme:script", body, ESTIMATE_MEME_USD)
+        try:
+            return script_from_output(self._parse(self._text(out)), idea)
+        except (KeyError, TypeError) as e:
+            raise AdapterError(f"밈 대본 형식이 맞지 않습니다: {e}") from e

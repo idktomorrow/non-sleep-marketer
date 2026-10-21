@@ -175,6 +175,18 @@ def is_ai_background(path: str | None, media_dir: Path) -> bool:
     return p.name.startswith("bg-") and p.parent.resolve() == media_dir.resolve()
 
 
+def apply_photo_colors(gen: GeneratedContent, path: str | Path) -> GeneratedContent:
+    """소재 사진에서 뽑은 색을 덱 브랜드 색에(S14: 포인트 색이 사진을 따라간다). 색을 못 뽑으면 그대로."""
+    from nsm.render.colors import colors_from_photo
+
+    colors = colors_from_photo(path)
+    if colors is None:
+        return gen
+    primary, accent = colors
+    brand = gen.deck.brand.model_copy(update={"primary_color": primary, "accent_color": accent})
+    return gen.model_copy(update={"deck": gen.deck.model_copy(update={"brand": brand})})
+
+
 def set_background(
     gen: GeneratedContent, index: int, path: str | None, media_dir: Path
 ) -> GeneratedContent:

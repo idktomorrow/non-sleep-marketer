@@ -131,6 +131,9 @@ def slide_texts(s: Any) -> list[str]:
     elif s.kind == "facts":
         for r in s.rows:
             parts += [r.label, r.value]
+    elif s.kind == "comic":
+        for p in s.panels:
+            parts += [p.label, p.bubble]
     return [p for p in parts if p]
 
 

@@ -227,6 +227,56 @@ class FakeTextGenerator:
         return self.reply_text
 
 
+class FakeScenarioWriter:
+    """밈 대본 작가 가짜(S14). ideas가 주어지면 그것을, 아니면 기본 3개를 낸다."""
+
+    def __init__(self, ideas: list | None = None, fail: bool = False) -> None:
+        from nsm.ports import MemeIdea
+
+        self.ideas = ideas or [
+            MemeIdea("극중 월급 vs 현실 연봉", "시무룩 vs 느긋", "'시러~'는 무슨.", "격차"),
+            MemeIdea("굿즈 품절 전후", "설렘 vs 절망", "품절이라고?", "팬 공감"),
+            MemeIdea("팝업 줄서기", "아침 vs 저녁", "아직도 줄?", "기다림"),
+        ]
+        self.fail = fail
+        self.requests: list = []
+        self.scripts: list = []
+
+    def propose_meme_ideas(self, req):
+        from nsm.ports import AdapterError
+
+        self.requests.append(req)
+        if self.fail:
+            raise AdapterError("가짜 실패")
+        return list(self.ideas)
+
+    def write_meme_script(self, req, idea):
+        from nsm.ports import MemePanel, MemeScript
+
+        script = MemeScript(
+            idea=idea,
+            panels=(
+                MemePanel(
+                    label=f"{idea.situation[:14]}\n전",
+                    bubble="시러~",
+                    scene="방 안, 시무룩, 머그컵",
+                ),
+                MemePanel(
+                    label=f"{idea.situation[:14]}\n후",
+                    bubble=idea.punchline[:40],
+                    scene="야경 앞 소파, 느긋",
+                    bubble_side="left",
+                ),
+            ),
+            caption=f"{idea.situation} #밈 #공감 #캐릭터",
+            threads_text=idea.punchline,
+            cta="여러분은 어느 쪽?",
+            claims=tuple((s.title, s.id) for s in req.hook_sources[:1]),
+        )
+        self.scripts.append(script)
+        return script
+
+
 class NullImageGenerator:
     def generate_background(self, prompt: str, width: int, height: int) -> Path | None:
         return None

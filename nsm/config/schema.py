@@ -185,6 +185,7 @@ class WorkspaceSettings(_Model):
     sidekick_default: str | None = (
         None  # 기본 보조 캐릭터 프로필 id(S15). None이면 보조 캐릭터 없음
     )
+    meme_tone: str = ""  # 밈 대본 말투(호출별로만 씀, 전역 페르소나 말투는 그대로. S14)
     title_style: Literal["plain", "sticker"] = "plain"  # 표지 제목 모양(S14)
     color_from_photo: bool = True  # 소재 사진에서 카드 색을 뽑을지(S14)
 

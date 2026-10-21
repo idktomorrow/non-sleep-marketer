@@ -11,7 +11,7 @@ from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
 from nsm.engine.keyword import run_keyword_draft
 from nsm.engine.maintenance import run_maintenance
-from nsm.engine.picks import run_picks
+from nsm.engine.picks import run_picks, run_slots_retry
 from nsm.engine.publish import run_publish
 from nsm.engine.reply import run_reply
 from nsm.engine.weekly_report import run_weekly_report
@@ -28,6 +28,7 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "weekly_report": run_weekly_report,
     "maintenance": run_maintenance,
     "picks": run_picks,  # 오늘의 추천(S11 제안)
+    "slots_retry": run_slots_retry,  # 재시도 시각이 된 추천 슬롯(S14)
 }
 
 

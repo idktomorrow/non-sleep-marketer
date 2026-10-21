@@ -250,6 +250,11 @@ class ImageStudio(Protocol):
     ) -> ImageResult: ...  # 참조 이미지·투명 배경·크기·품질. 글자는 넣지 않음
 
 
+class ScenarioWriter(Protocol):  # S14 제안(ADR 0056): 밈 대본. 정보 원고(TextGenerator)와 별도 경로
+    def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]: ...
+    def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript: ...
+
+
 class CostLedger(CostSink, Protocol):
     def reserve(self, kind, provider, estimate_usd, ref="", model="") -> str: ...
     def confirm(
@@ -325,6 +330,7 @@ class Clock(Protocol):
 
 - 크기: **1080×1350** (4:5). 슬라이드 수 2~10장(인스타그램 캐러셀 상한). 같은 PNG를 스레드와 블로그에도 씀.
 - 템플릿 3종: `info`(cover + body… + outro), `list`(cover + list… + outro), `compare`(cover + compare + outro). 템플릿은 `kind`별 슬라이드 레이아웃을 가져야 함.
+- **S14 제안(ADR 0055, 합의 전 미적용)**: `ImageAsset{path, ai, alt}`; `comic` 장(`panels` 정확히 2개: `image` ImageAsset|null, `label` ≤30자, `bubble` ≤40자, `bubble_side`, `scene`); body·products·facts에 `sticker` ImageAsset|null; 템플릿 `meme`(첫 장 cover **또는** comic, 중간 comic·body, 마지막 outro), `editorial` 중간에 comic 허용. `labels.ai_slides: list[int] | null` — null이면 레거시 규칙(`ai_generated_image` + background), 목록이면 그 장에만 "AI 생성 이미지"(빈 목록 = 없음). 기존 JSON은 그대로 읽힌다.
 - **S12 제안(ADR 0052, 합의 전 미적용)**: 템플릿 `editorial`(cover + body·products·facts 섞어서 + outro). `products`는 항목 2~4개(`name`, `price` 표기 그대로, `note`, `image` 로컬 경로 또는 null), `facts`는 2~6줄(`label`, `value`). 기존 세 템플릿·기존 JSON은 그대로 읽힌다. 상품 이름·가격이 자료에 없으면 자동 승인하지 않는다.
 - 폰트: Pretendard(SIL OFL)를 `nsm/templates/fonts/`에 동봉. 한글은 항상 HTML 텍스트로 그림(AI 이미지에 글자 넣지 않음).
 - `background`가 null이면 브랜드 색 기반 그라디언트/패턴으로 대체(이미지 생성을 끈 경우에도 완성도 유지).

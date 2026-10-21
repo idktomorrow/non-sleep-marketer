@@ -135,3 +135,53 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 .fact dd { font-size: 34px; font-weight: 600; line-height: 1.4; }
 .slide.has-bg .product, .slide.has-bg .fact { background: rgba(255,255,255,.14); }
 .slide.has-bg .fact dt { color: inherit; }
+
+/* 2컷 만화(S14 제안, ADR 0055). 세로 2단, 컷 안에 검은 라벨(왼쪽 위)과 말풍선. 글자는 전부 HTML.
+   컷은 .content의 flex 자식이라 높이가 고정되고, 라벨·말풍선은 컷 안에 절대 배치된다(길이는 계약 30·40자로 제한). */
+.comic .content { gap: 20px; justify-content: center; }
+.panel {
+  position: relative; flex: 1 1 0; min-height: 0; margin: 0; border-radius: 28px; overflow: hidden;
+  background: #E9E9EE; color: #111;
+}
+.panel-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.panel-empty {
+  position: absolute; inset: 0; display: grid; place-items: center; font-size: 40px; font-weight: 700; color: #777;
+  background: repeating-linear-gradient(45deg, #E9E9EE 0 24px, #E0E0E6 24px 48px);
+}
+.panel .label {
+  position: absolute; left: 32px; top: 32px; max-width: 52%; z-index: 2;
+  background: #111; color: #fff; font-size: 48px; font-weight: 800; line-height: 1.22; letter-spacing: -0.02em;
+  padding: 14px 26px; border-radius: 14px; white-space: pre-line; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.panel .bubble {
+  position: absolute; z-index: 2; max-width: 38%; background: #fff; color: #111; border: 4px solid #111;
+  border-radius: 40px; padding: 22px 36px; font-size: 36px; font-weight: 700; line-height: 1.3; text-align: center;
+}
+.panel .bubble::after {
+  content: ""; position: absolute; width: 28px; height: 28px; background: #fff; border: 4px solid #111;
+  border-top: none; border-right: none; transform: rotate(45deg);
+}
+.panel.bubble-right .bubble { right: 40px; top: 36px; }
+.panel.bubble-right .bubble::after { left: 40px; bottom: -17px; }
+/* 왼쪽 말풍선은 아래에(라벨이 왼쪽 위라 겹치지 않게) */
+.panel.bubble-left .bubble { left: 40px; bottom: 36px; }
+.panel.bubble-left .bubble::after { right: 60px; top: -17px; transform: rotate(-135deg); }
+.comic.brand { color: var(--ink); background: var(--surface); }
+.comic.brand .badge:not(.ad) { background: var(--badge-bg); color: var(--badge-fg); }
+
+/* 보조 캐릭터 스티커(S14): 메모 상자(.content) 왼쪽 위 테두리에 걸친다. 흰 테두리 두 겹으로 다이컷 느낌.
+   상자 밖으로 나가야 하므로 스티커가 있는 상자만 overflow를 푼다(넘침 판정은 scrollHeight라 영향 없음) */
+.content { position: relative; }
+.content.has-sticker { overflow: visible; padding-top: 90px; }
+.sticker {
+  position: absolute; left: 28px; top: -78px; width: 176px; height: 176px; object-fit: contain; z-index: 3;
+  transform: rotate(-8deg); filter: drop-shadow(0 0 3px #fff) drop-shadow(0 0 3px #fff) drop-shadow(0 10px 16px rgba(0,0,0,.2));
+}
+
+/* 스티커 글자(S14, workspace.title_style=sticker): 흰 테두리 + 파스텔 채움. 테두리를 글자 뒤에 그려 획이 안 깨진다 */
+.sticker-title {
+  color: var(--accent); -webkit-text-stroke: 12px #fff; paint-order: stroke fill;
+  text-shadow: 0 6px 0 rgba(0,0,0,.12);
+}
+.cover h1.sticker-title { line-height: 1.22; }
+.panel .label.sticker-title { background: transparent; color: var(--accent); -webkit-text-stroke: 10px #fff; padding: 6px 10px; }

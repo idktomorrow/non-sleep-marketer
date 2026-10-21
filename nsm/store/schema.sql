@@ -154,5 +154,28 @@ CREATE TABLE IF NOT EXISTS picks (
     rechecked_at TIMESTAMP,             -- 보관 글을 게시하기 전 사람이 날짜·가격을 다시 확인한 시각
     title_fingerprint VARCHAR NOT NULL, -- 같은 사건 재추천 방지용(정규화 토큰)
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+    kind VARCHAR DEFAULT 'info',        -- info | meme (S14)
+    slot_key VARCHAR                    -- pick_slots 키 "YYYY-MM-DD:kind:no" (S14)
+);
+
+-- 추천 슬롯(S14 제안, ADR 0057): 하루 "정보 N + 밈 M" 계획과 제작 상태. 콘텐츠가 생기기 전부터 존재한다.
+CREATE TABLE IF NOT EXISTS pick_slots (
+    run_date DATE NOT NULL,
+    requested_kind VARCHAR NOT NULL,    -- info | meme (계획한 종류)
+    slot_no INTEGER NOT NULL,
+    actual_kind VARCHAR,                -- 실제로 채운 종류(대체 허용 시 다를 수 있음)
+    stage VARCHAR NOT NULL,             -- planned | writing | written | images_pending | producing | ready | failed_text | failed_image | empty | unknown_image | cancelled
+    content_id VARCHAR,                 -- 완성된 원고(없으면 아직 계획·실패·비어 있음)
+    preset VARCHAR,                     -- 만든 작업 공간(전환 뒤 교차 실행 방지)
+    run_id VARCHAR,                     -- claim한 실행
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP,          -- 재시도 예정 시각(sleep 대신 재예약)
+    last_error VARCHAR,
+    plan_json VARCHAR,                  -- 밈 아이디어·지문 등 content 생기기 전 보관
+    cast_json VARCHAR,                  -- 출연진(S15)
+    mix VARCHAR NOT NULL DEFAULT 'none',-- none | comic_intro (혼합 표현)
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (run_date, requested_kind, slot_no)
 );

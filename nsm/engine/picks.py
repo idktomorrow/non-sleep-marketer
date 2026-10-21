@@ -1,4 +1,9 @@
-"""picks 잡(S11 제안, ADR 0051): 자료를 모은 뒤 최근 소식 중 서로 다른 소재 최대 N개를 완성 원고로 추천한다.
+"""picks 잡(S11·S14 제안, ADR 0051·0057): 하루 "정보 N + 밈 M" 슬롯을 계획하고 채운다.
+
+- 슬롯(pick_slots)은 계획 단계부터 존재한다. 같은 날 재실행·동시 실행은 슬롯을 claim해 중복 생성하지 않는다.
+  목표를 낮추면 아직 시작하지 않은 초과 슬롯만 제외하고 완성된 것은 유지한다. 수동 실행도 슬롯 상한 안에서만.
+- 정보 슬롯: 수집 → 사건 묶기 → 순위 → 생성(기존). 밈 슬롯: 별도 경로(memes.py). 실패는 슬롯 상태로 남고
+  재시도는 next_attempt_at으로 재예약(slots_retry 잡). 자료 해제는 '관심 없음'에서만.
 
 - 수집 → 사건 묶기 → 순위 → 생성 순서를 이 잡 안에서 지킨다(예약 시각 순서에 기대지 않는다)
 - 추천 원고는 전부 검토 대기(pending_review)다. 자동 승인·플랫폼 배정·일일 생성 목표와 섞이지 않는다
@@ -10,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
@@ -28,7 +34,9 @@ from nsm.domain.policy import local, local_day_bounds, should_act, under_cost_ca
 from nsm.engine.collect import excluded_word, run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import _RETRY_LATER, _SKIP_MATERIAL, SOURCES_PER_CONTENT, build_draft
+from nsm.engine.memes import run_meme_slot
 from nsm.store.picks import Pick, PicksStore
+from nsm.store.slots import Slot, SlotStore
 
 log = logging.getLogger(__name__)
 
@@ -48,40 +56,34 @@ def _reason(cluster: Cluster, fresh: str) -> str:
     return f"{when} · 자료 {n}건 · 주제 '{cluster.topic}'"
 
 
-def run_picks(
-    ctx: JobContext, manual: bool = False, fetch_photo: PhotoFetcher = fetch_photo_candidate
-) -> JobResult:
-    result = JobResult("picks")
-    now = ctx.clock.now()
-    ok, why = should_act(now, ctx.config.persona, ctx.tz)
-    if not ok:
-        result.skipped = why
-        return result
+@dataclass
+class SlotPlan:
+    info: int
+    meme: int
+    source: str = "workspace"  # workspace | override
+
+    @property
+    def total(self) -> int:
+        return self.info + self.meme
+
+
+PLAN_OVERRIDE_KEY = (
+    "picks.plan_override"  # 프리셋 DB settings_kv: {"date": "YYYY-MM-DD", "info": n, "meme": m}
+)
+RETRY_IN = timedelta(minutes=15)
+
+
+def effective_plan(ctx: JobContext, today) -> SlotPlan:
+    """오늘의 추천 구성: 오늘만 바꾼 값(프리셋 DB)이 있으면 그것, 아니면 작업 공간 설정."""
+    ov = ctx.repo.get_setting(PLAN_OVERRIDE_KEY) or {}
+    if ov and str(ov.get("date")) == today.isoformat():
+        return SlotPlan(int(ov.get("info", 0)), int(ov.get("meme", 0)), "override")
+    w = ctx.config.workspace
+    return SlotPlan(w.info_count, w.meme_count)
+
+
+def _ranked_clusters(ctx: JobContext, store: PicksStore, now) -> list[Cluster]:
     s = ctx.config.settings
-    if not s.picks.enabled and not manual:
-        result.skipped = "추천 모드가 꺼져 있음(설정에서 켜거나 '지금 실행'으로)"
-        return result
-    if ctx.text_generator is None:
-        result.skipped = (
-            ctx.text_generator_reason
-            or "AI 텍스트 공급자 API 키가 없어 생성할 수 없음(설정 → AI 공급자·키)"
-        )
-        return result
-    store = PicksStore(ctx.repo.db, ctx.clock)
-    today = local(now, ctx.tz).date()
-    already = store.count_for_date(today)
-    count = ctx.config.workspace.info_count  # 작업 공간별 추천 구성(S13). 밈 슬롯은 S14
-    need = count - already if not manual else count
-    if need <= 0:
-        result.skipped = f"오늘 추천 {already}건을 이미 만들었음"
-        return result
-
-    # 1) 수집을 먼저(순서 의존). 이미 모은 글은 중복 제거되므로 두 번 돌아도 안전하다
-    collected = run_collect(ctx)
-    result.counts["collected"] = collected.counts.get("new", 0)
-    result.errors.extend(f"수집: {e}" for e in collected.errors)
-
-    # 2) 후보 → 사건 묶음 → 순위
     words = s.collect.exclude_words
     candidates = [
         (item, rel, topic)
@@ -94,37 +96,34 @@ def run_picks(
         t.split(": ", 1)[-1] for t in store.recent_topics_text(now - timedelta(days=RECENT_DAYS))
     ]
     exclude = recent + store.dismissed_fingerprints(now - timedelta(days=DISMISSED_DAYS))
-    ranked = rank_clusters(
-        clusters, exclude, now, s.picks.fresh_hours, ctx.config.workspace.aliases
-    )
-    result.counts["candidates"] = len(ranked)
+    return rank_clusters(clusters, exclude, now, s.picks.fresh_hours, ctx.config.workspace.aliases)
 
-    # 3) 서로 다른 사건을 위에서부터 완성 원고로
-    start, end = local_day_bounds(now, ctx.tz)
-    made: list[str] = []
-    made_tokens: list[
-        set[str]
-    ] = []  # 같은 사건이 다른 주제로 분류돼 두 묶음이 됐어도 한 번만(S11 리뷰)
-    rank = already
-    for cluster in ranked[:MAX_CANDIDATES]:
-        if len(made) >= need:
-            break
+
+def _fill_info_slot(
+    ctx: JobContext,
+    slot: Slot,
+    ranked: list[Cluster],
+    made_tokens: list[set[str]],
+    store: PicksStore,
+    result: JobResult,
+    fetch_photo: PhotoFetcher,
+    now,
+) -> tuple[str, str]:
+    """정보 슬롯 하나를 채운다. 돌려주는 값: (결과, 이유). 결과 ∈ made | empty | retry | skip_all."""
+    s = ctx.config.settings
+    tried = 0
+    while ranked and tried < MAX_CANDIDATES:
+        cluster = ranked.pop(0)
+        tried += 1
         if any(jaccard(cluster.tokens, t) >= SAME_EVENT_JACCARD for t in made_tokens):
             continue
-        spent = ctx.spent_between(start, end)
-        if not under_cost_cap(spent, s.daily_cost_cap_usd):
-            result.counts["cost_cap_hit"] = True
-            result.counts["reason"] = f"비용 상한 ${s.daily_cost_cap_usd:.2f} 도달"
-            break
         chosen = cluster.sorted_items()[:SOURCES_PER_CONTENT]
         d = build_draft(ctx, (cluster.topic, chosen), result, with_background=False)
         if d == _RETRY_LATER:
-            result.counts["reason"] = "AI API 장애로 중단(다음 실행에 다시)"
-            break
+            return "retry", "AI API 장애로 중단(다음 실행에 다시)"
         if d == _SKIP_MATERIAL or isinstance(d, str):
             continue
         fresh = freshness(cluster.published_at, now, s.picks.fresh_hours)
-        rank += 1
         content = Content(
             id=new_id(),
             status="pending_review",  # 추천은 늘 사람이 고른다
@@ -136,33 +135,195 @@ def run_picks(
         )
         pick = Pick(
             content_id=content.id,
-            run_date=today,
-            rank=rank,
+            run_date=slot.run_date,
+            rank=slot.slot_no,
             reason=_reason(cluster, fresh),
             freshness=fresh,
             published_at=cluster.published_at,
             title_fingerprint=cluster.fingerprint,
+            kind="info",
+            slot_key=slot.key,
         )
-        store.save(content, persona_topic=cluster.topic, item_ids=d.item_ids, pick=pick)
-        made.append(content.id)
+        store.save(
+            content, persona_topic=cluster.topic, item_ids=d.item_ids, pick=pick, slot_stage="ready"
+        )
         made_tokens.append(cluster.tokens)
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
             _attach_photo(ctx, store, content.id, chosen[0][0].url, fetch_photo)
+        return "made", ""
+    return "empty", "쓸 만한 새 자료가 없음" if not ranked else "서로 다른 소재가 모자람"
 
-    result.counts["made"] = len(made)
-    if len(made) < need and "reason" not in result.counts:
-        result.counts["reason"] = (
-            "쓸 만한 새 자료가 없음" if not ranked else f"서로 다른 소재가 {len(ranked)}개뿐"
+
+def run_picks(
+    ctx: JobContext,
+    manual: bool = False,
+    fetch_photo: PhotoFetcher = fetch_photo_candidate,
+    retry_only: bool = False,
+) -> JobResult:
+    """오늘의 추천(S14: 슬롯 기반). retry_only=True면 계획·수집 없이 재시도 시각이 된 슬롯만 채운다."""
+    result = JobResult("picks" if not retry_only else "slots_retry")
+    now = ctx.clock.now()
+    ok, why = should_act(now, ctx.config.persona, ctx.tz)
+    if not ok:
+        result.skipped = why
+        return result
+    s = ctx.config.settings
+    if not s.picks.enabled and not manual and not retry_only:
+        result.skipped = "추천 모드가 꺼져 있음(설정에서 켜거나 '지금 실행'으로)"
+        return result
+    if ctx.text_generator is None:
+        result.skipped = (
+            ctx.text_generator_reason
+            or "AI 텍스트 공급자 API 키가 없어 생성할 수 없음(설정 → AI 공급자·키)"
         )
-    if made:
+        return result
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    slots = SlotStore(ctx.repo.db, ctx.clock)
+    preset = s.preset
+    today = local(now, ctx.tz).date()
+    run_id = new_id()
+
+    if retry_only:
+        due = slots.due(now, preset)
+        if not due:
+            result.skipped = "다시 시도할 슬롯이 없음"
+            return result
+        dates = sorted({d.run_date for d in due})
+    else:
+        plan = effective_plan(ctx, today)
+        if plan.total <= 0:
+            result.skipped = "추천 개수가 0(설정에서 정보·밈 추천 수를 정하세요)"
+            return result
+        planned = slots.plan(today, plan.info, plan.meme, preset)
+        result.counts["planned_info"], result.counts["planned_meme"] = plan.info, plan.meme
+        if planned["cancelled"]:
+            result.counts["cancelled"] = planned["cancelled"]
+        pending = [x for x in slots.list_for_date(today) if x.stage == "planned"]
+        if not pending:
+            result.skipped = (
+                "오늘 슬롯이 모두 찼음(정보·밈 계획만큼 이미 만들었거나 실패·비어 있음)"
+            )
+            return result
+        # 1) 수집을 먼저(순서 의존). 이미 모은 글은 중복 제거되므로 두 번 돌아도 안전하다
+        collected = run_collect(ctx)
+        result.counts["collected"] = collected.counts.get("new", 0)
+        result.errors.extend(f"수집: {e}" for e in collected.errors)
+        dates = [today]
+
+    ranked = _ranked_clusters(ctx, store, now)
+    total_ranked = len(ranked)
+    result.counts["candidates"] = total_ranked
+    info_titles = [c.sorted_items()[0][0].title for c in ranked[:10]]
+    made_tokens: list[set[str]] = []
+    start, end = local_day_bounds(now, ctx.tz)
+    made = {"info": 0, "meme": 0}
+    failed = empty = 0
+    stop_reason = ""
+
+    def over_cap() -> bool:
+        if under_cost_cap(ctx.spent_between(start, end), s.daily_cost_cap_usd):
+            return False
+        result.counts["cost_cap_hit"] = True
+        return True
+
+    for run_date in dates:
+        for kind in ("info", "meme"):
+            while not stop_reason:
+                if over_cap():
+                    stop_reason = f"비용 상한 ${s.daily_cost_cap_usd:.2f} 도달"
+                    break
+                slot = slots.claim(run_date, kind, run_id, now)
+                if slot is None:
+                    break
+                outcome, reason = _fill_slot(
+                    ctx,
+                    slot,
+                    kind,
+                    ranked,
+                    made_tokens,
+                    store,
+                    slots,
+                    result,
+                    fetch_photo,
+                    now,
+                    info_titles,
+                )
+                if outcome == "made":
+                    made[slot.actual_kind or kind] += 1
+                elif outcome == "retry":
+                    slots.fail(slot, "failed_text", reason, RETRY_IN)
+                    failed += 1
+                    stop_reason = reason
+                elif outcome == "failed":
+                    slots.fail(slot, "failed_text", reason, RETRY_IN)
+                    failed += 1
+                else:  # empty
+                    empty += 1
+                    if ctx.config.workspace.allow_substitute:
+                        other = "meme" if kind == "info" else "info"
+                        alt, alt_reason = _fill_slot(
+                            ctx,
+                            slot,
+                            other,
+                            ranked,
+                            made_tokens,
+                            store,
+                            slots,
+                            result,
+                            fetch_photo,
+                            now,
+                            info_titles,
+                        )
+                        if alt == "made":
+                            made[other] += 1
+                            empty -= 1
+                            continue
+                    slots.set_stage(slot, "empty", error=reason)
+                    break  # 이 종류는 더 못 채운다
+
+    result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
+    result.counts["made"] = made["info"] + made["meme"]
+    if failed:
+        result.counts["failed"] = failed
+    if empty:
+        result.counts["empty"] = empty
+    if stop_reason:
+        result.counts["reason"] = stop_reason
+    elif empty and "reason" not in result.counts:
+        result.counts["reason"] = (
+            "쓸 만한 새 자료가 없음" if not total_ranked else f"서로 다른 소재가 {total_ranked}개뿐"
+        )
+    if result.counts["made"]:
         ctx.notifier.notify(
             "오늘의 추천",
-            f"최근 소식으로 원고 {len(made)}건을 추천합니다. 오늘 화면에서 고르세요",
+            f"원고 {result.counts['made']}건(정보 {made['info']}·밈 {made['meme']})을 추천합니다. 오늘 화면에서 고르세요",
             "info",
         )
-    result.ok = not (result.errors and not made)
+    result.ok = not (result.errors and not result.counts["made"])
     return result
+
+
+def _fill_slot(
+    ctx, slot, kind, ranked, made_tokens, store, slots, result, fetch_photo, now, info_titles
+) -> tuple[str, str]:
+    """종류에 따라 정보/밈 경로로. 돌려주는 값: (made|empty|failed|retry, 이유)."""
+    if kind == "info":
+        return _fill_info_slot(ctx, slot, ranked, made_tokens, store, result, fetch_photo, now)
+    writer = ctx.scenario_writer
+    if writer is None:
+        return "failed", "밈 대본을 쓸 공급자가 없음(OpenAI 또는 Claude 키)"
+    out = run_meme_slot(ctx, slot, writer, store, slots, info_titles)
+    if out.ok:
+        return "made", ""
+    if out.retry_later:
+        return "retry", out.reason
+    return ("empty" if "겹침" in out.reason else "failed"), out.reason
+
+
+def run_slots_retry(ctx: JobContext) -> JobResult:
+    """재시도 시각이 된 슬롯만(15분마다). 계획·수집은 하지 않는다."""
+    return run_picks(ctx, retry_only=True)
 
 
 def _attach_photo(

@@ -1,0 +1,55 @@
+{
+  "template": "meme",
+  "brand": {
+    "name": "달빛로스터리",
+    "primary_color": "#F2A541",
+    "accent_color": "#5B8DEF",
+    "logo_path": null
+  },
+  "persona": {
+    "name": "루나",
+    "handle": "@luna.coffee.ai"
+  },
+  "labels": {
+    "virtual_person": true,
+    "ad": false,
+    "ai_generated_image": false,
+    "ai_slides": [
+      0
+    ]
+  },
+  "slides": [
+    {
+      "kind": "comic",
+      "panels": [
+        {
+          "image": {
+            "path": "nsm/templates/samples/panel-a.jpg",
+            "ai": true,
+            "alt": "방 안에서 머그컵을 든 캐릭터"
+          },
+          "label": "카페 알바 루나\n월급 225만원",
+          "bubble": "시러~",
+          "bubble_side": "right",
+          "scene": "소박한 방, 머그컵을 들고 시무룩"
+        },
+        {
+          "image": {
+            "path": "nsm/templates/samples/panel-b.jpg",
+            "ai": true,
+            "alt": "야경 앞 소파의 캐릭터"
+          },
+          "label": "현실 루나\n연봉 250억",
+          "bubble": "\"시러~\"는 무슨.",
+          "bubble_side": "left",
+          "scene": "고층 야경 앞 소파, 느긋한 표정"
+        }
+      ]
+    },
+    {
+      "kind": "outro",
+      "cta": "여러분은 어느 쪽이세요?",
+      "sources": []
+    }
+  ]
+}

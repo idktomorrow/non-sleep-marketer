@@ -127,10 +127,11 @@ def test_style_specific_parts() -> None:
     # illust: 표지 캐릭터 1, 마무리 손 흔드는 캐릭터 1. 캐릭터도 가상인물이라 배지가 있는 이 두 장에만(ADR 0043)
     assert illust.count("mascot-stand") == 1 and illust.count("mascot-wave") == 1
     assert "mascot-mini" not in illust
-    # editorial(S10): 사진이 없으면 패널·팔로우 카드 없이 종이색 카드, 형광펜 상자도 없다
+    # editorial(S10·S14): 사진이 없으면 패널·팔로우 카드 없이 종이색 카드, 형광펜 상자도 없다.
+    # 코드로 그린 캐릭터·소품은 더 이상 얹지 않는다(S14: 그림은 사람이 고른 사진·스티커뿐)
     editorial = build_html(deck, "editorial")
     assert "editorial.css" in editorial and '<span class="hl">' not in editorial
-    assert editorial.count('class="kawaii') == 2  # 몽글 캐릭터는 표지·마지막 장에만
+    assert "kawaii" not in editorial and "prop-icon" not in editorial and "<svg" not in editorial
     assert "caption-panel" not in editorial and "follow-card" not in editorial
 
 

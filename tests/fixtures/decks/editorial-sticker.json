@@ -1,0 +1,95 @@
+{
+  "template": "editorial",
+  "brand": {
+    "name": "달빛로스터리",
+    "primary_color": "#1E3A5F",
+    "accent_color": "#F2A541",
+    "logo_path": null
+  },
+  "persona": {
+    "name": "루나",
+    "handle": "@luna.coffee.ai"
+  },
+  "labels": {
+    "virtual_person": true,
+    "ad": false,
+    "ai_generated_image": false,
+    "ai_slides": [
+      1,
+      2
+    ]
+  },
+  "slides": [
+    {
+      "kind": "cover",
+      "title": "이런 비행기 아니면\n타기도 싫다",
+      "subtitle": "달빛로스터리 × 구름항공 콜라보 총정리",
+      "background": "nsm/templates/samples/sample-photo.jpg"
+    },
+    {
+      "kind": "body",
+      "heading": "기내 한정 굿즈 3종",
+      "body": "머그컵, 드립백 세트, 여권 케이스가 10월 23일부터 공항 매장과 온라인몰에 순차 출시됩니다.",
+      "bullets": [
+        "1인 2개까지 구매",
+        "온라인은 오전 10시 오픈"
+      ],
+      "background": null,
+      "sticker": {
+        "path": "nsm/templates/samples/sticker.png",
+        "ai": true,
+        "alt": "보조 캐릭터"
+      }
+    },
+    {
+      "kind": "comic",
+      "panels": [
+        {
+          "image": {
+            "path": "nsm/templates/samples/panel-a.jpg",
+            "ai": true
+          },
+          "label": "출시 전",
+          "bubble": "언제 나와…",
+          "bubble_side": "right"
+        },
+        {
+          "image": {
+            "path": "nsm/templates/samples/panel-b.jpg",
+            "ai": true
+          },
+          "label": "출시 당일",
+          "bubble": "품절이라고?",
+          "bubble_side": "left"
+        }
+      ]
+    },
+    {
+      "kind": "facts",
+      "heading": "구매처 & 출시 일정",
+      "rows": [
+        {
+          "label": "1차 출시",
+          "value": "10월 23일(금)부터 공항 매장 4곳"
+        },
+        {
+          "label": "온라인",
+          "value": "11월 1일 오전 10시"
+        }
+      ],
+      "background": null,
+      "sticker": {
+        "path": "nsm/templates/samples/sticker.png",
+        "ai": false
+      }
+    },
+    {
+      "kind": "outro",
+      "cta": "저장해 두고 출시일에 확인하세요",
+      "sources": [
+        "https://example.com/cloud-air-collab"
+      ],
+      "background": "nsm/templates/samples/sample-photo.jpg"
+    }
+  ]
+}

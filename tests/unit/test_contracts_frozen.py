@@ -38,13 +38,15 @@ from tests.fakes import (
 )
 
 
-@pytest.mark.parametrize("template", ["info", "list", "compare", "editorial"])
+@pytest.mark.parametrize("template", ["info", "list", "compare", "editorial", "meme"])
 def test_sample_decks_follow_card_deck_contract(fixtures_dir: Path, template: str) -> None:
     deck = CardDeck.model_validate_json(
         (fixtures_dir / "decks" / f"{template}.json").read_text("utf-8")
     )
     assert deck.template == template
-    assert deck.slides[0].kind == "cover"
+    assert deck.slides[0].kind == (
+        "comic" if template == "meme" else "cover"
+    )  # 밈은 만화로 시작(S14)
     assert deck.slides[-1].kind == "outro"
 
 
