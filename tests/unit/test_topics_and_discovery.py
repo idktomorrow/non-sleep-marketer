@@ -78,3 +78,49 @@ def test_metrics_stay_unknown_and_x_platform() -> None:
     s = _s("https://x.com/fan/status/123", "치이카와 트윗", 1)
     assert s.platform == "X" and s.metrics is None and s.to_dict()["metrics"] is None
     assert not s.body_checked
+
+
+def test_author_ignores_mobile_host() -> None:
+    """같은 블로거의 모바일·PC 주소는 한 사람(S16 리뷰: 작성자 수 부풀림)."""
+    assert author_of("https://m.blog.naver.com/U1/2") == author_of("https://blog.naver.com/u1/1")
+    assert author_of("https://twitter.com/abc/status/1") == author_of("https://x.com/abc/status/2")
+
+
+def test_discovery_splits_quota_and_stops_at_limit() -> None:
+    """첫 출처가 상한을 다 쓰지 않고, 상한에 닿으면 남은 요청을 하지 않는다(S16 리뷰)."""
+    from nsm.adapters.drivers.base import Link
+    from nsm.adapters.sources.common import Pacer
+    from nsm.adapters.sources.meme_discovery import MemeDiscovery
+
+    class Driver:
+        def __init__(self) -> None:
+            self.url = ""
+            self.visits: list[str] = []
+
+        def goto(self, url):
+            self.url = url
+            self.visits.append(url)
+
+        def links(self):
+            kind = "blog" if "where=blog" in self.url else "cafe"
+            n = len(self.visits)
+            return [
+                Link(
+                    f"치이카와 밈 모음 {kind} {n}-{i}",
+                    f"https://{kind}.naver.com/u{n}{i}/{n}{i}0",
+                    "",
+                )
+                for i in range(40)
+            ]
+
+    class Clock:
+        def now(self):
+            return datetime(2026, 10, 21, tzinfo=UTC)
+
+    d = Driver()
+    res = MemeDiscovery(d, Clock(), Pacer(0, 0, sleep=lambda s: None), ()).discover(
+        "치이카와", limit=10
+    )
+    platforms = {s.platform for s in res.sightings}
+    assert len(res.sightings) == 10 and len(platforms) == 2  # 블로그·카페가 나눠 가짐
+    assert len(d.visits) == 2  # 출처마다 몫을 채우면 두 번째 검색어는 보내지 않음

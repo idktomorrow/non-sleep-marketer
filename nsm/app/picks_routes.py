@@ -106,19 +106,22 @@ def install_picks_routes(
         for d in {p.run_date for p in picks if p.slot_key}:  # 날짜마다 한 번만 읽는다(S14 리뷰)
             by_key.update({s.key: s for s in store.list_for_date(d)})
         out = []
+        contents = {p.content_id: state.repo.get_content(p.content_id) for p in picks}
+        topics = state.repo.content_topics([cid for cid, c in contents.items() if c is not None])
+        # 출처는 한 번에 읽는다(카드마다 자료 수만큼 조회하던 것, S16 리뷰)
+        src_ids = {
+            cid: list(dict.fromkeys(x.source_item_id for x in c.generated.claims))
+            for cid, c in contents.items()
+            if c is not None
+        }
+        items = state.repo.get_source_items(sorted({i for ids in src_ids.values() for i in ids}))
+        zone = tz()
         for p in picks:
-            c = state.repo.get_content(p.content_id)
+            c = contents[p.content_id]
             if c is not None:
-                v = pick_view(p, c, now, tz(), by_key.get(p.slot_key or ""))
-                v["topic"] = state.repo.content_topic(c.id) or v["plan"].get("topic") or ""
-                v["sources"] = [
-                    s
-                    for s in (
-                        state.repo.get_source_item(i)
-                        for i in dict.fromkeys(x.source_item_id for x in c.generated.claims)
-                    )
-                    if s is not None
-                ][:4]
+                v = pick_view(p, c, now, zone, by_key.get(p.slot_key or ""))
+                v["topic"] = topics.get(c.id) or v["plan"].get("topic") or ""
+                v["sources"] = [items[i] for i in src_ids[c.id] if i in items][:4]
                 out.append(v)
         return out
 

@@ -70,10 +70,17 @@ class MemeDiscovery:
                     re.compile(rf"^https?://{re.escape(host)}/\S*\d{{3,}}"),
                 )
             )
+        # 출처마다 몫을 나눠 첫 출처가 상한을 다 쓰지 않게, 상한에 닿으면 남은 요청은 하지 않는다(S16 리뷰)
+        quota = max(5, limit // max(1, len(targets)))
         for name, url_t, pattern in targets:
             got = 0
             err = ""
+            if len(res.sightings) >= limit:
+                res.access[name] = "건너뜀: 사례 상한에 닿음"
+                continue
             for qt in MEME_QUERIES:
+                if got >= quota or len(res.sightings) >= limit:
+                    break
                 q = qt.format(topic=topic)
                 self.pacer.wait()
                 try:
@@ -84,7 +91,7 @@ class MemeDiscovery:
                     log.warning("밈 탐색 %s 실패(%s): %s", name, q, e)
                     continue
                 for link in links:
-                    if len(res.sightings) >= limit:
+                    if got >= quota or len(res.sightings) >= limit:
                         break
                     href = link.href
                     is_x = bool(X_LINK.match(href))

@@ -52,6 +52,7 @@ class MemeOutcome:
     content_id: str | None = None
     reason: str = ""  # 사람이 읽는 실패·부족 이유
     retry_later: bool = False  # 장애: 슬롯을 planned로 돌리고 나중에
+    needs_character: bool = False  # 주인공·참조가 아직 없음: 그림 작업을 넣지 않는다(S16 리뷰)
     empty: bool = False  # 후보 없음(아이디어가 모두 중복): 재시도하지 않고 빈 슬롯으로
 
 
@@ -136,7 +137,8 @@ def run_meme_slot(
     topic = mc.topic if mc else (ctx.config.persona.topics or [""])[0]
     plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
     cid = new_id()
-    cast = default_cast(ctx, cid)  # 사용자가 고른 기본 주인공·보조만(없으면 None)
+    # 사용자가 고른 기본 주인공·보조만(없으면 None). 참조 복사는 원고를 저장할 때만(실패 시 고아 폴더 방지, S16 리뷰)
+    cast = default_cast(ctx, cid, copy=False)
     req = meme_request(ctx, plans, topic, cast.hero, mc)
     try:
         ideas = writer.propose_meme_ideas(req)
@@ -145,7 +147,8 @@ def run_meme_slot(
     except Exception as e:  # noqa: BLE001  장애: 나중에
         return MemeOutcome(False, reason=f"AI API 장애: {e}", retry_later=True)
     # 모델이 "최근 밈과 의미상 같다"고 한 것은 빼고, 토큰 겹침은 보조 신호로 한 번 더
-    fresh = [i for i in ideas if i.same_as_recent < 0]
+    # 번호가 실제 최근 목록 안일 때만 중복으로 본다(최근 밈이 없는데 0을 내는 경우 등, S16 리뷰)
+    fresh = [i for i in ideas if not (0 <= i.same_as_recent < len(req.recent))]
     idea = pick_idea(fresh, _recent_fingerprints(plans))
     if idea is None:
         return MemeOutcome(False, reason="밈 아이디어가 모두 최근 것과 같은 농담", empty=True)
@@ -181,13 +184,9 @@ def run_meme_slot(
             f"정보 소재와 겹침 {int(overlap * 100)}%(검토 참고)"
         )  # 자동 제외는 하지 않는다
 
-    # 출연진: 고른 주인공이 있으면 그것(참조 복사본), 없으면 대본이 제안한 주인공을 "참조 필요" 상태로
-    hero = cast.hero or (
-        CharacterRef(kind="content", name=script.suggested_character or topic, references=())
-        if script.suggested_character or topic
-        else None
-    )
-    final_cast = Cast(hero=hero, sidekick=cast.sidekick)
+    # 출연진: 고른 주인공·보조만 저장한다. 고르지 않았으면 대본의 제안(suggested_character)은 계획에만 남기고
+    # 출연진으로 만들지 않는다(사용자가 고르지 않은 주인공 금지, S16 리뷰)
+    final_cast = default_cast(ctx, cid) if (cast.hero or cast.sidekick) else Cast()
     content = Content(
         id=cid,
         status="pending_review",
@@ -221,14 +220,17 @@ def run_meme_slot(
     ProductionStore(ctx.repo.db, ctx.clock).set_cast(
         cid, final_cast.to_json(), ctx.config.settings.preset
     )
+    hero = final_cast.hero
     if hero is None or not hero.references:
         sl = slots.get(slot.run_date, slot.requested_kind, slot.slot_no)
         if sl is not None:
             slots.set_stage(
                 sl,
                 "images_pending",
-                error=f"대본 완성. 그림 전에 주인공 캐릭터와 참조 이미지를 고르세요(제안: {hero.name if hero else '-'})",
+                error="대본 완성. 그림 전에 주인공 캐릭터와 참조 이미지를 고르세요"
+                f"(제안: {script.suggested_character or '-'})",
             )
+        return MemeOutcome(True, content_id=cid, needs_character=True)
     return MemeOutcome(True, content_id=cid)
 
 
@@ -252,6 +254,7 @@ def _plan_json(idea: MemeIdea, script, topic, category, basis, mc, cast) -> str:
                 "name": cast.hero.name if cast.hero else "",
                 "kind": cast.hero.kind if cast.hero else "",
                 "references": len(cast.hero.references) if cast.hero else 0,
+                "chosen": cast.hero is not None,
                 "suggested": script.suggested_character,
             },
             "panels": [

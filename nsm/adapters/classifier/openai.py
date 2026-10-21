@@ -60,6 +60,7 @@ class OpenAIClassifier:
         effort: str = "low",
     ) -> None:
         self._gen = OpenAITextGenerator(client, model, cost_sink, effort=effort)
+        self._gen.cost_kind = "classifier"  # 글 생성(llm)이 아니라 자료 분류로 기록
         self.model = model
 
     def classify(self, text: str, labels: list[str], instruction: str) -> Classification:

@@ -240,7 +240,10 @@ def test_meme_request_uses_topic_material_not_persona(ctx) -> None:  # noqa: F81
     from nsm.engine.production import enqueue_production
 
     r = enqueue_production(ctx, meme.content_id)
-    assert r.queued == [] and "참조" in r.problems["s0.panel0"]  # 임의 캐릭터로 대체하지 않는다
+    problem = r.problems["s0.panel0"]
+    assert r.queued == [] and (
+        "참조" in problem or "정해지지" in problem
+    )  # 임의 캐릭터로 대체하지 않는다
 
 
 def test_selected_hero_is_used_and_copied(ctx, tmp_path) -> None:  # noqa: F811
@@ -267,8 +270,18 @@ def test_selected_hero_is_used_and_copied(ctx, tmp_path) -> None:  # noqa: F811
     )
 
 
-def test_model_marked_same_joke_is_dropped_and_discovery_failure_still_creates(ctx) -> None:  # noqa: F811
+def test_model_marked_same_joke_is_dropped_and_discovery_failure_still_creates(
+    ctx,  # noqa: F811
+    monkeypatch,
+) -> None:
     from nsm.ports import MemeIdea
+
+    # 최근 밈 하나(0번)가 있을 때만 "0번과 같다"가 유효하다(S16 리뷰: 범위 밖 번호는 중복으로 보지 않음)
+    monkeypatch.setattr(
+        SlotStore,
+        "recent_meme_plans",
+        lambda self, since: [{"situation": "옛 농담", "punchline": "옛 반전"}],
+    )
 
     class Broken:
         def discover(self, topic):
@@ -386,3 +399,39 @@ def test_keyword_classifier_does_not_judge_same_event(ctx) -> None:  # noqa: F81
     ctx.classifier_name = "keyword"
     _workspace(ctx, info_count=2, meme_count=0)
     assert run_picks(ctx, fetch_photo=_fake_photo).counts["made_info"] == 2
+
+
+def test_same_as_recent_out_of_range_is_not_a_duplicate(ctx) -> None:  # noqa: F811
+    """최근 밈이 없는데 모델이 0을 내도 아이디어를 버리지 않는다(S16 리뷰)."""
+    from nsm.ports import MemeIdea
+
+    _workspace(ctx, info_count=0, meme_count=1)
+    ctx.scenario_writer = FakeScenarioWriter(ideas=[MemeIdea("첫 밈", "a vs b", "반전", "", (), 0)])
+    assert run_picks(ctx, fetch_photo=_fake_photo).counts["made_meme"] == 1
+
+
+def test_unchosen_hero_is_not_saved_as_cast_and_full_mode_does_not_enqueue(ctx) -> None:  # noqa: F811
+    """고르지 않은 주인공(대본 제안)을 출연진으로 저장하지 않고, 완성본 모드여도 그림 작업을 넣지 않는다(S16 리뷰)."""
+    from nsm.store.production import ProductionStore
+
+    _workspace(ctx, info_count=0, meme_count=1, production_mode="full")
+    ctx.scenario_writer = FakeScenarioWriter()
+    run_picks(ctx, fetch_photo=_fake_photo)
+    meme = next(x for x in PicksStore(ctx.repo.db, ctx.clock).list() if x.kind == "meme")
+    sl = SlotStore(ctx.repo.db, ctx.clock).by_content(meme.content_id)
+    assert sl.stage == "images_pending" and "고르세요" in sl.last_error
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    assert prod.jobs_for(meme.content_id) == []
+    import json
+
+    cast_json, _ = prod.get_production(meme.content_id)
+    assert cast_json is None or json.loads(cast_json).get("hero") is None
+
+
+def test_meme_topic_does_not_count_for_post_rotation(ctx) -> None:  # noqa: F811
+    """밈 원고의 주제는 일반 원고 주제 순환(persona_topic_last_used)에 세지 않는다(S16 리뷰)."""
+    _workspace(ctx, info_count=0, meme_count=1)
+    ctx.scenario_writer = FakeScenarioWriter()
+    run_picks(ctx, fetch_photo=_fake_photo)
+    assert ctx.repo.topic_last_used("meme")
+    assert ctx.repo.persona_topic_last_used() == {}

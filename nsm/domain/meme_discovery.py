@@ -46,7 +46,14 @@ def author_of(url: str) -> str:
     """같은 사람의 글을 한 번만 세려고: 블로그·카페·X는 경로 첫 칸이 작성자(또는 카페) id."""
     parts = urlsplit(url)
     first = parts.path.strip("/").split("/")[0] if parts.path.strip("/") else ""
-    return f"{parts.netloc.lower()}/{first}"
+    # 모바일·www 주소도 같은 사람(m.blog.naver.com/u1 == blog.naver.com/u1, S16 리뷰)
+    host = parts.netloc.lower()
+    for prefix in ("m.", "mobile.", "www."):
+        if host.startswith(prefix):
+            host = host[len(prefix) :]
+    if host == "twitter.com":
+        host = "x.com"
+    return f"{host}/{first.lower()}"
 
 
 @dataclass

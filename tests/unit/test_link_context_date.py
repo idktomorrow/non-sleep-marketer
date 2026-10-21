@@ -26,6 +26,10 @@ HTML = """
   <li><div class="item"><div class="body"><div class="title">
     <a id="a3" href="https://x.example/3">날짜 표기가 없는 결과</a></div></div></div></li>
 </ul>
+<div class="group">
+  <div><span>5시간 전</span></div><div><a id="b1" href="https://a.example/1">이웃 결과의 제목 링크</a></div>
+  <div><span>3일 전</span></div><div><a id="b2" href="https://a.example/2">두 결과가 한 칸에 든 경우</a></div>
+</div>
 """
 
 
@@ -40,7 +44,7 @@ def test_each_link_gets_its_own_item_date() -> None:
                 i: page.evaluate(
                     f"(sel) => ({LINK_CONTEXT_JS.strip()})(document.querySelector(sel))", f"#{i}"
                 )
-                for i in ("a1", "a2", "a3")
+                for i in ("a1", "a2", "a3", "b1")
             }
             browser.close()
     except Exception as e:  # noqa: BLE001  브라우저가 없는 환경
@@ -49,3 +53,6 @@ def test_each_link_gets_its_own_item_date() -> None:
     assert parse_naver_date(ctx["a1"], now) == now - timedelta(hours=2)
     assert parse_naver_date(ctx["a2"], now) == now - timedelta(days=1)  # 옆 항목 날짜를 빌리지 않음
     assert parse_naver_date(ctx["a3"], now) is None  # 목록(UL)을 넘어 다른 항목까지 올라가지 않음
+    assert (
+        parse_naver_date(ctx["b1"], now) is None
+    )  # 날짜가 둘인 칸(이웃 결과 포함)에서는 빌리지 않음

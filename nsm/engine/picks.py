@@ -391,7 +391,12 @@ def _fill_slot(
     )
     out = run_meme_slot(ctx, slot, writer, store, slots, info_titles, mc)
     if out.ok:
-        if ctx.config.workspace.production_mode == "full" and out.content_id:
+        # 주인공·참조가 없으면 그림 작업을 넣지 않는다: "캐릭터를 고르세요" 안내를 실패로 덮지 않게(S16 리뷰)
+        if (
+            ctx.config.workspace.production_mode == "full"
+            and out.content_id
+            and not out.needs_character
+        ):
             # 완성본 모드(S15): 대본까지 만들었으면 그림 작업을 넣는다(예산은 images 잡이 장마다 확인)
             from nsm.engine.production import enqueue_production
 

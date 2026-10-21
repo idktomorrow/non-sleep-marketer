@@ -63,6 +63,7 @@ class TransientError(Exception):
 
 class OpenAITextGenerator:
     provider = "openai"
+    cost_kind = "llm"  # 비용 원장 종류. 분류기로 쓸 때는 "classifier"(S16 리뷰)
 
     def __init__(
         self,
@@ -104,7 +105,7 @@ class OpenAITextGenerator:
 
     def _call(self, ref: str, body: dict[str, Any], estimate: float) -> dict[str, Any]:
         ledger = self.cost_sink if isinstance(self.cost_sink, CostLedger) else None
-        rid = ledger.reserve("llm", "openai", estimate, ref, self.model) if ledger else ""
+        rid = ledger.reserve(self.cost_kind, "openai", estimate, ref, self.model) if ledger else ""
         try:
             out = self._post_once(body)
         except OpenAIError as e:
@@ -113,7 +114,7 @@ class OpenAITextGenerator:
             # 텍스트는 글만 다시 받으면 되니 1회만 다시 보낸다. 첫 요청 비용은 미확인으로 남긴다
             if ledger:
                 ledger.mark_unknown(rid, e.request_id)
-                rid = ledger.reserve("llm", "openai", estimate, ref + ":retry", self.model)
+                rid = ledger.reserve(self.cost_kind, "openai", estimate, ref + ":retry", self.model)
             try:
                 out = self._post_once(body)
             except OpenAIError as e2:
@@ -133,7 +134,7 @@ class OpenAITextGenerator:
                 request_id=str(out.get("_request_id") or ""),
             )
         elif self.cost_sink:
-            self.cost_sink.record_cost("llm", "openai", usd, ref)
+            self.cost_sink.record_cost(self.cost_kind, "openai", usd, ref)
         return out
 
     def _post_once(self, body: dict[str, Any]) -> dict[str, Any]:

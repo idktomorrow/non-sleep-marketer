@@ -56,7 +56,7 @@ def test_batches_and_maps_labels_with_strict_schema_and_cost() -> None:
         "relevant",
         "irrelevant",
     ]
-    assert sink.records  # 비용 기록
+    assert sink.records and all(r[0] == "classifier" for r in sink.records)  # 분류 비용으로 기록
 
 
 def test_missing_item_or_unknown_label_raises() -> None:

@@ -440,6 +440,25 @@ class Repository:
         if changed == 0:
             raise InvalidTransitionError("승인하려던 판이 아닙니다(그 사이 원고나 그림이 바뀜)")
 
+    def get_source_items(self, ids: list[str]) -> dict[str, SourceItem]:
+        """여러 자료를 한 번에(추천 화면 N+1 방지, S16 리뷰)."""
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items WHERE id IN ({marks})", list(ids)
+        )
+        return {i.id: i for i in (self._row_to_item(r) for r in rows)}
+
+    def content_topics(self, ids: list[str]) -> dict[str, str]:
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        rows = self.db.execute(
+            f"SELECT id, persona_topic FROM contents WHERE id IN ({marks})", list(ids)
+        )
+        return {r[0]: r[1] for r in rows if r[1]}
+
     def content_topic(self, content_id: str) -> str | None:
         rows = self.db.execute("SELECT persona_topic FROM contents WHERE id = ?", [content_id])
         return rows[0][0] if rows else None
@@ -480,7 +499,10 @@ class Repository:
     def persona_topic_last_used(self) -> dict[str, datetime]:
         rows = self.db.execute(
             "SELECT persona_topic, max(created_at) FROM contents "
-            "WHERE persona_topic IS NOT NULL GROUP BY persona_topic"
+            "WHERE persona_topic IS NOT NULL "
+            # 밈 원고는 정보 원고 주제 순환에 세지 않는다(S16 리뷰: 밈이 그 주제를 '최근에 다룸'으로 만들던 것)
+            "AND id NOT IN (SELECT content_id FROM picks WHERE kind = 'meme') "
+            "GROUP BY persona_topic"
         )
         return {r[0]: from_db(r[1]) for r in rows}  # type: ignore[misc]
 
