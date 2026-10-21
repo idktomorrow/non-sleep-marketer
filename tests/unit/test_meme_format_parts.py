@@ -189,7 +189,7 @@ def test_plan_parser_clamps_drops_empty_and_rejects_unknown_key() -> None:
     plan = format_plan_from_output(_out(), _req())
     assert [o.kind for o in plan.overlays] == ["bubble", "caption"]
     assert (
-        plan.overlays[0].x == 100 and plan.overlays[1].tail_x is None
+        plan.overlays[0].x + plan.overlays[0].w <= 100 and plan.overlays[1].tail_x is None
     )  # 말풍선 아닌 것은 꼬리 없음
     assert [r.key for r in plan.ranking] == ["this-is-fine"] and plan.ranking[0].score == 10
     with pytest.raises(AdapterError):
@@ -227,7 +227,7 @@ def test_meme_image_renders_with_tail_toward_speaker(app_config, tmp_path) -> No
     try:
         paths = r.render(deck, tmp_path / "out")
         assert len(paths) == 1 and r.last_overflow == []
-        # 장 밖으로 나간 글자는 줄여도 안 되면 넘침으로 알린다(잘린 카드를 올리지 않게)
+        # 장 밖으로 나간 글자는 줄여도 안 되면 넘침으로 알린다(잘린 카드를 올리지 않게; 계획 검증을 거치지 않은 덱)
         far = s.overlays[0].model_copy(update={"x": 100.0, "w": 60.0})
         bad = deck.model_copy(update={"slides": [s.model_copy(update={"overlays": [far]})]})
         r.render(bad, tmp_path / "bad")

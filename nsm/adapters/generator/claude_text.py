@@ -156,11 +156,11 @@ class ClaudeTextGenerator:
 
     # ------------------------------------------------------------------ ScenarioWriter(S14)
     def _meme_call(
-        self, ref: str, system: str, user: str, schema: dict[str, Any]
+        self, ref: str, system: str, user: str, schema: dict[str, Any], max_tokens: int = 4000
     ) -> dict[str, Any]:
         raw = self._call(
             ref,
-            max_tokens=4000,
+            max_tokens=max_tokens,
             system=system,
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
             messages=[{"role": "user", "content": user}],
@@ -188,7 +188,11 @@ class ClaudeTextGenerator:
     def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan:
         """유명·유행 밈 형식 하나를 골라 구도·연출·레이아웃까지 재해석(S17 제안, ADR 0061)."""
         out = self._meme_call(
-            "meme:format", meme_format_system(req), meme_format_user(req), MEME_FORMAT_SCHEMA
+            "meme:format",
+            meme_format_system(req),
+            meme_format_user(req),
+            MEME_FORMAT_SCHEMA,
+            max_tokens=8000,  # 후보 점수·캡션·장면·글자 자리까지라 2컷 대본보다 길다(S17 리뷰)
         )
         try:
             return format_plan_from_output(out, req)

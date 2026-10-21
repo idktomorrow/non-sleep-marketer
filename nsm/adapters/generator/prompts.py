@@ -783,13 +783,20 @@ def format_plan_from_output(out: dict[str, Any], req: MemeFormatRequest) -> Meme
     def clamp(v, lo=0.0, hi=100.0):
         return None if v is None else max(lo, min(hi, float(v)))
 
+    def box(o) -> tuple[float, float, float]:
+        """장 안에 들어오게: 너비 8~96%, 왼쪽은 오른쪽 끝이 장 안이 되게, 위쪽은 92% 이하(S17 리뷰)."""
+        w = min(96.0, max(8.0, clamp(o["w"]) or 40.0))
+        x = min(clamp(o["x"]) or 0.0, 100.0 - w)
+        y = min(clamp(o["y"]) or 0.0, 92.0)
+        return x, y, w
+
     overlays = tuple(
         MemeOverlaySpec(
             kind=o["kind"],
             text=str(o["text"]).strip()[:60],
-            x=clamp(o["x"]) or 0.0,
-            y=clamp(o["y"]) or 0.0,
-            w=max(8.0, clamp(o["w"]) or 40.0),
+            x=box(o)[0],
+            y=box(o)[1],
+            w=box(o)[2],
             align=o.get("align", "center"),
             size=o.get("size", "m"),
             tail_x=clamp(o.get("tail_x")) if o["kind"] == "bubble" else None,

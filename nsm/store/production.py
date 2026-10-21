@@ -129,6 +129,22 @@ class ProductionStore:
             [cid, json.dumps(scenes, ensure_ascii=False), self._now()],
         )
 
+    def clear_scene(self, cid: str, target: str) -> None:
+        """장면 지시 덮어쓰기 지우기(다른 밈으로 다시 만들 때 예전 장면이 이기지 않게, S17 리뷰)."""
+        _cast, scenes = self.get_production(cid)
+        if scenes.pop(target, None) is not None:
+            self.db.execute(
+                "UPDATE content_production SET scenes_json = ?, updated_at = ? WHERE content_id = ?",
+                [json.dumps(scenes, ensure_ascii=False), self._now(), cid],
+            )
+
+    def archive_active(self, cid: str, target: str) -> None:
+        """지금 쓰는 그림을 후보로 내린다(다른 밈으로 다시 만들면 예전 그림이 남지 않게, S17 리뷰)."""
+        self.db.execute(
+            "UPDATE content_images SET state = 'archived' WHERE content_id = ? AND target = ? AND state = 'active'",
+            [cid, target],
+        )
+
     # ------------------------------------------------------------ 작업
     @staticmethod
     def _job(r: tuple) -> ImageJob:

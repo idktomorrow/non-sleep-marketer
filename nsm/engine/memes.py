@@ -35,6 +35,7 @@ from nsm.engine.context import JobContext
 from nsm.ports import (
     AdapterError,
     MemeExample,
+    MemeFormatPlanner,
     MemeFormatRequest,
     MemeIdea,
     MemeRequest,
@@ -143,8 +144,8 @@ def run_meme_slot(
 
     S17: 밈 형식 탐색이 있으면 유명·유행 밈을 골라 구도·레이아웃까지 재해석한 한 장(기본). 형식 후보를 하나도
     못 찾았을 때만 예전 2컷 대본 경로로 간다."""
-    if getattr(ctx, "meme_formats", None) is not None and hasattr(writer, "plan_meme_format"):
-        out = run_format_meme(ctx, slot, writer, store, slots, mc)
+    if getattr(ctx, "meme_formats", None) is not None and isinstance(writer, MemeFormatPlanner):
+        out = run_format_meme(ctx, slot, writer, store, slots, mc, info_titles)
         if out is not None:
             return out
     from nsm.engine.production import default_cast
@@ -306,7 +307,6 @@ def discover_for(ctx: JobContext, topic: str) -> MemeContext:
 
 # ---------------------------------------------------------------- 밈 형식 재해석(S17 제안, ADR 0061)
 
-ERA_CATEGORY = {"recent": "A", "classic": "B", "local": "C"}
 MAX_FORMATS = 10
 
 
@@ -364,6 +364,31 @@ def _host(src: str) -> str:
     return (h[4:] if h.startswith("www.") else h) or src[:30]
 
 
+def format_reasons(ctx, plan, cand, topic, gen, persona, info_titles=None) -> list[str]:
+    """검토 사유: 2컷 경로와 같은 검사(규칙·금칙어·사실 신호·정보 겹침)를 한 장 밈에도(S17 리뷰)."""
+    from nsm.domain.meme_policy import fact_signals_in, text_overlap
+
+    texts = [plan.caption, plan.threads_text, *(o.text for o in plan.overlays)]
+    reasons = [f"오늘의 추천(밈 · {cand.title} 재해석 · 주제 {topic})"]
+    reasons += rule_violations(gen, persona)
+    reasons += fact_signals_in(texts, bool(plan.claims))
+    banned = find_banned(texts, persona)
+    if banned:
+        reasons.append(f"금칙어: {', '.join(banned)}")
+    overlap = text_overlap(
+        f"{plan.reinterpretation} {' '.join(o.text for o in plan.overlays)}",
+        info_titles or [],
+        ctx.config.workspace.aliases,
+    )
+    if overlap >= 0.5:
+        reasons.append(f"정보 소재와 겹침 {int(overlap * 100)}%(검토 참고)")
+    return reasons
+
+
+def pick_reason(cand, topic, plan) -> str:
+    return f"밈 · '{cand.title}' 재해석 · 주제 '{topic}' · {plan.why[:120]}"
+
+
 def build_format_content(ctx, plan, cand, topic, hero, persona, hook_sources):
     small, lines = _credits(hero, cand)
     return meme_format_content(
@@ -376,7 +401,8 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
     return {
         "mode": "format",
         "topic": topic,
-        "category": ERA_CATEGORY.get(cand.era, "C"),
+        # 형식 재해석은 사례 탐색 분류(A~D)와 다른 축이라 category를 두지 않고 시기만 남긴다(S17 리뷰)
+        "era": cand.era,
         "category_label": {
             "recent": "최근 확산 밈",
             "classic": "유명 형식 밈",
@@ -451,6 +477,7 @@ def run_format_meme(
     store: PicksStore,
     slots: SlotStore,
     mc: MemeContext | None,
+    info_titles: list[str] | None = None,
 ) -> MemeOutcome | None:
     """밈 형식을 골라 한 장을 기획·저장한다. 형식 후보가 없으면 None(호출자가 2컷 경로로)."""
     from nsm.engine.production import default_cast
@@ -481,13 +508,7 @@ def run_format_meme(
     except Exception as e:  # noqa: BLE001  계약에 안 맞는 계획(좌표 등)
         return MemeOutcome(False, reason=f"밈 형식 계획이 카드 계약에 맞지 않음: {str(e)[:160]}")
     access = {**(mc.access if mc else {}), **fd.access}
-    reasons = [f"오늘의 추천(밈 · {cand.title} 재해석 · 주제 {topic})"]
-    reasons += rule_violations(gen, persona)
-    banned = find_banned(
-        [plan.caption, plan.threads_text, *(o.text for o in plan.overlays)], persona
-    )
-    if banned:
-        reasons.append(f"금칙어: {', '.join(banned)}")
+    reasons = format_reasons(ctx, plan, cand, topic, gen, persona, info_titles)
     content = Content(
         id=cid,
         status="pending_review",
@@ -501,7 +522,7 @@ def run_format_meme(
         content_id=cid,
         run_date=slot.run_date,
         rank=slot.slot_no,
-        reason=f"밈 · '{cand.title}' 재해석 · 주제 '{topic}' · {plan.why[:120]}",
+        reason=pick_reason(cand, topic, plan),
         freshness="unknown",
         title_fingerprint=f"format:{cand.key}:{topic}",
         kind="meme",
@@ -549,7 +570,7 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
     c = ctx.repo.get_content(cid)
     sl = slots.by_content(cid)
     writer = ctx.scenario_writer
-    if c is None or sl is None or writer is None or not hasattr(writer, "plan_meme_format"):
+    if c is None or sl is None or writer is None or not isinstance(writer, MemeFormatPlanner):
         raise AdapterError("다시 만들 수 있는 밈 원고가 아닙니다")
     fd = discover_formats(ctx)
     if key not in {x.key for x in fd.candidates}:
@@ -569,7 +590,13 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
     persona = ctx.config.persona.model_copy(update={"tone": req.tone})
     gen = build_format_content(ctx, plan, cand, topic, cast.hero, persona, hook_sources)
     ctx.repo.update_generated(cid, gen)
+    ctx.repo.set_review_reason(cid, "; ".join(format_reasons(ctx, plan, cand, topic, gen, persona)))
+    store.set_reason(cid, pick_reason(cand, topic, plan), f"format:{cand.key}:{topic}")
     copy_meme_ref(ctx, cid, cand)
+    # 예전 형식의 그림·장면 지시가 새 형식에 남지 않게(S17 리뷰)
+    for s_ in ("s0.image",):
+        prod.archive_active(cid, s_)
+        prod.clear_scene(cid, s_)
     plan_json = format_plan_json(
         plan, cand, fd.candidates, topic, {**old.get("access", {}), **fd.access}, cast, mc
     )
@@ -578,5 +605,5 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
     if ctx.config.workspace.production_mode == "full" and cast.hero and cast.hero.references:
         from nsm.engine.production import enqueue_production
 
-        enqueue_production(ctx, cid)
+        enqueue_production(ctx, cid, force=True)
     return cand.title

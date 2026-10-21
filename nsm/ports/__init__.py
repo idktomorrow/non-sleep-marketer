@@ -270,6 +270,12 @@ class MemeFormatPlan:
 class ScenarioWriter(Protocol):
     def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]: ...
     def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript: ...
+
+
+@runtime_checkable
+class MemeFormatPlanner(Protocol):
+    """S17 제안: 밈 형식 재해석. ScenarioWriter와 따로 둬, 이 메서드가 없는 작가도 ScenarioWriter로 남는다(S17 리뷰)."""
+
     def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan: ...
 
 

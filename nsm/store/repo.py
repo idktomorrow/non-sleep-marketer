@@ -459,6 +459,13 @@ class Repository:
         )
         return {r[0]: r[1] for r in rows if r[1]}
 
+    def set_review_reason(self, content_id: str, reason: str) -> None:
+        """검토 사유 바꾸기(밈을 다른 형식으로 다시 기획했을 때 새 검사 결과로, S17 리뷰)."""
+        self.db.execute(
+            "UPDATE contents SET review_reason = ?, updated_at = ? WHERE id = ?",
+            [reason, to_db(self.clock.now()), content_id],
+        )
+
     def content_topic(self, content_id: str) -> str | None:
         rows = self.db.execute("SELECT persona_topic FROM contents WHERE id = ?", [content_id])
         return rows[0][0] if rows else None

@@ -228,3 +228,78 @@ def test_remake_job_reports_reason_instead_of_crashing(fctx) -> None:
     cid = _meme(fctx)[1].id
     ok = run_meme_remake(fctx, f"{cid}|daily-struggle")
     assert ok.ok and ok.counts["format"].startswith("Daily Struggle")
+
+
+def test_remake_replaces_picture_scene_and_review_reason(fctx) -> None:
+    """다시 만들기는 예전 그림·장면 지시를 남기지 않고, 새 계획으로 검토 사유·추천 이유를 다시 쓴다(S17 리뷰)."""
+    from nsm.engine.memes import remake_with_format
+    from nsm.engine.production import run_images
+    from nsm.store.production import ProductionStore
+
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    run_images(fctx)
+    pick, c, _sl = _meme(fctx)
+    prod = ProductionStore(fctx.repo.db, fctx.clock)
+    assert prod.active(c.id, "s0.image") is not None
+    prod.set_scene(c.id, "s0.image", "예전 장면")
+    remake_with_format(fctx, c.id, "daily-struggle")
+    assert prod.active(c.id, "s0.image") is None
+    assert prod.get_production(c.id)[1].get("s0.image") is None
+    jobs = [j for j in prod.jobs_for(c.id) if j.status == "queued"]
+    assert [j.target for j in jobs] == ["s0.image"]  # 새 그림 작업
+    pick2, c2, _ = _meme(fctx)
+    assert "Daily Struggle" in c2.review_reason and "Daily Struggle" in pick2.reason
+    assert pick2.title_fingerprint.startswith("format:daily-struggle")
+
+
+def test_format_meme_gets_fact_signal_and_card_text_rules(fctx, monkeypatch) -> None:
+    from nsm.domain.quality import slide_texts
+    from nsm.ports import MemeOverlaySpec
+
+    orig = fctx.scenario_writer.plan_meme_format
+
+    def with_price(req):
+        from dataclasses import replace
+
+        p = orig(req)
+        return replace(
+            p, overlays=(MemeOverlaySpec("caption", "오늘 3시 판매 12,000원", 5, 5, 60),)
+        )
+
+    monkeypatch.setattr(fctx.scenario_writer, "plan_meme_format", with_price)
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    _pick, c, _ = _meme(fctx)
+    assert "사실 확인 신호" in c.review_reason
+    assert "오늘 3시 판매 12,000원" in slide_texts(c.generated.deck.slides[0])
+
+
+def test_format_source_is_off_without_web_collection(app_config, tmp_path, monkeypatch) -> None:
+    from contextlib import ExitStack
+
+    from nsm.runtime import _meme_formats
+
+    monkeypatch.setenv("NSM_HOME", str(tmp_path))
+    w = app_config.workspace.model_copy(update={"meme_count": 1})
+    s = app_config.settings
+    off = app_config.model_copy(
+        update={
+            "workspace": w,
+            "settings": s.model_copy(
+                update={
+                    "collect": s.collect.model_copy(update={"naver": False, "community": False})
+                }
+            ),
+        }
+    )
+    with ExitStack() as st:
+        assert _meme_formats(off, None, st) is None
+        on = off.model_copy(
+            update={
+                "settings": s.model_copy(
+                    update={"collect": s.collect.model_copy(update={"naver": True})}
+                )
+            }
+        )
+        assert _meme_formats(on, None, st) is not None

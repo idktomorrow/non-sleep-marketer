@@ -134,6 +134,8 @@ def slide_texts(s: Any) -> list[str]:
     elif s.kind == "comic":
         for p in s.panels:
             parts += [p.label, p.bubble]
+    elif s.kind == "meme_image":  # 밈 한 장(S17): 얹은 글자가 카드의 글 전부(S17 리뷰)
+        parts += [o.text for o in s.overlays]
     return [p for p in parts if p]
 
 

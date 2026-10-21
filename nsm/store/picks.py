@@ -244,6 +244,13 @@ class PicksStore:
             [to_db(at), self._now(), content_id],
         )
 
+    def set_reason(self, cid: str, reason: str, fingerprint: str) -> None:
+        """추천 이유·지문 바꾸기(다른 밈으로 다시 만들었을 때, S17 리뷰)."""
+        self.db.execute(
+            "UPDATE picks SET reason = ?, title_fingerprint = ?, updated_at = ? WHERE content_id = ?",
+            [reason, fingerprint, self._now(), cid],
+        )
+
     def set_rechecked(self, content_id: str, at: datetime) -> None:
         self.db.execute(
             "UPDATE picks SET rechecked_at = ?, updated_at = ? WHERE content_id = ?",
