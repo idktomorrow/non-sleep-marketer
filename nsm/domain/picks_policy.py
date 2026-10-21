@@ -89,6 +89,16 @@ def quoted_names(text: str) -> set[str]:
     return {m.group(1).strip().lower() for m in _QUOTED.finditer(text)}
 
 
+def search_terms(topics: list[str], aliases: dict[str, list[str]]) -> list[str]:
+    """검색에 쓰는 낱말: 관심 주제(입력 그대로) + 별칭(중복 제거, 순서 유지). 넓은 주제("한국 아이돌")는 그대로,
+    특정 그룹을 적으면 그 그룹으로 좁혀진다. 분류 라벨에는 쓰지 않는다."""
+    out: list[str] = []
+    for t in topics:
+        out.append(t)
+        out.extend(aliases.get(t, []))
+    return list(dict.fromkeys(x.strip() for x in out if x and x.strip()))
+
+
 def jaccard(a: set[str], b: set[str]) -> float:
     if not a or not b:
         return 0.0

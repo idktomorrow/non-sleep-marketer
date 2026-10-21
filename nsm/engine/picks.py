@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,10 +32,11 @@ from nsm.domain.picks_policy import (
     rank_clusters,
 )
 from nsm.domain.policy import local, local_day_bounds, should_act, under_cost_cap
+from nsm.domain.topics import interleave_by_topic, topic_order
 from nsm.engine.collect import excluded_word, run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import _RETRY_LATER, _SKIP_MATERIAL, SOURCES_PER_CONTENT, build_draft
-from nsm.engine.memes import run_meme_slot
+from nsm.engine.memes import discover_for, run_meme_slot
 from nsm.store.picks import Pick, PicksStore, SlotConflictError
 from nsm.store.slots import Slot, SlotStore
 
@@ -99,6 +101,30 @@ def _ranked_clusters(ctx: JobContext, store: PicksStore, now) -> list[Cluster]:
     return rank_clusters(clusters, exclude, now, s.picks.fresh_hours, ctx.config.workspace.aliases)
 
 
+SAME_EVENT_LABELS = ["same_event", "different_event"]
+SAME_EVENT_CONFIDENCE = 0.7
+
+
+def _same_event_as_made(ctx: JobContext, title: str, text: str, made_titles: list[str]) -> bool:
+    """제목 낱말 겹침이 낮아도 같은 사건인지 모델에 묻는다(S16: "200만 눈앞"과 "200만 육박"이 둘 다 추천됨).
+    낱말 규칙 분류기뿐이거나 호출이 실패하면 묻지 않고 통과(다른 사건으로 본다)."""
+    clf = ctx.relevance_classifier
+    if not made_titles or clf is None or ctx.classifier_name == "keyword":
+        return False
+    made = "\n".join(f"- {t}" for t in made_titles)
+    instruction = (
+        "오늘 이미 만든 소식 목록과 새 자료가 **같은 사건·발표**를 다루면 same_event, 다른 사건이면 "
+        "different_event. 같은 작품·인물이라도 다른 발표(예: 새 굿즈 vs 관객 수)는 다른 사건이다. "
+        "같은 기록·발표를 다른 언론사가 쓴 것은 같은 사건이다.\n\n이미 만든 소식:\n" + made
+    )
+    try:
+        c = clf.classify(f"{title}\n{text[:800]}", SAME_EVENT_LABELS, instruction)
+    except Exception:  # noqa: BLE001  확인 실패가 추천을 막지 않게
+        log.warning("같은 사건 확인 실패(통과): %s", title[:40])
+        return False
+    return c.label == "same_event" and c.confidence >= SAME_EVENT_CONFIDENCE
+
+
 def _fill_info_slot(
     ctx: JobContext,
     slot: Slot,
@@ -108,6 +134,7 @@ def _fill_info_slot(
     result: JobResult,
     fetch_photo: PhotoFetcher,
     now,
+    made_titles: list[str] | None = None,
 ) -> tuple[str, str]:
     """정보 슬롯 하나를 채운다. 돌려주는 값: (결과, 이유). 결과 ∈ made | empty | retry | skip_all."""
     s = ctx.config.settings
@@ -118,6 +145,10 @@ def _fill_info_slot(
         if any(jaccard(cluster.tokens, t) >= SAME_EVENT_JACCARD for t in made_tokens):
             continue
         chosen = cluster.sorted_items()[:SOURCES_PER_CONTENT]
+        lead = chosen[0][0]
+        if made_titles is not None and _same_event_as_made(ctx, lead.title, lead.text, made_titles):
+            result.counts["same_event_skipped"] = result.counts.get("same_event_skipped", 0) + 1
+            continue
         d = build_draft(ctx, (cluster.topic, chosen), result, with_background=False)
         if d == _RETRY_LATER:
             return "retry", "AI API 장애로 중단(다음 실행에 다시)"
@@ -148,6 +179,8 @@ def _fill_info_slot(
             content, persona_topic=cluster.topic, item_ids=d.item_ids, pick=pick, slot_stage="ready"
         )
         made_tokens.append(cluster.tokens)
+        if made_titles is not None:
+            made_titles.append(lead.title)
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
             _attach_photo(ctx, store, content.id, chosen[0][0].url, fetch_photo)
@@ -211,11 +244,17 @@ def run_picks(
         result.errors.extend(f"수집: {e}" for e in collected.errors)
         dates = [today]
 
-    ranked = _ranked_clusters(ctx, store, now)
+    # 관심 주제 순서: 종류별로 최근에 가장 오래 안 다룬 주제부터(슬롯 번호로 돌리면 하루 1개일 때 첫 주제만 반복)
+    topics = list(ctx.config.persona.topics)
+    info_order = topic_order(topics, ctx.repo.topic_last_used("info"))
+    meme_order = topic_order(topics, ctx.repo.topic_last_used("meme"))
+    ranked = interleave_by_topic(_ranked_clusters(ctx, store, now), info_order)
     total_ranked = len(ranked)
     result.counts["candidates"] = total_ranked
     info_titles = [c.sorted_items()[0][0].title for c in ranked[:10]]
     made_tokens: list[set[str]] = []
+    discovered: dict = {}  # 주제 → 밈 탐색 결과(이번 실행 동안만)
+    made_titles: list[str] = []  # 이번 실행에서 만든 정보 원고의 대표 자료 제목(같은 사건 확인용)
     start, end = local_day_bounds(now, ctx.tz)
     made = {"info": 0, "meme": 0}
     failed = empty = 0
@@ -236,7 +275,19 @@ def run_picks(
                 slot = slots.claim(run_date, kind, run_id, now)
                 if slot is None:
                     break
-                args = (ranked, made_tokens, store, slots, result, fetch_photo, now, info_titles)
+                args = (
+                    ranked,
+                    made_tokens,
+                    store,
+                    slots,
+                    result,
+                    fetch_photo,
+                    now,
+                    info_titles,
+                    meme_order,
+                    discovered,
+                    made_titles,
+                )
                 outcome, reason = _guarded_fill(ctx, slot, kind, *args)
                 filled_kind = kind
                 if outcome == "empty" and ctx.config.workspace.allow_substitute:
@@ -293,17 +344,59 @@ def _guarded_fill(ctx, slot, kind, *args) -> tuple[str, str]:
 
 
 def _fill_slot(
-    ctx, slot, kind, ranked, made_tokens, store, slots, result, fetch_photo, now, info_titles
+    ctx,
+    slot,
+    kind,
+    ranked,
+    made_tokens,
+    store,
+    slots,
+    result,
+    fetch_photo,
+    now,
+    info_titles,
+    meme_order=None,
+    discovered: dict | None = None,
+    made_titles: list[str] | None = None,
 ) -> tuple[str, str]:
     """종류에 따라 정보/밈 경로로. 돌려주는 값: (made|empty|failed|retry, 이유)."""
     if kind == "info":
-        return _fill_info_slot(ctx, slot, ranked, made_tokens, store, result, fetch_photo, now)
+        return _fill_info_slot(
+            ctx, slot, ranked, made_tokens, store, result, fetch_photo, now, made_titles
+        )
     writer = ctx.scenario_writer
     if writer is None:
         return "failed", "밈 대본을 쓸 공급자가 없음(OpenAI 또는 Claude 키)"
-    out = run_meme_slot(ctx, slot, writer, store, slots, info_titles)
+    order = meme_order if meme_order is not None else list(ctx.config.persona.topics)
+    if not order:
+        return "empty", "관심 주제가 없음(설정 → 페르소나 → 관심 주제)"
+    topic = order.pop(0)  # 이번 실행에서 다음 밈은 다음 주제로
+    order.append(topic)
+    # 같은 실행에서 같은 주제는 한 번만 탐색한다(밈 슬롯이 둘이면 같은 검색을 두 번 하지 않게)
+    cache = discovered if discovered is not None else {}
+    if topic not in cache:
+        cache[topic] = discover_for(ctx, topic)
+    mc = dataclasses.replace(cache[topic], hook_title="", hook_sources=())
+    # 그 주제의 최근 소식 하나를 훅으로(오늘 정보 슬롯이 쓴 사건은 빼서 같은 사건 중복 추천을 피한다)
+    for cl in ranked:
+        if cl.topic == topic and not any(
+            jaccard(cl.tokens, t) >= SAME_EVENT_JACCARD for t in made_tokens
+        ):
+            items = cl.sorted_items()[:SOURCES_PER_CONTENT]
+            mc.hook_title = items[0][0].title
+            mc.hook_sources = tuple(i for i, _ in items)
+            break
+    result.counts.setdefault("meme_access", {}).update(
+        {f"{topic}·{k}": v for k, v in mc.access.items()}
+    )
+    out = run_meme_slot(ctx, slot, writer, store, slots, info_titles, mc)
     if out.ok:
-        if ctx.config.workspace.production_mode == "full" and out.content_id:
+        # 주인공·참조가 없으면 그림 작업을 넣지 않는다: "캐릭터를 고르세요" 안내를 실패로 덮지 않게(S16 리뷰)
+        if (
+            ctx.config.workspace.production_mode == "full"
+            and out.content_id
+            and not out.needs_character
+        ):
             # 완성본 모드(S15): 대본까지 만들었으면 그림 작업을 넣는다(예산은 images 잡이 장마다 확인)
             from nsm.engine.production import enqueue_production
 

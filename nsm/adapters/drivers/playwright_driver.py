@@ -5,15 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from nsm.adapters.drivers.base import DriverUnavailableError, Link
+from nsm.adapters.drivers.base import LINK_CONTEXT_JS, DriverUnavailableError, Link
 
-_LINKS_JS = """
-() => Array.from(document.querySelectorAll('a[href]')).map(a => {
-  let block = a.closest('li, article, section, div');
-  let ctx = block ? block.innerText : a.innerText;
-  return {text: (a.innerText || '').trim(), href: a.href, context: (ctx || '').trim().slice(0, 400)};
-})
-"""
+_LINKS_JS = (
+    "() => { const ctxOf = "
+    + LINK_CONTEXT_JS.strip()
+    + "; return Array.from(document.querySelectorAll('a[href]')).map(a => "
+    "({text: (a.innerText || '').trim(), href: a.href, context: ctxOf(a)})); }"
+)
 
 
 # 본문 칸: 알려진 본문 선택자 → article/main → 문단이 가장 많은 칸. innerText만 돌려준다.

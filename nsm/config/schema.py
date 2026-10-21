@@ -135,7 +135,7 @@ class Settings(_Model):
     run_log_keep_days: int = Field(default=90, ge=7, le=3650)  # 실행 기록 보관 일수
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: Gemini 키 → gemini(무료 구간), Anthropic 키 → claude, 둘 다 없으면 keyword (ADR 0048)
-    classifier: Literal["auto", "gemini", "claude", "keyword"] = "auto"
+    classifier: Literal["auto", "gemini", "claude", "openai", "keyword"] = "auto"
     # 글 생성·답글 공급자(S13 제안). auto: Claude 키 → claude, 아니면 OpenAI 키 → openai(기존 사용자 동작 유지).
     # 명시하면 그 공급자만 쓰고, 키가 없으면 생성하지 않는다(조용히 다른 공급자로 바꾸지 않음)
     text_provider: Literal["auto", "openai", "claude"] = "auto"

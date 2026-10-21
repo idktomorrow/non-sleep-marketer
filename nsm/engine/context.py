@@ -49,6 +49,7 @@ class Adapters:
     image_generator: ImageGenerator | None = None
     image_studio: ImageStudio | None = None
     scenario_writer: ScenarioWriter | None = None  # 밈 대본(S14). 보통 text_generator가 겸한다
+    meme_discovery: Any = None  # 밈 사례 탐색(S16). 웹 수집이 꺼져 있으면 None(창작 밈으로)
     platforms: dict[Platform, PlatformAdapter] = field(default_factory=dict)
     read_image: Any = None  # 올린 이미지 → 글(없으면 None)
     resources: Any = None  # 이 묶음이 연 자원(브라우저 드라이버 등)을 닫는 ExitStack. 묶음을 바꿀 때 이전 것을 닫는다
@@ -70,6 +71,7 @@ class JobContext:
     image_generator: ImageGenerator | None = None
     image_studio: ImageStudio | None = None
     scenario_writer: ScenarioWriter | None = None
+    meme_discovery: Any = None
     renderer: CardRenderer | None = None
     adapters: dict[Platform, PlatformAdapter] = field(default_factory=dict)
     cost_ledger: CostLedger | None = (
@@ -103,6 +105,7 @@ class JobContext:
             self.image_generator = bundle.image_generator
             self.image_studio = bundle.image_studio
             self.scenario_writer = bundle.scenario_writer
+            self.meme_discovery = bundle.meme_discovery
             self.adapters = dict(bundle.platforms)
         if old is not None and old is not bundle.resources:
             try:

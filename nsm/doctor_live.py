@@ -22,9 +22,9 @@ from nsm.config.secrets import ENV_NAMES, KeyringSecretStore, SecretStore
 from nsm.doctor import Check
 from nsm.ports import CostSink
 
-PROBE_TEXT = "핸드드립 커피의 적정 물 온도는 90~96도로 알려져 있다."
+PROBE_TEXT = "새 시즌 공식 굿즈가 다음 주 금요일부터 온라인에서 예약 판매된다."
 PROBE_LABELS = ["relevant", "irrelevant"]
-PROBE_INSTRUCTION = "이 글이 커피와 관련 있는가?"
+PROBE_INSTRUCTION = "이 글이 굿즈·행사 소식과 관련 있는가?"
 
 
 def key_source(key: str) -> str:

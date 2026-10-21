@@ -143,15 +143,28 @@ class ImageStudio(Protocol):
 
 
 @dataclass(frozen=True)
+class MemeExample:
+    """밈 탐색에서 찾은 실제 사례(S16): 구조를 참고할 뿐 복제하지 않는다."""
+
+    title: str
+    snippet: str
+    url: str
+    platform: str
+    category: str = "C"  # A 최근 확산 확인 | B 지속 형식 | C 근거 부족 발견
+
+
+@dataclass(frozen=True)
 class MemeRequest:
-    topics: tuple[str, ...]  # 관심 분야(대표 주제)
-    character_name: str
-    character_description: str  # 외형·성격·말버릇(프로필이 있으면 거기서, 없으면 페르소나)
+    topics: tuple[str, ...]  # 이 밈이 다룰 관심 주제(한 게시물에 주제 하나)
+    character_name: str  # 비면 주인공 미정: 대본이 주인공 후보를 제안만 한다(그림은 선택 뒤)
+    character_description: str  # 선택한 캐릭터의 외형·성격(프로필). 페르소나 인물상을 쓰지 않는다
     tone: str  # 밈 말투(호출별, 전역 페르소나를 덮어쓰지 않는다)
     recent: tuple[str, ...] = ()  # 최근 밈 요약("상황 → 반전")들: 같은 농담을 피하게
-    hook: str = ""  # 연재 훅(정보 사건 한 줄). 비우면 뉴스 없이 창작
+    hook: str = ""  # 이 주제의 최근 소식 한 줄. 비우면 뉴스 없이 그 분야의 공감 상황극
     hook_sources: tuple[SourceItem, ...] = ()  # 훅의 자료(있으면 claims·출처 허용)
     count: int = 3  # 아이디어 수
+    examples: tuple[MemeExample, ...] = ()  # 밈 탐색 사례(구조 참고용)
+    caution: str = ""  # 주제별 주의(예: 실제 인물의 하지 않은 행동·발언을 사실처럼 쓰지 않음)
 
 
 @dataclass(frozen=True)
@@ -160,6 +173,8 @@ class MemeIdea:
     contrast: str  # 두 컷의 대비("시무룩 vs 느긋")
     punchline: str  # 반전 한 줄
     why: str = ""  # 왜 웃긴지(검토자용)
+    based_on: tuple[int, ...] = ()  # 참고한 탐색 사례 번호(없으면 창작)
+    same_as_recent: int = -1  # 최근 밈 목록 중 의미상 같은 농담의 번호(-1이면 없음, 모델 판단)
 
 
 @dataclass(frozen=True)
@@ -178,6 +193,7 @@ class MemeScript:
     threads_text: str
     cta: str = ""
     claims: tuple[tuple[str, str], ...] = ()  # (문장, 자료 id). 뉴스 훅이 있을 때만
+    suggested_character: str = ""  # 주인공 미정일 때 대본이 제안한 주인공(예: 작품 캐릭터 이름)
 
 
 @runtime_checkable

@@ -197,19 +197,12 @@ def test_missing_pick_or_content(env) -> None:
     assert _post(env, "/review/plain/approve").status_code == 303  # 기존 승인은 그대로
 
 
-def test_interest_preset_fills_topics_and_enables_mode(env) -> None:
-    r = _post(env, "/settings/interest-preset", key="lol")
-    assert r.status_code == 303 and r.headers["location"].startswith("/settings?saved=1")
-    cfg = env["holder"]["cfg"]
-    assert (
-        cfg.settings.picks.enabled
-        and "롤 패치" in cfg.persona.topics
-        and "김밥" in cfg.settings.collect.exclude_words
-    )
-    assert _post(env, "/settings/interest-preset", key="nope").status_code == 400
+def test_no_interest_preset_buttons_topics_input_only(env) -> None:
+    """관심 분야 묶음 버튼은 없다(2026-10-21): 관심 주제 칸 하나로 다룰 것을 정한다."""
+    assert _post(env, "/settings/interest-preset", key="lol").status_code == 404
     html = env["client"].get("/settings").text
-    assert 'name="picks_enabled"' in html and "리그 오브 레전드" in html
-    assert 'href="/picks"' in html  # 추천 모드가 켜지면 메뉴에 보인다
+    assert 'action="/settings/interest-preset"' not in html and 'name="topics"' in html
+    assert 'name="picks_enabled"' in html
 
 
 def test_settings_form_round_trips_picks_fields(env) -> None:

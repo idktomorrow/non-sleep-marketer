@@ -75,7 +75,6 @@ from nsm.config.presets import DEFAULT_PRESET, PresetError, PresetStore, check_n
 from nsm.config.presets import same as preset_same
 from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
-from nsm.domain.interest_presets import PRESETS, apply_preset
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.artifacts import write_manifest
@@ -400,7 +399,6 @@ def create_app(state: AppState) -> FastAPI:
             "preset_msg": q.get("preset"),
             "preset_error": q.get("preset_error"),
             "periods": PERIODS,
-            "interest_presets": PRESETS,
             "card_styles": CARD_STYLE_NAMES,
             "characters": CHARACTER_NAMES,
             "style_previews": hasattr(state.renderer, "render_sample"),
@@ -490,14 +488,6 @@ def create_app(state: AppState) -> FastAPI:
         except PresetError as e:
             return _preset_redirect(error=str(e))
         return _preset_redirect(msg=f"'{name}' 프리셋을 지웠습니다(자료·원고·성과 포함)")
-
-    @app.post("/settings/interest-preset", dependencies=[Depends(check_csrf)])
-    def interest_preset(key: str = Form(...)) -> RedirectResponse:
-        """관심 분야 묶음(S11): 관심 주제·검색 별칭·제외어를 채우고 추천 모드를 켠다."""
-        if key not in PRESETS:
-            raise HTTPException(400, "알 수 없는 관심 분야")
-        state.set_config(apply_preset(state.get_config(), key))
-        return RedirectResponse("/settings?saved=1#picks", status_code=303)
 
     @app.get("/settings/brand-image/{kind}.png")
     def brand_image_png(kind: str) -> FileResponse:
