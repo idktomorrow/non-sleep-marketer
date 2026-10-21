@@ -155,9 +155,9 @@ def test_media_type_sniffing() -> None:
     assert media_type(b"GIF89a") is None
 
 
-def test_no_key_means_no_reader(tmp_path: Path) -> None:
+def test_no_key_means_no_reader(tmp_path: Path, app_config) -> None:
     secrets = SimpleNamespace(get=lambda _k: None)
-    assert make_image_reader(SimpleNamespace(), secrets, Sink(), tmp_path) is None
+    assert make_image_reader(app_config, secrets, Sink(), tmp_path) is None
 
 
 def test_upload_source_reads_images_only_with_reader(tmp_path: Path, clock) -> None:

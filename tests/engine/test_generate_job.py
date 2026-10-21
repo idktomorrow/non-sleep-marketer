@@ -118,7 +118,7 @@ def test_no_material_and_no_generator(ctx: JobContext, db, clock, app_config) ->
     db.execute("UPDATE source_items SET used_in_content_id = 'x'")
     assert run_generate(empty).skipped.startswith("쓸 자료 없음")
     empty.text_generator = None
-    assert "Claude API 키" in run_generate(empty).skipped
+    assert "키가 없어" in run_generate(empty).skipped  # 공급자 중립 문구(S13)
 
 
 def test_generator_failure_is_reported(ctx: JobContext) -> None:
@@ -271,3 +271,17 @@ def test_network_failure_keeps_material_for_next_run(ctx: JobContext) -> None:
     r = run_generate(ctx)
     assert r.counts["created"] == 0 and "연결이 끊겼습니다" in r.errors[0]
     assert len(ctx.repo.unused_relevant_items(0.0)) == before  # 자료는 그대로
+
+
+def test_rule_violations_block_auto_approval_even_when_policy_passes(
+    ctx: JobContext, monkeypatch
+) -> None:
+    """build_draft로 나눈 뒤에도(S11) 페르소나 규칙 위반은 자동 승인을 막고 사유에 남는다."""
+    import nsm.engine.generate as g
+
+    _enable_auto(ctx, approvals=0)
+    monkeypatch.setattr(g, "rule_violations", lambda gen, persona: ["이모지 3개"])
+    run_generate(ctx)
+    c = ctx.repo.list_contents()[0]
+    assert c.status == "pending_review" and "페르소나 규칙 위반: 이모지 3개" in c.review_reason
+    assert ctx.repo.list_contents("approved") == []  # 정책은 통과했어도 자동 승인되지 않는다

@@ -27,6 +27,7 @@ import yaml  # noqa: E402
 from nsm.app.server import AppState, create_app  # noqa: E402
 from nsm.config.presets import PresetStore  # noqa: E402
 from nsm.config.schema import AppConfig  # noqa: E402
+from nsm.config.secrets import MemorySecretStore  # noqa: E402
 from nsm.domain.clock import SystemClock  # noqa: E402
 from nsm.domain.models import AccountMetrics, Content, ContentBrief, PostMetrics  # noqa: E402
 from nsm.engine.context import JobResult  # noqa: E402
@@ -295,6 +296,10 @@ def main() -> None:
         brand_dir=home / "brand",
         # 프리셋(C29): 데모에서는 DB를 갈아끼우지 않고 설정만 바꾼다
         presets=PresetStore(home / "presets", home / "data.duckdb"),
+        # API 키 화면(S13): 데모는 메모리 저장소(등록 여부만 보임, 값은 어디에도 안 나감)
+        secrets=MemorySecretStore({"gemini_api_key": "demo-gemini-key-000000000"}),
+        on_secrets_changed=lambda: None,
+        cost_ledger=None,
         switch_preset=lambda name: _now(
             lambda: holder.__setitem__(
                 "cfg",

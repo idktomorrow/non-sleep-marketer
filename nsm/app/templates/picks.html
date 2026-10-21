@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "_pick_card.html" import pick_card %}
+{% block content %}
+<h1>오늘의 추천</h1>
+<p class="muted small">최근 소식 중 서로 다른 소재를 완성 원고로 추천합니다(유행 순위가 아니라 공개 시각·관련성 기준). 마음에 드는 것은 <b>게시</b>, 나중에 쓸 것은 <b>보관</b>, 아닌 것은 <b>관심 없음</b>. 사진 후보는 검토 상세에서 확인한 뒤에만 카드에 들어갑니다.</p>
+{% if not picks_enabled %}<div class="notice warn">추천 모드가 꺼져 있어 매일 자동으로 만들지 않습니다. <a href="/settings#picks">설정</a>에서 관심 분야를 고르거나 추천 모드를 켜세요.{% if can_run %} 지금 한 번 만들어 보려면 아래 버튼을 누르세요.{% endif %}</div>{% endif %}
+{% if can_run %}<form class="inline" method="post" action="/jobs/picks/run" style="margin-bottom:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">지금 추천 만들기</button> <span class="muted small">자료를 모은 뒤 최대 {{ cfg.workspace.info_count }}건(원고 1건에 약 4~6센트)</span></form>{% endif %}
+
+<h2>오늘</h2>
+{% if todays %}<div class="review-list">{% for v in todays %}{{ pick_card(v, csrf, thumbs) }}{% endfor %}</div>
+{% else %}<div class="panel"><span class="muted">오늘 추천한 원고가 없습니다.</span></div>{% endif %}
+{% if older %}
+<h2>아직 고르지 않은 추천</h2>
+<div class="review-list">{% for v in older %}{{ pick_card(v, csrf, thumbs) }}{% endfor %}</div>
+{% endif %}
+
+<h2 id="saved">보관함</h2>
+<p class="muted small">보관은 승인이 아닙니다. 게시하려면 <b>게시</b>를 누르세요. 만든 지 48시간이 지난 원고는 날짜·가격·행사 종료를 다시 확인했다고 표시해야 보낼 수 있습니다.</p>
+{% if saved %}<div class="review-list">{% for v in saved %}{{ pick_card(v, csrf, thumbs, show_recheck=True) }}{% endfor %}</div>
+{% else %}<div class="panel"><span class="muted">보관한 원고가 없습니다.</span></div>{% endif %}
+{% endblock %}

@@ -38,7 +38,7 @@ from tests.fakes import (
 )
 
 
-@pytest.mark.parametrize("template", ["info", "list", "compare"])
+@pytest.mark.parametrize("template", ["info", "list", "compare", "editorial"])
 def test_sample_decks_follow_card_deck_contract(fixtures_dir: Path, template: str) -> None:
     deck = CardDeck.model_validate_json(
         (fixtures_dir / "decks" / f"{template}.json").read_text("utf-8")

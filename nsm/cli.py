@@ -20,18 +20,21 @@ def doctor(
     live_only: bool = typer.Option(
         False, "--live-only", help="오프라인 점검은 건너뛰고 실제 API 확인만"
     ),
+    with_text: bool = typer.Option(
+        False, "--with-text", help="OpenAI 글 생성도 한 번 실호출(비용 1센트 미만)"
+    ),
 ) -> None:
     """환경을 진단합니다 (Python, DB, 설정, API 키, 브라우저, 폰트)."""
     from nsm.doctor import run_checks
 
-    live = live or with_image or live_only
+    live = live or with_image or live_only or with_text
     checks = [] if live_only else run_checks()
     if live:
         from nsm.doctor_live import cost_sink, run_live_checks
 
         # 실제 호출 비용도 오늘 비용에 들어가게 DB에 기록한다(배치 Q1). DB를 못 열면 기록 없이 점검만.
         with cost_sink() as sink:
-            checks += run_live_checks(with_image=with_image, sink=sink)
+            checks += run_live_checks(with_image=with_image, sink=sink, with_text=with_text)
     for c in checks:
         typer.echo(f"[{c.status:4}] {c.name}: {c.detail}")
     if any(c.status == "FAIL" for c in checks):
@@ -78,7 +81,7 @@ def render_preview(
     style: str | None = typer.Option(
         None,
         "--style",
-        help="카드 스타일 clean|photo|illust. 기본: 설정 파일의 brand.card_style(없으면 clean)",
+        help="카드 스타일 clean|photo|illust|editorial. 기본: 설정 파일의 brand.card_style(없으면 clean)",
     ),
 ) -> None:
     """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α, 스타일은 S8)."""

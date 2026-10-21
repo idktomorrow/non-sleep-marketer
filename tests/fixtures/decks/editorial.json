@@ -1,0 +1,23 @@
+{
+  "template": "editorial",
+  "brand": {"name": "달빛로스터리", "primary_color": "#1E3A5F", "accent_color": "#F2A541", "logo_path": null},
+  "persona": {"name": "루나", "handle": "@luna.coffee.ai"},
+  "labels": {"virtual_person": true, "ad": false, "ai_generated_image": false},
+  "slides": [
+    {"kind": "cover", "title": "이런 카페 아니면\n가기도 싫다", "subtitle": "달빛로스터리 × 구름항공 콜라보 총정리", "background": "nsm/templates/samples/sample-photo.jpg"},
+    {"kind": "body", "heading": "기내 한정 굿즈 3종", "body": "머그컵, 드립백 세트, 여권 케이스가 10월 23일부터 공항 매장과 온라인몰에 순차 출시됩니다.", "bullets": [], "background": "nsm/templates/samples/sample-photo.jpg"},
+    {"kind": "products", "heading": "굿즈 라인업", "items": [
+      {"name": "마스코트 볼체인 인형", "price": "¥2,310", "note": "전 7종", "image": null},
+      {"name": "트레이딩 아크릴 키링", "price": "¥6,160", "note": "8종 BOX", "image": null},
+      {"name": "도자기 머그컵", "price": "¥5,500", "note": "", "image": null},
+      {"name": "클리어 파일", "price": "¥1,320", "note": "3장 SET", "image": null}
+    ], "background": null},
+    {"kind": "facts", "heading": "구매처 & 출시 일정", "rows": [
+      {"label": "1차 출시", "value": "10월 23일(금)부터 온라인몰·공항 매장 4곳"},
+      {"label": "기내 판매", "value": "11월 1일(일)부터 국제선 면세품"},
+      {"label": "구매 수량", "value": "상품별 1인 2개, BOX 상품은 1개"},
+      {"label": "예약", "value": "공항 매장은 10월 16일(금) 오전 11시부터 선착순"}
+    ], "background": null},
+    {"kind": "outro", "cta": "저장해 두고 출시일에 확인하세요", "sources": ["https://example.com/cloud-air-collab", "https://example.com/moonlight-news"], "background": "nsm/templates/samples/sample-photo.jpg"}
+  ]
+}

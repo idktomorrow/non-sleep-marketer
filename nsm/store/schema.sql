@@ -136,3 +136,23 @@ CREATE TABLE IF NOT EXISTS notifications (
     link VARCHAR,                       -- 누르면 갈 대시보드 경로
     read_at TIMESTAMP
 );
+
+-- 오늘의 추천(S11 제안, ADR 0051). 콘텐츠 상태(동결)는 그대로 두고, 추천·보관·사진 후보 상태를 옆에 둔다.
+CREATE TABLE IF NOT EXISTS picks (
+    content_id VARCHAR PRIMARY KEY,
+    run_date DATE NOT NULL,             -- 추천한 날(현지)
+    rank INTEGER NOT NULL,
+    reason VARCHAR NOT NULL,            -- 사람이 읽는 추천 이유
+    state VARCHAR NOT NULL,             -- ready | saved | queued | dismissed
+    freshness VARCHAR NOT NULL,         -- fresh | stale | unknown (published_at 기준)
+    published_at TIMESTAMP,             -- 자료 중 가장 최근 공개 시각
+    photo_status VARCHAR NOT NULL,      -- none | candidate | applied | dropped
+    photo_candidate_url VARCHAR,
+    photo_source_url VARCHAR,
+    photo_candidate_path VARCHAR,
+    render_checked_at TIMESTAMP,        -- 미리보기 렌더에서 넘침 없음을 확인한 시각
+    rechecked_at TIMESTAMP,             -- 보관 글을 게시하기 전 사람이 날짜·가격을 다시 확인한 시각
+    title_fingerprint VARCHAR NOT NULL, -- 같은 사건 재추천 방지용(정규화 토큰)
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);

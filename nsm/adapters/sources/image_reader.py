@@ -102,7 +102,7 @@ class ClaudeImageReader:
         except Exception as e:  # noqa: BLE001  키 오류·연결 끊김·요청 제한 등 SDK 예외
             # 키·네트워크 문제는 고치면 다시 될 수 있으므로 실패로 남기지 않는다
             raise AdapterError(
-                f"Claude 호출 실패({type(e).__name__}). API 키와 인터넷 연결을 확인하세요"
+                f"AI 호출 실패({type(e).__name__}). API 키와 인터넷 연결을 확인하세요"
             ) from e
         cache.write_text(text, encoding="utf-8")
         return text
@@ -155,17 +155,111 @@ class ClaudeImageReader:
         return text if out.get("has_info") and text else ""
 
 
-def make_image_reader(cfg: Any, secrets: Any, cost_sink: CostSink, cache_dir: Path):
-    """Claude 키가 있으면 이미지 읽기, 없으면 None(이미지는 올릴 수 없다고 안내)."""
-    key = secrets.get("anthropic_api_key")
-    if not key:
-        return None
-    import anthropic
+class OpenAIImageReader(ClaudeImageReader):
+    """OpenAI(Responses API, input_image)로 같은 일을 한다(S13: Claude 키 없이도 이미지 자료를 올릴 수 있게)."""
 
-    return ClaudeImageReader(
-        # 사람이 올리고 기다리는 경로라 오래 붙잡지 않는다(SDK 기본은 10분)
-        anthropic.Anthropic(max_retries=2, timeout=60.0, api_key=key),
-        cfg.settings.models.classifier,
-        cost_sink,
-        cache_dir,
-    )
+    def __init__(
+        self, client: Any, model: str, cost_sink: CostSink | None, cache_dir: Path
+    ) -> None:
+        super().__init__(client, model, cost_sink, cache_dir)
+
+    def _read(self, data: bytes, mtype: str, title: str) -> str:
+        from nsm.adapters.openai_common import OpenAIError
+        from nsm.adapters.pricing import openai_text_cost
+
+        body = {
+            "model": self.model,
+            "instructions": SYSTEM,
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mtype};base64,{base64.b64encode(data).decode('ascii')}",
+                            "detail": "low",
+                        },
+                        {
+                            "type": "input_text",
+                            "text": f"파일 이름: {title}\n이 이미지의 정보를 글로 옮겨 주세요.",
+                        },
+                    ],
+                }
+            ],
+            "max_output_tokens": 2048,
+            "store": False,
+            "reasoning": {"effort": "low"},
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "image_info",
+                    "schema": _SCHEMA,
+                    "strict": True,
+                }
+            },
+        }
+        try:
+            out = self.client.post_json("responses", body, timeout=60.0)
+        except OpenAIError as e:
+            if e.permanent:  # 키·정책·요청 형식: 이 파일은 다시 보내도 같다(.err로 남긴다)
+                raise AdapterError(str(e)) from None
+            # 한도·과부하·연결·응답 없음: 다음 수집 때 다시 읽는다(.err로 남기지 않음, Claude 경로와 같은 규칙)
+            raise RuntimeError(str(e)) from None
+        usage = out.get("usage") or {}
+        if self.cost_sink and usage:
+            self.cost_sink.record_cost(
+                "llm",
+                "openai",
+                openai_text_cost(
+                    str(out.get("model") or self.model),
+                    int(usage.get("input_tokens", 0)),
+                    int(usage.get("output_tokens", 0)),
+                ),
+                "read_image",
+            )
+        if out.get("status") == "incomplete":
+            raise AdapterError("이미지 응답이 잘렸습니다(incomplete)")
+        raw = None
+        for item in out.get("output") or []:
+            for part in item.get("content") or [] if item.get("type") == "message" else []:
+                if part.get("type") == "refusal":
+                    raise AdapterError("이미지 응답이 거절됐습니다(refusal)")
+                if part.get("type") == "output_text":
+                    raw = part.get("text")
+        if raw is None:
+            raise AdapterError("이미지 응답에 텍스트가 없습니다")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise AdapterError(f"이미지 응답 JSON 파싱 실패: {e}") from e
+        text = str(parsed.get("text") or "").strip()
+        return text if parsed.get("has_info") and text else ""
+
+
+def make_image_reader(cfg: Any, secrets: Any, cost_sink: CostSink, cache_dir: Path):
+    """글 공급자 규칙(S13)대로 이미지 읽기를 만든다. 쓸 키가 없으면 None(이미지는 올릴 수 없다고 안내)."""
+    from nsm.adapters.generator import choose_text_provider
+
+    provider, _ = choose_text_provider(cfg, secrets)
+    if provider == "claude":
+        import anthropic
+
+        return ClaudeImageReader(
+            # 사람이 올리고 기다리는 경로라 오래 붙잡지 않는다(SDK 기본은 10분)
+            anthropic.Anthropic(
+                max_retries=2, timeout=60.0, api_key=secrets.get("anthropic_api_key")
+            ),
+            cfg.settings.models.classifier,
+            cost_sink,
+            cache_dir,
+        )
+    if provider == "openai":
+        from nsm.adapters.openai_common import OpenAIClient
+
+        return OpenAIImageReader(
+            OpenAIClient(secrets.get("openai_api_key") or "", timeout=60.0),
+            cfg.settings.models.openai_text,
+            cost_sink,
+            cache_dir,
+        )
+    return None

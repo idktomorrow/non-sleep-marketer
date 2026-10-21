@@ -13,6 +13,17 @@ from nsm.config.schema import AppConfig
 from nsm.config.store import format_windows, parse_windows
 
 MAX_TOPICS = 10
+TEXT_PROVIDER_NAMES = {
+    "auto": "자동(Claude 키 있으면 Claude, 아니면 OpenAI)",
+    "openai": "OpenAI만",
+    "claude": "Claude만",
+}
+IMAGE_QUALITY_NAMES = {
+    "low": "낮음(장당 약 1~2센트)",
+    "medium": "보통(장당 약 5센트)",
+    "high": "높음(장당 약 20센트)",
+}
+SLOT_TOTAL_MAX = 6  # 하루 추천(정보+밈) 합계 상한(S13)
 MAX_LINES = 30
 MAX_TEXT = 500
 QUOTA_MAX = 10
@@ -70,6 +81,7 @@ CARD_STYLE_NAMES = {
     "clean": "깔끔(기본): 브랜드 색 면 + 흰 카드",
     "photo": "사진형: 꽉 찬 어두운 배경 + 형광펜 제목 + 말풍선",
     "illust": "일러스트형: 파스텔 배경 + 번호 카드 + 캐릭터",
+    "editorial": "사진 우선형(제안): 올린 사진을 크게 + 짧은 제목 + 설명 패널. 사진이 없으면 종이색 카드",
 }
 
 
@@ -99,7 +111,7 @@ def _card_style(form: dict[str, Any], current: str) -> str:
     # 폼에 칸이 없으면(옛 화면·테스트) 지금 값을 지킨다
     v = str(form.get("card_style", current))
     if v not in CARD_STYLE_NAMES:
-        raise SettingsError("카드 스타일: 깔끔·사진형·일러스트형 중 하나를 고르세요")
+        raise SettingsError("카드 스타일: 깔끔·사진형·일러스트형·사진 우선형 중 하나를 고르세요")
     return v
 
 
@@ -108,6 +120,68 @@ def _period(form: dict[str, Any]) -> str:
     if v not in PERIODS:
         raise SettingsError("자료 검색 기간: 1일·1주·1달·기간 없음 중 하나를 고르세요")
     return v
+
+
+def _aliases(form: dict[str, Any], current: dict[str, list[str]]) -> dict[str, list[str]]:
+    """검색 별칭(S11): 한 줄에 "대표 주제: 별칭, 별칭". 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    if "picks_aliases" not in form:
+        return current
+    out: dict[str, list[str]] = {}
+    for line in _lines(form, "picks_aliases", "검색 별칭"):
+        if ":" not in line:
+            raise SettingsError(
+                f"검색 별칭: '대표 주제: 별칭1, 별칭2' 형식으로 적어 주세요 ({line})"
+            )
+        topic, rest = line.split(":", 1)
+        names = [x.strip() for x in rest.split(",") if x.strip()]
+        if topic.strip() and names:
+            out[topic.strip()] = names
+    return out
+
+
+def _ai(form: dict[str, Any], cfg: AppConfig) -> dict[str, Any]:
+    """AI 공급자·모델(S13, 전역). 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    s = cfg.settings
+    out: dict[str, Any] = {"text_provider": s.text_provider, "models": s.models.model_dump()}
+    if "text_provider" in form:
+        v = str(form.get("text_provider", s.text_provider))
+        if v not in TEXT_PROVIDER_NAMES:
+            raise SettingsError("글 공급자: 자동·OpenAI·Claude 중 하나를 고르세요")
+        out["text_provider"] = v
+    for key, label in (("openai_text", "OpenAI 글 모델"), ("image", "이미지 모델")):
+        if key in form:
+            v = str(form.get(key, "")).strip()
+            if not v or len(v) > 60 or any(ch.isspace() for ch in v):
+                raise SettingsError(f"{label}: 모델 이름을 공백 없이 적어 주세요(예: gpt-6.1-sol)")
+            out["models"][key] = v
+    if "image_quality" in form:
+        v = str(form.get("image_quality", ""))
+        if v not in IMAGE_QUALITY_NAMES:
+            raise SettingsError("이미지 품질: 낮음·보통·높음 중 하나를 고르세요")
+        out["models"]["image_quality"] = v
+    return out
+
+
+def _picks(form: dict[str, Any], cfg: AppConfig) -> dict[str, Any]:
+    """오늘의 추천(S11) 운영 설정(켜기만 전역). 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    cur = cfg.settings.picks
+    if "picks_count" not in form:
+        return cur.model_dump()
+    return {**cur.model_dump(), "enabled": form.get("picks_enabled") == "on"}
+
+
+def _workspace(form: dict[str, Any], cfg: AppConfig) -> dict[str, Any]:
+    """작업 공간별 설정(S13): 추천 구성·검색 별칭. 칸이 없는 옛 폼은 지금 값을 지킨다."""
+    cur = cfg.workspace
+    out = cur.model_dump()
+    if "picks_count" in form:
+        out["info_count"] = int(_number(form, "picks_count", "하루 정보 추천 수", 0, 5))
+    if "meme_count" in form:
+        out["meme_count"] = int(_number(form, "meme_count", "하루 밈 추천 수", 0, 3))
+    if out["info_count"] + out["meme_count"] > SLOT_TOTAL_MAX:
+        raise SettingsError(f"하루 추천 수: 정보+밈 합계는 {SLOT_TOTAL_MAX}개까지입니다")
+    out["aliases"] = _aliases(form, cur.aliases)
+    return out
 
 
 def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
@@ -164,6 +238,8 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         reply_interval_minutes=int(
             _number(form, "reply_interval_minutes", "댓글 확인 간격", 3, 60)
         ),
+        picks=_picks(form, cfg),
+        **_ai(form, cfg),
         # 칸이 없는 옛 폼은 지금 값을 지킨다
         instagram_comment_interval_minutes=int(
             _number(form, IG_INTERVAL, "인스타그램 댓글 확인 간격", 10, 180)
@@ -173,7 +249,13 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
     )
     try:
         return AppConfig.model_validate(
-            {**cfg.model_dump(), "persona": persona, "brand": brand, "settings": settings}
+            {
+                **cfg.model_dump(),
+                "persona": persona,
+                "brand": brand,
+                "settings": settings,
+                "workspace": _workspace(form, cfg),
+            }
         )
     except ValidationError as e:
         first = e.errors()[0]
@@ -220,4 +302,14 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
         "exclude_words": "\n".join(s.collect.exclude_words),
+        "text_provider": s.text_provider,
+        "openai_text": s.models.openai_text,
+        "image": s.models.image,
+        "image_quality": s.models.image_quality,
+        "picks_enabled": "on" if s.picks.enabled else "",
+        "picks_count": str(cfg.workspace.info_count),
+        "meme_count": str(cfg.workspace.meme_count),
+        "picks_aliases": "\n".join(
+            f"{k}: {', '.join(v)}" for k, v in cfg.workspace.aliases.items()
+        ),
     }

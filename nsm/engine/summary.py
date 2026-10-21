@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 PLATFORMS = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
-TEMPLATES = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
+TEMPLATES = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
 SEP = " · "
 
 
@@ -135,8 +135,19 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
     return parts or ["정리할 것 없음"]
 
 
+def _picks(c: dict[str, Any]) -> list[str]:
+    made = _n(c, "made")
+    parts = [f"추천 {made}건 만듦" if made else "추천 없음"]
+    if c.get("candidates") is not None:
+        parts.append(f"서로 다른 소재 {_n(c, 'candidates')}개 중")
+    if c.get("reason"):
+        parts.append(str(c["reason"]))
+    return parts
+
+
 _JOBS = {
     "collect": _collect,
+    "picks": _picks,
     "generate": _generate,
     "keyword": _keyword,
     "publish": _publish,

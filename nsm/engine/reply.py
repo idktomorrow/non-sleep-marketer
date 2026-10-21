@@ -232,7 +232,7 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
 
     # auto_reply
     if ctx.text_generator is None:
-        return record("escalated", reason="자동 답글 생성기가 없음(Claude API 키 필요)")
+        return record("escalated", reason="자동 답글 생성기가 없음(Claude 또는 OpenAI API 키 필요)")
     text = ctx.text_generator.generate_reply(c, ctx.config.persona, _post_context(ctx, c))
     banned = find_banned([text], ctx.config.persona)
     if banned or not text.strip():

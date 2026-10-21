@@ -13,7 +13,7 @@
     <input type="file" name="file" accept=".txt,.md,.csv,.xlsx,.pdf,.png,.jpg,.jpeg,.webp" required>
     <button class="btn-primary btn-sm">올리기</button>
   </form>
-  <p class="muted small" style="margin-bottom:0">txt·md·csv·xlsx(엑셀)·pdf, {{ max_mb }}MB 이하. 워드·한글 문서는 PDF로 저장해서 올리세요. 스캔한 이미지 PDF는 글자를 읽을 수 없습니다. 이미지(png·jpg·webp, 5MB 이하)는 공지 캡처·포스터·가격표처럼 글자나 정보가 있는 것을 올리면 Claude가 읽어 글로 옮깁니다(한 장에 1센트 미만, 카드에는 이미지를 넣지 않음). 올리면 바로 글을 읽어 보고, 읽지 못하면 올리지 않습니다. 저장 위치: <code>{{ uploads_dir }}</code> (폴더에 직접 넣어도 됩니다)</p>
+  <p class="muted small" style="margin-bottom:0">txt·md·csv·xlsx(엑셀)·pdf, {{ max_mb }}MB 이하. 워드·한글 문서는 PDF로 저장해서 올리세요. 스캔한 이미지 PDF는 글자를 읽을 수 없습니다. 이미지(png·jpg·webp, 5MB 이하)는 공지 캡처·포스터·가격표처럼 글자나 정보가 있는 것을 올리면 AI(Claude 또는 OpenAI)가 읽어 글로 옮깁니다(한 장에 1센트 미만, 카드에는 이미지를 넣지 않음). 올리면 바로 글을 읽어 보고, 읽지 못하면 올리지 않습니다. 저장 위치: <code>{{ uploads_dir }}</code> (폴더에 직접 넣어도 됩니다)</p>
   <div class="actions" style="margin-top:10px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">자료 모으기 지금 실행</button></form><span class="muted small">올린 파일과 네이버 새 자료를 바로 읽고 판정합니다</span></div>
 </div>
 

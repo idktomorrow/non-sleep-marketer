@@ -128,7 +128,7 @@ def test_image_upload_is_read_and_preview_shown(menv) -> None:
 @pytest.mark.parametrize(
     ("reader", "data", "msg"),
     [
-        (None, PNG, "Claude API 키가 필요"),
+        (None, PNG, "API 키가 필요"),
         (lambda p: "", PNG, "읽을 정보(글자·날짜·가격 등)를 찾지 못해"),
         (lambda p: "x", b"plain text", "PNG·JPEG·WebP 이미지가 아닙니다"),
         (lambda p: "x", PNG + b"\x00" * (5 * 1024 * 1024), "5MB 이하"),

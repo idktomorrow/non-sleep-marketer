@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 from urllib.parse import urlsplit
 
-from nsm.domain.models import GeneratedContent, Persona
+from nsm.domain.models import GeneratedContent, Persona, SourceItem
 
 log = logging.getLogger(__name__)
 
@@ -118,15 +119,26 @@ STIFF_PHRASES = (
 )
 
 
+def slide_texts(s: Any) -> list[str]:
+    """한 장에 사람 눈에 보이는 글자 전부(장 종류별). 규칙 검사·소품 고르기가 같이 쓴다(S12 리뷰: 한 곳에만)."""
+    parts = [getattr(s, f, "") or "" for f in ("title", "subtitle", "heading", "body", "cta")]
+    parts += list(getattr(s, "bullets", []) or [])
+    if s.kind == "compare":
+        parts += [s.left.title, *s.left.points, s.right.title, *s.right.points]
+    elif s.kind == "products":
+        for it in s.items:
+            parts += [it.name, it.price, it.note]
+    elif s.kind == "facts":
+        for r in s.rows:
+            parts += [r.label, r.value]
+    return [p for p in parts if p]
+
+
 def sns_texts(gen: GeneratedContent) -> dict[str, str]:
     """사람에게 보이는 SNS 글: 캡션, 스레드, 카드 글(장마다). 블로그는 MVP 게시 대상이 아니다(ADR 0016)."""
     out = {"인스타그램 캡션": gen.instagram_caption, "스레드 글": gen.threads_text}
     for i, s in enumerate(gen.deck.slides, start=1):
-        parts = [getattr(s, f, "") or "" for f in ("title", "subtitle", "heading", "body", "cta")]
-        parts += list(getattr(s, "bullets", []) or [])
-        if s.kind == "compare":
-            parts += [s.left.title, *s.left.points, s.right.title, *s.right.points]
-        out[f"카드 {i}장"] = "\n".join(p for p in parts if p)
+        out[f"카드 {i}장"] = "\n".join(slide_texts(s))
     return out
 
 
@@ -172,6 +184,29 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
         hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
         if hit:
             out.append(f'{name}에 확인되지 않은 내용 "{hit}"')
+    return out
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
+
+
+def unverified_products(gen: GeneratedContent, sources: list[SourceItem]) -> list[str]:
+    """상품 그리드(S12)의 이름·가격이 자료 본문에 없으면 사유 목록. 가격·상품명은 틀리면 바로 민원이 되므로 검토로."""
+    hay = _squash(" ".join(f"{s.title} {s.text}" for s in sources))
+    # 가격은 숫자 묶음 단위로 정확히 맞아야 한다("¥2,310"이 "¥12,310"의 일부로 맞지 않게, S12 리뷰)
+    numbers = set(re.findall(r"\d+", re.sub(r"(?<=\d)[,.](?=\d{3})", "", hay)))
+    out: list[str] = []
+    for slide in gen.deck.slides:
+        if slide.kind != "products":
+            continue
+        for it in slide.items:
+            name = _squash(it.name)
+            if name and name not in hay:
+                out.append(f"상품 '{it.name}'이(가) 자료에 없음")
+            price = re.sub(r"[^0-9]", "", it.price)
+            if price and price not in numbers:
+                out.append(f"'{it.name}' 가격 {it.price}이(가) 자료에 없음")
     return out
 
 

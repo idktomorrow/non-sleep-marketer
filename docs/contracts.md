@@ -243,6 +243,23 @@ class CardRenderer(Protocol):  # [서브 구현]
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...  # 슬라이드 순서대로 PNG
 
 
+# S13 제안(합의 필요, ADR 0054): 범용 이미지 제작기와 전역 비용 원장. ImageGenerator·CostSink는 그대로.
+class ImageStudio(Protocol):
+    def make(
+        self, spec: ImageSpec
+    ) -> ImageResult: ...  # 참조 이미지·투명 배경·크기·품질. 글자는 넣지 않음
+
+
+class CostLedger(CostSink, Protocol):
+    def reserve(self, kind, provider, estimate_usd, ref="", model="") -> str: ...
+    def confirm(
+        self, reservation_id, usd, status="confirmed", detail=None, request_id=""
+    ) -> None: ...
+    def release(self, reservation_id) -> None: ...
+    def mark_unknown(self, reservation_id, request_id="") -> None: ...
+    def spent_between(self, start: datetime, end: datetime) -> float: ...
+
+
 class Notifier(Protocol):
     def notify(self, title: str, body: str, level: Literal["info", "warn", "error"]) -> None: ...
 
@@ -299,6 +316,8 @@ class Clock(Protocol):
     { "kind": "body",  "heading": "소제목", "body": "본문 (최대 90자)", "bullets": [], "background": null },
     { "kind": "list",  "heading": "소제목", "bullets": ["항목 1", "항목 2", "항목 3"], "background": null },
     { "kind": "compare", "heading": "A vs B", "left": { "title": "A", "points": ["..."] }, "right": { "title": "B", "points": ["..."] } },
+    { "kind": "products", "heading": "라인업", "items": [{ "name": "머그컵", "price": "¥5,500", "note": "전 3종", "image": null }, { "name": "키링", "price": "", "note": "", "image": "C:/.../item.png" }], "background": null },
+    { "kind": "facts", "heading": "구매처 & 일정", "rows": [{ "label": "출시", "value": "10월 23일(금)부터" }, { "label": "구매 수량", "value": "1인 2개" }], "background": null },
     { "kind": "outro", "cta": "저장하고 나중에 보기", "sources": ["https://example.com/a", "https://example.com/b"] }
   ]
 }
@@ -306,9 +325,10 @@ class Clock(Protocol):
 
 - 크기: **1080×1350** (4:5). 슬라이드 수 2~10장(인스타그램 캐러셀 상한). 같은 PNG를 스레드와 블로그에도 씀.
 - 템플릿 3종: `info`(cover + body… + outro), `list`(cover + list… + outro), `compare`(cover + compare + outro). 템플릿은 `kind`별 슬라이드 레이아웃을 가져야 함.
+- **S12 제안(ADR 0052, 합의 전 미적용)**: 템플릿 `editorial`(cover + body·products·facts 섞어서 + outro). `products`는 항목 2~4개(`name`, `price` 표기 그대로, `note`, `image` 로컬 경로 또는 null), `facts`는 2~6줄(`label`, `value`). 기존 세 템플릿·기존 JSON은 그대로 읽힌다. 상품 이름·가격이 자료에 없으면 자동 승인하지 않는다.
 - 폰트: Pretendard(SIL OFL)를 `nsm/templates/fonts/`에 동봉. 한글은 항상 HTML 텍스트로 그림(AI 이미지에 글자 넣지 않음).
 - `background`가 null이면 브랜드 색 기반 그라디언트/패턴으로 대체(이미지 생성을 끈 경우에도 완성도 유지).
-- 스타일(S8, ADR 0036): `clean`·`photo`·`illust`. 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
+- 스타일(S8, ADR 0036 · S10 제안, ADR 0050): `clean`·`photo`·`illust`·`editorial`. 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
 - **표기 슬롯(필수)**: 아래 요소가 DOM에 존재해야 하고 렌더 테스트가 이를 검사함.
   - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 페르소나 이름 바로 옆에 배경과 대비되는 색으로 표시. 이름(인물)과 배지는 cover·outro 슬라이드에만 함께 두고, 가운데 슬라이드에는 둘 다 두지 않음(ADR 0043, 그 전에는 모든 슬라이드). 덱 JSON은 그대로.
   - `[data-label="ai-generated"]`: "AI 생성 이미지" 작은 캡션. `labels.ai_generated_image`가 true일 때 배경 이미지가 있는 슬라이드에 표시.
@@ -364,7 +384,7 @@ class Clock(Protocol):
 | `nsm init` | 설정 마법사(위험 고지 동의 → 브랜드 → 페르소나 → API 키(keyring) → 플랫폼 연결은 나중에 가능) |
 | `nsm run` | 단일 프로세스 시작: 스케줄러 + 대시보드(http://127.0.0.1:8765) |
 | `nsm run --once --job collect` | 특정 잡 1회 실행 (디버그·E2E용) |
-| `nsm render-preview deck.json --out DIR [--style clean\|photo\|illust]` | 덱 → PNG (스타일 기본: 설정의 `brand.card_style`) |
+| `nsm render-preview deck.json --out DIR [--style clean\|photo\|illust\|editorial]` | 덱 → PNG (스타일 기본: 설정의 `brand.card_style`) |
 | `nsm install-autostart` / `uninstall-autostart` | Windows 작업 스케줄러에 로그온 시 `nsm run` 등록 |
 | `nsm doctor` | 환경 점검(API 키, 드라이버 로그인 상태, 폰트) |
 

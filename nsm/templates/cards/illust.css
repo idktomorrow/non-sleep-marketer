@@ -93,3 +93,8 @@
 .style-illust .slide.has-bg.list li,
 .style-illust .slide.has-bg .col { background: #fff; }
 .style-illust .slide.has-bg .col.right { background: var(--card-accent); }
+
+/* 상품 그리드·일정 패널(S12): 흰 스티커 카드 */
+.style-illust .products h2, .style-illust .facts h2 { color: var(--ink); }
+.style-illust .product, .style-illust .fact { background: #fff; border: 5px solid var(--line); box-shadow: 8px 8px 0 var(--line); }
+.style-illust .slide.has-bg .fact dt { color: var(--ink); }

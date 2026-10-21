@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
@@ -17,8 +17,9 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
-CardStyle = Literal["clean", "photo", "illust"]
+# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. clean·photo·illust는 배경을 코드(CSS·SVG)로 그린다.
+# editorial(S10 제안, ADR 0050): 사람이 확인한 사진을 크게 깔고 글은 그 위 패널에 올리는 사진 우선 레이아웃.
+CardStyle = Literal["clean", "photo", "illust", "editorial"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 
@@ -77,11 +78,33 @@ class CollectSettings(_Model):
         return v
 
 
+class PicksSettings(_Model):
+    """오늘의 추천(S11 제안, ADR 0051): 매일 최근 소식 중 서로 다른 소재 최대 N개를 완성 원고로 추천한다.
+
+    켜면 일일 원고 만들기(generate)는 쉬고 추천(picks)이 대신 돈다. 추천 원고는 전부 검토 대기로 가고,
+    일일 생성 목표·게시 쿼터를 쓰지 않는다. 사진 후보는 사람이 "쓰기"를 눌러야 카드에 들어간다.
+    """
+
+    enabled: bool = False
+    count: int = Field(default=3, ge=1, le=5)  # (S13부터 workspace.info_count로 옮김, 호환용)
+    fresh_hours: int = Field(default=72, ge=6, le=24 * 14)  # 이 안에 공개된 자료만 "최근 소식"
+    photo_candidates: bool = (
+        True  # 기사 대표 이미지(og:image)를 후보로 받아 둘지(카드에는 사람이 확인한 뒤)
+    )
+    # (S13부터 workspace.aliases로 옮김, 호환용) 대표 주제 → 검색 별칭
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class ModelSettings(_Model):
     generation: str = "claude-sonnet-5-5"
     classifier: str = "claude-haiku-5-5"
     gemini: str = "gemini-3.5-flash-lite"  # 무료 구간에서 되는 것을 확인한 모델(ADR 0048)
     image: str = "gpt-image-2.5-flare"
+    # OpenAI 텍스트(S13 제안): Claude sonnet과 같은 값대($2/$10)의 gpt-6.1-sol. 추론은 낮게(출력 토큰 절약)
+    openai_text: str = "gpt-6.1-sol"
+    openai_text_effort: Literal["none", "minimal", "low", "medium"] = "low"
+    # 이미지 품질(S13 제안). medium이 세로형 한 장 약 $0.04~0.05(2026-10 공식 안내 기준 추정)
+    image_quality: Literal["low", "medium", "high"] = "medium"
 
 
 class Settings(_Model):
@@ -113,6 +136,9 @@ class Settings(_Model):
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: Gemini 키 → gemini(무료 구간), Anthropic 키 → claude, 둘 다 없으면 keyword (ADR 0048)
     classifier: Literal["auto", "gemini", "claude", "keyword"] = "auto"
+    # 글 생성·답글 공급자(S13 제안). auto: Claude 키 → claude, 아니면 OpenAI 키 → openai(기존 사용자 동작 유지).
+    # 명시하면 그 공급자만 쓰고, 키가 없으면 생성하지 않는다(조용히 다른 공급자로 바꾸지 않음)
+    text_provider: Literal["auto", "openai", "claude"] = "auto"
     # off(기본): AI 배경을 만들지 않고 코드로 그린 배경만(유료라서 꺼 둠, ADR 0036).
     # auto: OpenAI 키가 있으면 생성, 없으면 템플릿 배경. on: 항상 생성(키 없으면 경고 후 템플릿 배경)
     image_generation: Literal["auto", "on", "off"] = "off"
@@ -130,11 +156,37 @@ class Settings(_Model):
     preset: str = "기본"  # 지금 쓰는 프리셋(페르소나+브랜드+DB 묶음, C29 ADR 0049)
     collect: CollectSettings = Field(default_factory=CollectSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
+    picks: PicksSettings = Field(default_factory=PicksSettings)
 
     @field_validator("classifier", mode="before")
     @classmethod
     def _old_jev(cls, v: object) -> object:
         return "auto" if v == "jev" else v  # jev(MotherDuck)는 C27에서 뺐다. 예전 설정은 auto로
+
+
+class WorkspaceSettings(_Model):
+    """작업 공간(프리셋)별 설정(S13 제안): 페르소나·브랜드처럼 프리셋 파일에 함께 저장·복원된다.
+
+    무엇을 다루는지(별칭), 하루 추천 구성(정보/밈 개수), 제작 모드, 기본 출연 캐릭터, 디자인 옵션은
+    작업 공간마다 다르다. API 키·공급자·모델·비용 상한·플랫폼·스케줄은 전역(settings)에 그대로 둔다.
+    """
+
+    schema_version: int = (
+        1  # 필드 "없음"과 "빈 값"을 구분하기 위한 버전(예전 설정은 이 필드가 없다)
+    )
+    # 대표 주제 → 검색 별칭. 검색어 확장에만 쓰고 분류 라벨·추천 주제는 대표 주제로 정규화(ADR 0051)
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+    info_count: int = Field(default=3, ge=0, le=5)  # 하루 정보 추천 수
+    meme_count: int = Field(default=0, ge=0, le=3)  # 하루 밈·공감 추천 수(S14)
+    allow_substitute: bool = False  # 한 종류 후보가 모자라면 다른 종류로 채울지(기본 안 함)
+    # plan_first: 제목·대본·구성을 먼저 보고 고른 것만 그림 제작(유료). full: 예산 안에서 그림까지 완성(S15)
+    production_mode: Literal["plan_first", "full"] = "plan_first"
+    hero_default: str | None = None  # 기본 주인공 캐릭터 프로필 id(S15)
+    sidekick_default: str | None = (
+        None  # 기본 보조 캐릭터 프로필 id(S15). None이면 보조 캐릭터 없음
+    )
+    title_style: Literal["plain", "sticker"] = "plain"  # 표지 제목 모양(S14)
+    color_from_photo: bool = True  # 소재 사진에서 카드 색을 뽑을지(S14)
 
 
 class AppConfig(_Model):
@@ -143,6 +195,30 @@ class AppConfig(_Model):
     brand: BrandSettings
     persona: Persona
     settings: Settings = Field(default_factory=Settings)
+    workspace: WorkspaceSettings = Field(default_factory=WorkspaceSettings)
+
+    @model_validator(mode="after")
+    def _legacy_picks_into_workspace(self) -> AppConfig:
+        """S11의 settings.picks.count/aliases에서 작업 공간 설정으로 옮긴다(호환).
+
+        "없음"과 "빈 값"을 구분한다: 예전 설정 파일에는 workspace 절 자체가 없으므로 그때만 picks 값을
+        가져온다. workspace.aliases = {}처럼 사용자가 일부러 비운 값은 그대로 둔다.
+        """
+        if "workspace" in self.model_fields_set:
+            return self
+        picks = self.settings.picks
+        legacy: dict[str, object] = {}
+        if "count" in picks.model_fields_set:
+            legacy["info_count"] = picks.count
+        if "aliases" in picks.model_fields_set:
+            legacy["aliases"] = dict(picks.aliases)
+        if legacy:
+            object.__setattr__(self, "workspace", self.workspace.model_copy(update=legacy))
+        return self
+
+    @property
+    def daily_slot_total(self) -> int:
+        return self.workspace.info_count + self.workspace.meme_count
 
     @field_validator("brand", mode="before")
     @classmethod

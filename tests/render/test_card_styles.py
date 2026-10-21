@@ -16,7 +16,7 @@ import pytest
 from nsm.render.html_renderer import HtmlCardRenderer, build_html, template_version
 from tests.render.test_html_renderer import _extreme, load, png_size, slots
 
-STYLES = ["clean", "photo", "illust"]
+STYLES = ["clean", "photo", "illust", "editorial"]
 TEMPLATES = ["info", "list", "compare"]
 
 
@@ -42,7 +42,7 @@ def test_each_style_renders_1080x1350_without_overflow(
         )
 
 
-@pytest.mark.parametrize("style", ["photo", "illust"])
+@pytest.mark.parametrize("style", ["photo", "illust", "editorial"])
 @pytest.mark.parametrize("template", TEMPLATES)
 def test_label_slots_do_not_depend_on_style(style: str, template: str) -> None:
     deck = load(template)
@@ -127,6 +127,11 @@ def test_style_specific_parts() -> None:
     # illust: 표지 캐릭터 1, 마무리 손 흔드는 캐릭터 1. 캐릭터도 가상인물이라 배지가 있는 이 두 장에만(ADR 0043)
     assert illust.count("mascot-stand") == 1 and illust.count("mascot-wave") == 1
     assert "mascot-mini" not in illust
+    # editorial(S10): 사진이 없으면 패널·팔로우 카드 없이 종이색 카드, 형광펜 상자도 없다
+    editorial = build_html(deck, "editorial")
+    assert "editorial.css" in editorial and '<span class="hl">' not in editorial
+    assert editorial.count('class="kawaii') == 2  # 몽글 캐릭터는 표지·마지막 장에만
+    assert "caption-panel" not in editorial and "follow-card" not in editorial
 
 
 def test_unknown_style_is_rejected() -> None:
@@ -196,7 +201,9 @@ def test_text_on_filled_boxes_is_readable(style: str, with_bg: bool, tmp_path: P
                 pg.goto(page.resolve().as_uri(), wait_until="load")
                 pairs = pg.evaluate(
                     r"""() => {
-                      const rgba = (c) => (c.match(/[\d.]+/g) || []).map(Number);
+                      // color-mix()는 'color(srgb r g b)'(0~1)로 계산된다 → 0~255로 맞춘다
+                      const rgba = (c) => { const n = (c.match(/[\d.]+/g) || []).map(Number);
+                        return c.startsWith('color(') ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] === undefined ? 1 : n[3]] : n; };
                       const out = [];
                       for (const box of document.querySelectorAll('.content li, .content .col, .content .subtitle, .content .text, .content .cta')) {
                         const b = rgba(getComputedStyle(box).backgroundColor);

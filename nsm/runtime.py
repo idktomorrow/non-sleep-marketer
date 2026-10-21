@@ -16,8 +16,10 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import KeyringSecretStore, SecretStore
 from nsm.config.store import load_config
 from nsm.domain.clock import SystemClock
-from nsm.engine.context import JobContext
+from nsm.engine.context import Adapters, JobContext
+from nsm.store.costs import CostLedger
 from nsm.store.db import Database
+from nsm.store.picks import PicksStore
 from nsm.store.repo import Repository
 
 log = logging.getLogger(__name__)
@@ -90,35 +92,123 @@ def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
     return out
 
 
+def make_adapters(
+    cfg: AppConfig, secrets: SecretStore, repo: Repository, cost_sink=None
+) -> Adapters:
+    """키·공급자·모델 설정으로 어댑터 묶음을 만든다(S13). 설정이나 키가 바뀌면 묶음을 통째로 새로 만든다.
+    묶음이 연 자원(브라우저 드라이버)은 `bundle.resources`(ExitStack)가 쥐고, 다음 묶음을 적용할 때 닫힌다."""
+    stack = ExitStack()
+    from nsm.adapters.classifier import make_classifiers
+    from nsm.adapters.generator import (
+        make_image_generator,
+        make_image_studio,
+        make_text_generator_with_reason,
+    )
+    from nsm.adapters.sources.google_trends import GoogleTrendsSource
+    from nsm.adapters.sources.image_reader import make_image_reader
+    from nsm.adapters.sources.upload import UploadSource
+
+    sink = cost_sink or repo
+    clock = repo.clock if hasattr(repo, "clock") else SystemClock()
+    c = cfg.settings.collect
+    read_image = make_image_reader(cfg, secrets, sink, paths.upload_text_dir())
+    sources: list = [
+        UploadSource(
+            Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(),
+            clock,
+            is_known=repo.has_url_hash,
+            read_image=read_image,
+        )
+    ]
+    if c.google_trends:
+        sources.append(GoogleTrendsSource(clock, tz=cfg.settings.timezone))
+    sources += _web_sources(cfg, clock, stack)
+    classifiers = make_classifiers(cfg, secrets, sink)
+    text_gen, reason = make_text_generator_with_reason(cfg, secrets, sink)
+    bundle = Adapters(
+        sources=tuple(sources),
+        relevance_classifier=classifiers.relevance,
+        topic_classifier=classifiers.topic,
+        comment_classifier=classifiers.comment,
+        classifier_name=classifiers.name,
+        text_generator=text_gen,
+        text_generator_reason=reason,
+        image_generator=make_image_generator(cfg, secrets, sink, paths.media_dir()),
+        image_studio=make_image_studio(cfg, secrets, sink, paths.media_dir()),
+        platforms=make_platform_adapters(cfg, clock),
+        read_image=read_image,
+        resources=stack,
+    )
+    return bundle, classifiers  # type: ignore[return-value]
+
+
+def _adapter_settings(cfg: AppConfig) -> tuple:
+    """이 값이 바뀌면 어댑터 묶음을 새로 만든다."""
+    s = cfg.settings
+    return (
+        s.text_provider,
+        s.models.model_dump_json(),
+        s.classifier,
+        s.image_generation,
+        s.dry_run,
+        tuple(s.enabled_platforms),
+        tuple(sorted(s.accounts.items())),
+        s.collect.model_dump_json(),
+        s.timezone,
+    )
+
+
+def refresh_adapters(ctx: JobContext, secrets: SecretStore) -> None:
+    """키나 공급자 설정이 바뀐 뒤: 새 묶음을 만들어 한 번에 바꾼다. 진행 중인 잡은 영향 없고 다음 잡부터.
+    이전 묶음의 브라우저 드라이버는 apply_adapters가 닫는다."""
+    bundle, classifiers = make_adapters(ctx.config, secrets, ctx.repo, ctx.cost_ledger)
+    classifiers.set_on_switch(
+        lambda a, b, e: ctx.notifier.notify(
+            "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
+        )
+    )
+    ctx.apply_adapters(bundle)
+    log.info(
+        "어댑터 묶음 갱신: 글=%s, 그림=%s, 분류=%s",
+        type(bundle.text_generator).__name__
+        if bundle.text_generator
+        else f"없음({bundle.text_generator_reason})",
+        "있음" if bundle.image_studio else "없음",
+        bundle.classifier_name,
+    )
+
+
+def make_cost_ledger(repo: Repository, workspace: str = "기본") -> CostLedger:
+    """전역 비용 원장(S13): <NSM_HOME>/costs.duckdb(원장 표만, 작업 공간 스키마는 적용하지 않음).
+    비어 있으면 지금 작업 공간 DB의 costs를 한 번 옮긴다. 작업 공간 이름은 build_context가 ctx에 묶어 준다."""
+    ledger_db = Database(paths.costs_db_path(), apply_schema=False)
+    ledger = CostLedger(
+        ledger_db,
+        repo.clock,
+        workspace=workspace,
+        mirror=repo.record_cost,  # 작업 공간 DB의 costs 표에도 사본(그 공간의 지출 표시용)
+    )
+    if ledger.count() == 0:
+        rows = repo.db.execute("SELECT kind, provider, usd, occurred_at, ref FROM costs")
+        n = ledger.import_legacy([tuple(r) for r in rows], workspace)
+        if n:
+            log.info("비용 원장에 예전 기록 %d건을 옮김", n)
+    return ledger
+
+
 def build_context(
     cfg: AppConfig,
     db: Database,
     stack: ExitStack,
     secrets: SecretStore | None = None,
     notifier=None,
+    cost_ledger: CostLedger | None = None,
 ) -> JobContext:
-    from nsm.adapters.classifier import make_classifiers
-    from nsm.adapters.sources.google_trends import GoogleTrendsSource
-    from nsm.adapters.sources.image_reader import make_image_reader
-    from nsm.adapters.sources.upload import UploadSource
-
     secrets = secrets or KeyringSecretStore()
     clock = SystemClock()
     repo = Repository(db, clock)
-    c = cfg.settings.collect
-    sources: list = [
-        UploadSource(
-            Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(),
-            clock,
-            is_known=repo.has_url_hash,
-            read_image=make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
-        )
-    ]
-    if c.google_trends:
-        sources.append(GoogleTrendsSource(clock, tz=cfg.settings.timezone))
-    sources += _web_sources(cfg, clock, stack)
-    classifiers = make_classifiers(cfg, secrets, repo)
-    from nsm.adapters.generator import make_image_generator, make_text_generator
+    ledger = cost_ledger or make_cost_ledger(repo, cfg.settings.preset)
+    bundle, classifiers = make_adapters(cfg, secrets, repo, ledger)
     from nsm.render import get_renderer
 
     ctx = JobContext(
@@ -126,19 +216,18 @@ def build_context(
         repo=repo,
         clock=clock,
         notifier=notifier or LogNotifier(),
-        sources=sources,
-        relevance_classifier=classifiers.relevance,
-        topic_classifier=classifiers.topic,
-        comment_classifier=classifiers.comment,
-        classifier_name=classifiers.name,
-        text_generator=make_text_generator(cfg, secrets, repo),
-        image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
-        adapters=make_platform_adapters(cfg, clock),
+        cost_ledger=ledger,
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
         reports_dir=paths.reports_dir(),
         backups_dir=paths.backups_dir(),
     )
+    ctx.apply_adapters(bundle)
+    stack.callback(ctx.close_adapters)  # 호출자의 스택을 닫으면 지금 묶음의 드라이버도 닫힌다
+    if cost_ledger is None:
+        ledger.set_workspace(
+            lambda: ctx.config.settings.preset
+        )  # 프리셋 전환 뒤에도 지금 작업 공간으로 기록
     # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
     classifiers.set_on_switch(
         lambda a, b, e: ctx.notifier.notify(
@@ -155,6 +244,17 @@ def build_context(
         ),  # 설정 화면에서 바꾸면 다음 렌더부터(C17)
     )
     return ctx
+
+
+def _current_read_image(ctx: JobContext):
+    reader = next((s.read_image for s in ctx.sources if getattr(s, "name", "") == "upload"), None)
+    if reader is None:
+
+        def _none(_p):
+            raise RuntimeError("이미지를 읽을 공급자가 없습니다")
+
+        return _none
+    return reader
 
 
 def switch_preset(
@@ -259,7 +359,8 @@ def run_forever() -> None:
     scheduler = None
     try:
         notifier = DesktopNotifier(url)
-        ctx = build_context(cfg, db, drivers, notifier=notifier)
+        secrets = KeyringSecretStore()
+        ctx = build_context(cfg, db, drivers, secrets=secrets, notifier=notifier)
         notifier.enabled = lambda: ctx.config.settings.desktop_notifications
         # 모든 알림을 대시보드 알림함(종 모양)에도 남긴다(데스크톱 알림을 꺼도 남음, N2)
         from nsm.adapters.notify.recording import RecordingNotifier
@@ -272,6 +373,10 @@ def run_forever() -> None:
         scheduler.start()
         log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
 
+        def refresh() -> None:
+            # 어댑터 묶음은 작업 스레드에서 새로 만든다(브라우저 드라이버·네트워크 자원은 거기서만)
+            scheduler.submit(lambda: refresh_adapters(ctx, secrets))
+
         def set_config(new: AppConfig) -> None:
             save_config(new)
             old, ctx.config = ctx.config, new
@@ -283,6 +388,8 @@ def run_forever() -> None:
                     "활동 시간이 바뀌어 예약을 다시 겁니다: %s",
                     ", ".join(scheduler.reschedule(new)),
                 )
+            if _adapter_settings(new) != _adapter_settings(old):
+                refresh()  # 공급자·모델·플랫폼 설정이 바뀌면 다음 작업부터 새 묶음(S13)
 
         presets = PresetStore()
         state = AppState(
@@ -299,7 +406,8 @@ def run_forever() -> None:
             reports_dir=ctx.reports_dir,
             run_job_now=scheduler.run_now,
             run_keyword_now=lambda kw: scheduler.run_now("keyword", kw),
-            read_image=next((s.read_image for s in ctx.sources if s.name == "upload"), None),
+            # 올린 이미지 읽기는 묶음이 바뀌어도 지금 것을 쓰도록 매번 ctx에서 찾는다(S13)
+            read_image=lambda p: _current_read_image(ctx)(p),
             brand_dir=paths.brand_dir(),
             job_names=frozenset(JOBS),
             renderer=ctx.renderer,
@@ -308,6 +416,11 @@ def run_forever() -> None:
             switch_preset=lambda name: scheduler.submit(
                 lambda: switch_preset(ctx, db, name, set_config, presets)
             ),
+            picks=PicksStore(db, ctx.clock),  # 오늘의 추천(S11)
+            picks_dir=paths.media_dir() / "picks",
+            secrets=secrets,
+            on_secrets_changed=refresh,
+            cost_ledger=ctx.cost_ledger,
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")

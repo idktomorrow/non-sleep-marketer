@@ -299,7 +299,7 @@ def _cover_sizes(deck: CardDeck, tmp_path: Path, style: str = "clean") -> dict[s
             browser.close()
 
 
-@pytest.mark.parametrize("style", ["clean", "photo", "illust"])
+@pytest.mark.parametrize("style", ["clean", "photo", "illust", "editorial"])
 @pytest.mark.parametrize("extreme", [False, True], ids=["normal", "extreme"])
 @pytest.mark.parametrize("template", ["info", "list", "compare"])
 def test_cover_readable_at_threads_thumbnail(

@@ -72,10 +72,13 @@ def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
         return result
     s = ctx.config.settings
     if ctx.text_generator is None:
-        result.skipped = "Claude API 키가 없어 생성할 수 없음 (`nsm init`)"
+        result.skipped = (
+            ctx.text_generator_reason
+            or "AI 텍스트 공급자 API 키가 없어 생성할 수 없음(설정 → AI 공급자·키)"
+        )
         return result
     start, end = local_day_bounds(now, ctx.tz)
-    if not under_cost_cap(ctx.repo.cost_between(start, end), s.daily_cost_cap_usd):
+    if not under_cost_cap(ctx.spent_between(start, end), s.daily_cost_cap_usd):
         result.skipped = "오늘 비용 상한에 닿아 만들지 않음"
         return result
     sources = keyword_sources(ctx)

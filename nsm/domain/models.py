@@ -32,7 +32,8 @@ COMMENT_CATEGORIES: tuple[CommentCategory, ...] = (
     "spam",
 )
 CommentAction = Literal["auto_reply", "hide", "escalate", "ignore"]
-TemplateKind = Literal["info", "list", "compare"]
+# editorial(S12 제안, ADR 0052): 사진 우선 소식형. 중간 장에 body·products·facts를 섞어 쓸 수 있는 유일한 템플릿
+TemplateKind = Literal["info", "list", "compare", "editorial"]
 CostKind = Literal["llm", "image", "classifier"]
 
 
@@ -177,8 +178,37 @@ class OutroSlide(_Model):
     background: str | None = None
 
 
+# ---- S12 제안(ADR 0052): 상품 그리드·일정 패널. 그림은 장별 background처럼 로컬 경로이고 글자는 HTML로 그린다
+
+
+class ProductItem(_Model):
+    name: str
+    price: str = ""  # "¥2,310", "19,000원"처럼 표기 그대로(통화·단위를 코드가 해석하지 않는다)
+    note: str = ""  # "전 7종", "8종 BOX" 같은 짧은 보조 설명
+    image: str | None = None  # 상품 사진(사람이 올린 것). 없으면 이름만 크게
+
+
+class ProductsSlide(_Model):
+    kind: Literal["products"] = "products"
+    heading: str
+    items: list[ProductItem] = Field(min_length=2, max_length=4)
+    background: str | None = None
+
+
+class FactRow(_Model):
+    label: str  # "출시일", "구매처", "구매 수량"
+    value: str  # "10월 23일(금)부터", "ANA 온라인몰 외 4곳"
+
+
+class FactsSlide(_Model):
+    kind: Literal["facts"] = "facts"
+    heading: str
+    rows: list[FactRow] = Field(min_length=2, max_length=6)
+    background: str | None = None
+
+
 Slide = Annotated[
-    CoverSlide | BodySlide | ListSlide | CompareSlide | OutroSlide,
+    CoverSlide | BodySlide | ListSlide | CompareSlide | ProductsSlide | FactsSlide | OutroSlide,
     Field(discriminator="kind"),
 ]
 
@@ -197,7 +227,13 @@ class CardDeck(_Model):
         if self.slides[-1].kind != "outro":
             raise ValueError("마지막 슬라이드는 outro")
         middle = {s.kind for s in self.slides[1:-1]}
-        allowed = {"info": {"body"}, "list": {"list"}, "compare": {"compare"}}[self.template]
+        allowed = {
+            "info": {"body"},
+            "list": {"list"},
+            "compare": {"compare"},
+            # 소식형: 개요(body) + 상품 그리드 + 일정·구매처 패널을 한 덱에(S12 제안)
+            "editorial": {"body", "products", "facts"},
+        }[self.template]
         if not middle <= allowed:
             raise ValueError(f"{self.template} 템플릿에 허용되지 않는 슬라이드: {middle - allowed}")
         return self

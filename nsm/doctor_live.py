@@ -104,6 +104,69 @@ def _gemini(secrets: SecretStore, model: str, sink: CostSink | None = None) -> C
         return Check(name, "WARN", f"실패, Claude 분류기로 대신 동작: {str(e)[:160]} · 키: {src}")
 
 
+def _openai_client(key: str):
+    from nsm.adapters.openai_common import OpenAIClient
+
+    return OpenAIClient(key, timeout=60.0)
+
+
+def _openai_text(secrets: SecretStore, model: str, sink: CostSink | None = None) -> Check:
+    """OpenAI 글 생성 점검(S13): 아주 짧은 구조화 출력 한 번."""
+    name = "OpenAI 글 (실호출)"
+    key = secrets.get("openai_api_key")
+    if not key:
+        return Check(name, "WARN", "키 없음: 글 생성은 Claude 키가 있을 때만")
+    src = key_source("openai_api_key")
+    try:
+        from nsm.adapters.pricing import openai_text_cost
+
+        body = {
+            "model": model,
+            "instructions": "Answer with JSON only.",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": PROBE_INSTRUCTION + " " + PROBE_TEXT}
+                    ],
+                }
+            ],
+            "max_output_tokens": 200,
+            "store": False,
+            "reasoning": {"effort": "low"},
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "probe",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {"label": {"type": "string", "enum": PROBE_LABELS}},
+                        "required": ["label"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+        }
+        out = _openai_client(key).post_json("responses", body)
+        usage = out.get("usage") or {}
+        if sink and usage:
+            sink.record_cost(
+                "llm",
+                "openai",
+                openai_text_cost(
+                    model, int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
+                ),
+                "probe",
+            )
+        status = out.get("status")
+        return Check(
+            name, "OK" if status == "completed" else "WARN", f"{model} → {status} · 키: {src}"
+        )
+    except Exception as e:  # noqa: BLE001  (키는 헤더로만 보내 오류 문구에 없다)
+        return Check(name, "FAIL", f"{type(e).__name__}: {str(e)[:160]} · 키: {src}")
+
+
 def _openai(secrets: SecretStore, model: str, out_dir: Path, sink: CostSink | None = None) -> Check:
     name = "OpenAI 이미지 (실호출)"
     key = secrets.get("openai_api_key")
@@ -135,17 +198,25 @@ def run_live_checks(
     with_image: bool = False,
     models: ModelSettings | None = None,
     sink: CostSink | None = None,
+    with_text: bool = False,
 ) -> list[Check]:
-    """sink를 넘기면 호출 비용을 기록한다. CLI(`nsm doctor --live`)가 `cost_sink()`로 연 DB를 넘긴다."""
+    """sink를 넘기면 호출 비용을 기록한다. CLI(`nsm doctor --live`)가 `cost_sink()`로 연 DB를 넘긴다.
+    with_text: OpenAI 글 생성도 한 번 실호출한다(`--with-text`, S13)."""
     secrets = secrets or KeyringSecretStore()
     m = models or _models()
-    return _run(secrets, with_image, m, sink)
+    return _run(secrets, with_image, m, sink, with_text)
 
 
 def _run(
-    secrets: SecretStore, with_image: bool, m: ModelSettings, sink: CostSink | None
+    secrets: SecretStore,
+    with_image: bool,
+    m: ModelSettings,
+    sink: CostSink | None,
+    with_text: bool = False,
 ) -> list[Check]:
     checks = [_anthropic(secrets, m.classifier, sink), _gemini(secrets, m.gemini, sink)]
     if with_image:
         checks.append(_openai(secrets, m.image, Path(tempfile.gettempdir()) / "nsm-doctor", sink))
+    if with_text:
+        checks.append(_openai_text(secrets, m.openai_text, sink))  # OpenAI 글 생성(S13), 실호출
     return checks

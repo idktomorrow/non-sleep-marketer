@@ -55,7 +55,10 @@ def _secrets() -> Check:
         store = KeyringSecretStore()
         have = [k for k in KEYS if store.get(k)]
         missing = [k for k in KEYS if k not in have]
-        status: Status = "OK" if "anthropic_api_key" in have else "WARN"
+        # 글 공급자는 Claude 또는 OpenAI 중 하나면 된다(S13)
+        status: Status = (
+            "OK" if ("anthropic_api_key" in have or "openai_api_key" in have) else "WARN"
+        )
         return Check("API 키", status, f"있음: {have or '-'} / 없음: {missing or '-'}")
     except ModuleNotFoundError:
         return Check("API 키", "WARN", "키 저장소는 배치 C에서 추가됩니다")

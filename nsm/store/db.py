@@ -16,7 +16,7 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # 버전 n-1 -> n 으로 올리는 SQL. schema.sql은 항상 최신 형태(새 설치용)이고,
 # 기존 사용자 DB는 여기 단계를 차례로 적용해 따라잡는다.
@@ -24,6 +24,7 @@ SCHEMA_VERSION = 3
 MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE contents ADD COLUMN persona_topic VARCHAR"],
     3: [],  # notifications 테이블: schema.sql의 CREATE TABLE IF NOT EXISTS가 만든다(N2)
+    4: [],  # picks 테이블(S11 제안): schema.sql의 CREATE TABLE IF NOT EXISTS가 만든다
 }
 
 
@@ -44,13 +45,16 @@ def from_db(dt: datetime | None) -> datetime | None:
 
 
 class Database:
-    def __init__(self, path: str | Path = ":memory:") -> None:
+    def __init__(self, path: str | Path = ":memory:", apply_schema: bool = True) -> None:
+        """apply_schema=False: 작업 공간 스키마(contents·publications…)를 만들지 않는 연결(전역 비용 원장처럼
+        자기 표만 두는 DB, S13). 그 DB는 switch()하지 않는다."""
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(self.path)
         self._lock = threading.RLock()
-        self._apply_schema()
+        if apply_schema:
+            self._apply_schema()
 
     def _apply_schema(self, conn: duckdb.DuckDBPyConnection | None = None) -> None:
         sql = resources.files("nsm.store").joinpath("schema.sql").read_text(encoding="utf-8")
