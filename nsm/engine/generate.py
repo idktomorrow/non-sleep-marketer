@@ -129,10 +129,15 @@ def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -
 
 
 def _check_rules(
-    ctx: JobContext, brief: ContentBrief, gen: GeneratedContent, result: JobResult
+    ctx: JobContext,
+    brief: ContentBrief,
+    gen: GeneratedContent,
+    result: JobResult,
+    persona=None,
 ) -> tuple[GeneratedContent, list[str]]:
-    """프롬프트에만 있던 규칙(이모지 수, 딱딱한 표현)을 검사하고, 어기면 한 번 다시 만든다."""
-    persona = ctx.config.persona
+    """프롬프트에만 있던 규칙(이모지 수, 딱딱한 표현)을 검사하고, 어기면 한 번 다시 만든다.
+    persona를 주면(호출별 말투, S14) 그 페르소나로 검사·재생성한다."""
+    persona = persona or ctx.config.persona
     violations = rule_violations(gen, persona)
     if not violations:
         return gen, []

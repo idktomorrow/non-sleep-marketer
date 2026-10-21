@@ -31,7 +31,6 @@ from nsm.config.schema import CARD_STYLES
 from nsm.domain.models import CardDeck
 from nsm.domain.quality import slide_texts
 from nsm.render.character import DRAWN, CharacterArt
-from nsm.render.mascot import pick_prop
 
 log = logging.getLogger(__name__)
 
@@ -191,7 +190,7 @@ def template_version() -> str:
     """카드 템플릿·CSS·폰트 파일 내용의 지문. 바뀌면 렌더 캐시를 버린다(publish.render_images)."""
     h = hashlib.sha256()
     for p in sorted(TEMPLATES_DIR.rglob("*")):
-        if p.is_file() and p.suffix in {".html", ".css", ".woff2"}:
+        if p.is_file() and p.suffix in {".html", ".css", ".woff2", ".png", ".jpg", ".webp"}:
             h.update(p.relative_to(TEMPLATES_DIR).as_posix().encode())
             h.update(p.read_bytes())
     return h.hexdigest()[:16]
@@ -225,10 +224,27 @@ def _deck_texts(deck: CardDeck) -> list[str]:
     ]  # 장 종류별 글자 추출은 quality에 한 곳만
 
 
-def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = DRAWN) -> str:
+def _asset(a):
+    """ImageAsset 경로를 찾는다. 파일이 없으면 None(그림 없음 자리로 그린다, 대체하지 않는다)."""
+    if a is None:
+        return None
+    found = resolve_asset(a.path)
+    if not found:
+        log.warning("그림 파일이 없어 빈 자리로 둠: %s", a.path)
+        return None
+    return a.model_copy(update={"path": found})
+
+
+def build_html(
+    deck: CardDeck,
+    style: str = "clean",
+    character: CharacterArt = DRAWN,
+    title_style: str = "plain",
+) -> str:
     """덱 → 한 페이지 HTML. 배경·로고 경로가 없으면 스타일의 코드 배경(그라디언트·도형)으로 대체된다.
 
     `character`는 일러스트형 표지·마지막 장의 캐릭터(C17). 다른 스타일에서는 쓰지 않는다.
+    `title_style`(S14): "sticker"면 표지 제목·만화 라벨에 흰 테두리 스티커 글자.
     """
     check_style(style)
     slides = []
@@ -240,6 +256,12 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
         if s.kind == "products":  # 상품 그림도 같은 규칙(S12): 없으면 이름만 크게
             update["items"] = [
                 it.model_copy(update={"image": resolve_asset(it.image)}) for it in s.items
+            ]
+        if getattr(s, "sticker", None) is not None:  # 보조 캐릭터(S14)
+            update["sticker"] = _asset(s.sticker)
+        if s.kind == "comic":  # 만화 컷(S14)
+            update["panels"] = [
+                pn.model_copy(update={"image": _asset(pn.image)}) for pn in s.panels
             ]
         slides.append(s.model_copy(update=update))
     logo = resolve_asset(deck.brand.logo_path)
@@ -254,8 +276,7 @@ def build_html(deck: CardDeck, style: str = "clean", character: CharacterArt = D
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
             style=style,
             character=character,
-            # 사진 우선형의 몽글 캐릭터 소품: 카드 글에서 고른다(항공→조종사 모자, 커피→머그컵 …)
-            prop=pick_prop(_deck_texts(deck)),
+            title_style=title_style,
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),
         )
     )
@@ -279,8 +300,10 @@ class HtmlCardRenderer:
         timeout_ms: int = 30_000,
         style: str | Callable[[], str] = "clean",
         character: CharacterArt | Callable[[], CharacterArt] = DRAWN,
+        title_style: str | Callable[[], str] = "plain",
     ) -> None:
         self.timeout_ms = timeout_ms
+        self._title_style = title_style
         self.last_overflow: list[int] = []
         self._pool: ThreadPoolExecutor | None = None
         self._pw = None
@@ -299,12 +322,18 @@ class HtmlCardRenderer:
         return self._character() if callable(self._character) else self._character
 
     @property
+    def title_style(self) -> str:
+        v = self._title_style() if callable(self._title_style) else self._title_style
+        return v if v in ("plain", "sticker") else "plain"
+
+    @property
     def version(self) -> str:
         """렌더 캐시 지문(publish.render_images): 템플릿 파일·스타일·캐릭터 중 하나라도 바뀌면 다시 그린다.
 
         캐릭터는 일러스트형에서만 그리므로 그때만 지문에 넣는다(다른 스타일 카드는 다시 그리지 않게)."""
         tail = f":{self.character.fingerprint}" if self.style == "illust" else ""
-        return f"{self._template_version}:{self.style}{tail}"
+        title = ":sticker" if self.title_style == "sticker" else ""
+        return f"{self._template_version}:{self.style}{tail}{title}"
 
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]:
         self.last_overflow = []  # 이전 덱의 값이 남지 않게
@@ -314,7 +343,7 @@ class HtmlCardRenderer:
                 atexit.register(self.close)
             pool = self._pool
         paths, overflow = pool.submit(
-            self._render, deck, out_dir, self.style, self.character
+            self._render, deck, out_dir, self.style, self.character, self.title_style
         ).result()
         self.last_overflow = overflow
         return paths
@@ -328,7 +357,7 @@ class HtmlCardRenderer:
                 atexit.register(self.close)
             pool = self._pool
         paths, _overflow = pool.submit(
-            self._render, deck, out_dir, check_style(style), self.character
+            self._render, deck, out_dir, check_style(style), self.character, self.title_style
         ).result()
         return paths
 
@@ -341,14 +370,19 @@ class HtmlCardRenderer:
         return self._browser
 
     def _render(
-        self, deck: CardDeck, out_dir: Path, style: str, character: CharacterArt = DRAWN
+        self,
+        deck: CardDeck,
+        out_dir: Path,
+        style: str,
+        character: CharacterArt = DRAWN,
+        title_style: str = "plain",
     ) -> tuple[list[Path], list[int]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         browser = self._ensure_browser()
         # 로컬 절대 경로가 담긴 HTML은 결과 폴더에 남기지 않는다(임시 폴더에서 렌더 후 삭제)
         with tempfile.TemporaryDirectory(prefix="nsm-card-") as tmp:
             html_path = Path(tmp) / "deck.html"
-            html_path.write_text(build_html(deck, style, character), encoding="utf-8")
+            html_path.write_text(build_html(deck, style, character, title_style), encoding="utf-8")
             page = browser.new_page(
                 viewport={"width": WIDTH, "height": HEIGHT}, device_scale_factor=1
             )

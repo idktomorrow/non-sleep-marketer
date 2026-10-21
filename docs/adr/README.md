@@ -63,6 +63,9 @@
 | [0048](0048-gemini-classifier-replaces-jev.md) | 분류기는 Gemini 무료 구간(Flash-Lite, 10건 묶음)을 기본으로, jev·MotherDuck은 제거. 자동 선택 Gemini → Claude → 낱말 규칙, 실패하면 다음으로 넘어가며 알림 | 제안 |
 | [0050](0050-editorial-style-verified-photos.md) | 사진 우선형(editorial) 카드 스타일 추가: 사람이 올리거나 확인한 사진만 장별 배경으로 크게 깔고 글은 그 위 패널에. 프로그램이 고른 사진은 넣지 않음(ADR 0045 수정 제안) | 제안 |
 | [0051](0051-daily-picks-and-saved-drafts.md) | 오늘의 추천: 켜면 일일 원고 대신 수집→사건 묶기→최근 소식 최대 3건을 검토 대기 원고로. `picks` 표로 보관·사진 후보·재확인을 다루고(동결 상태 그대로), 사진 후보는 사람이 "쓰기"를 눌러야 카드에 | 제안 |
+| [0055](0055-deck-comic-sticker-and-per-asset-ai-label.md) | 덱 JSON에 2컷 만화(comic: 컷 2개, 라벨 30자·말풍선 40자 HTML)·보조 캐릭터 스티커(ImageAsset)·장별 AI 표기(ai_slides: None=레거시, []=없음)·밈 템플릿. 사진 우선형·밈 경로에서 코드 도형 캐릭터 제거, 소재 사진 색. **동결 계약 변경, 합의 필요** | 제안 |
+| [0056](0056-meme-path-and-scenario-writer.md) | 밈은 정보 원고와 분리된 경로: ScenarioWriter 포트(아이디어→대본), 호출별 밈 말투, 중복은 상황+반전 겹침이고 대비 구조도 같을 때만, 사실 표현은 검토 신호, 훅 있을 때만 claims. 포트 추가(합의 필요) | 제안 |
+| [0057](0057-pick-slots-state-machine.md) | 추천 슬롯 표(날짜+종류+번호, 계획부터 존재): 정보 N+밈 M, 오늘만 변경, 축소 시 미시작분만 제외, claim·한 트랜잭션 저장, 실패→복귀 단계·next_attempt_at 재시도, 대체는 requested/actual 기록, 기존 picks 마이그레이션 | 제안 |
 | [0053](0053-workspace-settings-and-run-snapshot.md) | 관심 분야 별칭·추천 구성·캐릭터·디자인은 작업 공간(프리셋)별 설정(preset.yaml에 저장), 키·공급자·모델·비용 상한은 전역. 어댑터는 한 묶음으로 만들고 잡은 시작 때 스냅샷을 받아 끝까지 쓴다. "없음"과 "빈 값"을 구분해 호환 | 제안 |
 | [0054](0054-openai-single-key-and-cost-ledger.md) | OpenAI 키 하나로 글·답글·그림. 공급자 auto/openai/claude(명시하면 조용한 전환 없음). 공용 클라이언트는 재시도 없이 오류 분류만, 이미지는 전송 뒤 응답 없음을 unknown으로. 전역 비용 원장(예약→확정 같은 행, 미확인은 예약액). ImageStudio·CostLedger 포트 추가(동결 변경, 합의 필요) | 제안 |
 | [0052](0052-deck-products-facts-slides.md) | 덱 JSON에 상품 그리드(products 2~4개: 이름·가격·보조·그림)·정보 패널(facts 2~6줄) 장과 가운데 장을 섞는 소식형(editorial) 템플릿을 더한다. 상품 이름·가격이 자료에 없으면 검토로. **동결 계약 변경, 합의 필요** | 제안 |

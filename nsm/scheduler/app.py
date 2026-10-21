@@ -43,6 +43,8 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
         "generate": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
         # 오늘의 추천(S11): 켜져 있으면 generate 대신 돈다(꺼져 있으면 잡이 스스로 건너뜀). 수집은 잡 안에서 먼저 한다
         "picks": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
+        # 실패한 추천 슬롯 재시도(S14): sleep 대신 재예약 시각(next_attempt_at)을 보고 15분마다
+        "slots_retry": IntervalTrigger(minutes=15, jitter=120, timezone=tz),
         "publish": IntervalTrigger(minutes=30, jitter=600, timezone=tz),
         "reply": IntervalTrigger(
             minutes=cfg.settings.reply_interval_minutes, jitter=60, timezone=tz

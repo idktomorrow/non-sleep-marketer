@@ -25,6 +25,7 @@ from nsm.ports import (
     ImageStudio,
     Notifier,
     PlatformAdapter,
+    ScenarioWriter,
     Source,
     TextGenerator,
 )
@@ -47,6 +48,7 @@ class Adapters:
     text_generator_reason: str = ""  # 생성기가 없을 때 사람이 읽을 이유(어느 키가 없는지)
     image_generator: ImageGenerator | None = None
     image_studio: ImageStudio | None = None
+    scenario_writer: ScenarioWriter | None = None  # 밈 대본(S14). 보통 text_generator가 겸한다
     platforms: dict[Platform, PlatformAdapter] = field(default_factory=dict)
     read_image: Any = None  # 올린 이미지 → 글(없으면 None)
     resources: Any = None  # 이 묶음이 연 자원(브라우저 드라이버 등)을 닫는 ExitStack. 묶음을 바꿀 때 이전 것을 닫는다
@@ -67,6 +69,7 @@ class JobContext:
     text_generator_reason: str = ""
     image_generator: ImageGenerator | None = None
     image_studio: ImageStudio | None = None
+    scenario_writer: ScenarioWriter | None = None
     renderer: CardRenderer | None = None
     adapters: dict[Platform, PlatformAdapter] = field(default_factory=dict)
     cost_ledger: CostLedger | None = (
@@ -99,6 +102,7 @@ class JobContext:
             self.text_generator_reason = bundle.text_generator_reason
             self.image_generator = bundle.image_generator
             self.image_studio = bundle.image_studio
+            self.scenario_writer = bundle.scenario_writer
             self.adapters = dict(bundle.platforms)
         if old is not None and old is not bundle.resources:
             try:

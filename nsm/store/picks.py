@@ -17,6 +17,11 @@ from nsm.ports import Clock
 from nsm.store.db import Database, from_db, to_db
 from nsm.store.repo import InvalidTransitionError
 
+
+class SlotConflictError(RuntimeError):
+    """저장하려던 슬롯이 더 이상 쓰는 중이 아니다(목표 축소로 취소 등). 트랜잭션은 되돌려진다."""
+
+
 PICK_STATES = ("ready", "saved", "queued", "dismissed")
 PHOTO_STATES = ("none", "candidate", "applied", "dropped")
 FRESHNESS = ("fresh", "stale", "unknown")
@@ -40,6 +45,8 @@ class Pick:
     title_fingerprint: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    kind: str = "info"  # info | meme (S14)
+    slot_key: str | None = None  # pick_slots 키(S14)
 
     @property
     def ready_to_publish(self) -> bool:
@@ -54,7 +61,7 @@ class PicksStore:
     _COLS = (
         "content_id, run_date, rank, reason, state, freshness, published_at, photo_status, "
         "photo_candidate_url, photo_source_url, photo_candidate_path, render_checked_at, "
-        "rechecked_at, title_fingerprint, created_at, updated_at"
+        "rechecked_at, title_fingerprint, created_at, updated_at, kind, slot_key"
     )
 
     def __init__(self, db: Database, clock: Clock) -> None:
@@ -86,14 +93,23 @@ class PicksStore:
             title_fingerprint=r[13],
             created_at=from_db(r[14]),
             updated_at=from_db(r[15]),
+            kind=r[16] or "info",
+            slot_key=r[17],
         )
 
     # ------------------------------------------------------------ 저장·조회
 
     def save(
-        self, content: Content, *, persona_topic: str | None, item_ids: list[str], pick: Pick
+        self,
+        content: Content,
+        *,
+        persona_topic: str | None,
+        item_ids: list[str],
+        pick: Pick,
+        slot_stage: str = "ready",
+        slot_plan: str | None = None,
     ) -> None:
-        """추천 원고 저장을 한 트랜잭션으로. 게시 레코드는 만들지 않는다(게시로 보낼 때 만든다)."""
+        """추천 원고 저장을 한 트랜잭션으로(contents + 자료 사용 + picks + 슬롯 연결). 게시 레코드는 만들지 않는다."""
         if content.status != "pending_review":
             raise ValueError("추천 원고는 검토 대기로만 저장한다")
         now = self._now()
@@ -123,7 +139,7 @@ class PicksStore:
                     [content.id, *item_ids],
                 )
             cur.execute(
-                f"INSERT INTO picks ({self._COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO picks ({self._COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     content.id,
                     pick.run_date,
@@ -141,8 +157,26 @@ class PicksStore:
                     pick.title_fingerprint,
                     now,
                     now,
+                    pick.kind,
+                    pick.slot_key,
                 ],
             )
+            if pick.slot_key:
+                # 슬롯 연결도 같은 트랜잭션(S14): 원고는 있는데 슬롯이 비거나, 슬롯은 찼는데 원고가 없는 상태가 없게
+                from nsm.store.slots import parse_key
+
+                d, kind, no = parse_key(pick.slot_key)
+                linked = cur.execute(
+                    "UPDATE pick_slots SET stage = ?, content_id = ?, actual_kind = ?, plan_json = coalesce(?, plan_json), "
+                    "updated_at = ? WHERE run_date = ? AND requested_kind = ? AND slot_no = ? "
+                    "AND stage = 'writing' AND content_id IS NULL RETURNING slot_no",
+                    [slot_stage, content.id, pick.kind, slot_plan, now, d, kind, no],
+                ).fetchall()
+                if not linked:
+                    # 슬롯이 취소됐거나 다른 실행이 채웠다: 원고·자료 표시·추천을 함께 되돌린다(고아 원고 방지)
+                    raise SlotConflictError(
+                        f"슬롯 {pick.slot_key}에 원고를 연결할 수 없습니다(취소·이미 채움)"
+                    )
 
     def get(self, content_id: str) -> Pick | None:
         rows = self.db.execute(f"SELECT {self._COLS} FROM picks WHERE content_id = ?", [content_id])

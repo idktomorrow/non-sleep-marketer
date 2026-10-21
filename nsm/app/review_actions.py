@@ -12,7 +12,7 @@ import shutil
 from datetime import timedelta
 from pathlib import Path
 
-from nsm.app.card_editor import clear_rendered, set_background, upload_dir
+from nsm.app.card_editor import apply_photo_colors, clear_rendered, set_background, upload_dir
 from nsm.domain.models import GeneratedContent, Persona, Platform
 from nsm.domain.policy import find_banned
 from nsm.engine.generate import all_texts
@@ -51,6 +51,21 @@ class ReviewActions:
 
     # ------------------------------------------------------------ 승인·폐기·취소
 
+    def _production_gate(self, cid: str) -> None:
+        """그림 제작이 끝나지 않은 추천 원고(밈)는 게시로 보내지 않는다(S14). 슬롯이 없으면 통과."""
+        from nsm.store.slots import SlotStore
+
+        sl = SlotStore(self.repo.db, self.clock).by_content(cid)
+        if sl is not None and sl.stage in (
+            "images_pending",
+            "producing",
+            "failed_image",
+            "unknown_image",
+        ):
+            raise ActionError(
+                409, "그림 제작이 끝나지 않은 원고는 게시할 수 없습니다(추천함에서 제작·재시도)"
+            )
+
     def approve(self, cid: str, *, persona: Persona, platforms: list[Platform]) -> None:
         c = self._content(cid)
         banned = find_banned(all_texts(c.generated), persona)
@@ -59,6 +74,7 @@ class ReviewActions:
             raise ActionError(
                 409, f"금칙어·금칙 패턴이 있어 승인할 수 없습니다: {', '.join(banned)}"
             )
+        self._production_gate(cid)
         pick = self._pick(cid)
         if pick is None:
             try:
@@ -149,8 +165,8 @@ class ReviewActions:
             return
         self.picks.set_render_checked(cid, None if overflow else self.clock.now())
 
-    def photo_use(self, cid: str, media_dir: Path) -> GeneratedContent:
-        """사진 후보를 표지와 마지막 장 배경으로. 검토 대기 중일 때만."""
+    def photo_use(self, cid: str, media_dir: Path, recolor: bool = False) -> GeneratedContent:
+        """사진 후보를 표지와 마지막 장 배경으로. 검토 대기 중일 때만. recolor면 사진 색을 덱 색으로(S14)."""
         c = self._content(cid)
         pick = self._need_pick(cid)
         if c.status != "pending_review":
@@ -169,6 +185,8 @@ class ReviewActions:
         dest_last = out / f"slide-{last + 1:02d}-{secrets.token_hex(4)}{src.suffix}"
         shutil.copyfile(src, dest_last)
         g = set_background(g, last, str(dest_last), media_dir)
+        if recolor:
+            g = apply_photo_colors(g, dest)
         try:
             self.repo.update_generated(cid, g)
         except InvalidTransitionError as e:

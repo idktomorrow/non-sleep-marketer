@@ -92,7 +92,10 @@ def apply_preset(cfg: Any, key: str) -> Any:
     picks = cfg.settings.picks.model_copy(update={"enabled": True})
     settings = cfg.settings.model_copy(update={"collect": collect, "picks": picks})
     workspace = cfg.workspace.model_copy(
-        update={"aliases": {k: list(v) for k, v in ps.aliases.items()}}
+        update={
+            "aliases": {k: list(v) for k, v in ps.aliases.items()},
+            **({"meme_tone": ps.tone} if ps.tone else {}),  # 밈 말투는 밈 경로에서만(S14)
+        }
     )
     return cfg.model_copy(update={"persona": persona, "settings": settings, "workspace": workspace})
 

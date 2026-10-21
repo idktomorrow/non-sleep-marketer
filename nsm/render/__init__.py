@@ -17,15 +17,22 @@ from nsm.ports import CardRenderer
 log = logging.getLogger(__name__)
 
 
-def get_renderer(style: str | Callable[[], str] = "clean", character: Any = None) -> CardRenderer:
+def get_renderer(
+    style: str | Callable[[], str] = "clean",
+    character: Any = None,
+    title_style: str | Callable[[], str] = "plain",
+) -> CardRenderer:
     """`style`: 카드 스타일 이름이나, 렌더할 때마다 현재 설정의 스타일을 돌려주는 함수(S8).
-    `character`: 일러스트형 캐릭터(`CharacterArt`)나 그것을 돌려주는 함수(C17). 없으면 코드 캐릭터."""
+    `character`: 일러스트형 캐릭터(`CharacterArt`)나 그것을 돌려주는 함수(C17). 없으면 코드 캐릭터.
+    `title_style`(S14): "sticker"면 표지 제목·만화 라벨을 흰 테두리 스티커 글자로."""
     if importlib.util.find_spec("playwright") is not None:
         from nsm.render.character import DRAWN
         from nsm.render.html_renderer import HtmlCardRenderer, chromium_available
 
         if chromium_available():
-            return HtmlCardRenderer(style=style, character=character or DRAWN)
+            return HtmlCardRenderer(
+                style=style, character=character or DRAWN, title_style=title_style
+            )
     from nsm.render.placeholder import PlaceholderRenderer
 
     log.warning(

@@ -139,6 +139,53 @@ class ImageStudio(Protocol):
     def make(self, spec: ImageSpec) -> ImageResult: ...
 
 
+# ---- S14 제안(동결 계약 추가, 합의 필요, ADR 0056): 밈 대본 작가. 정보 원고(TextGenerator)와 별도 경로다.
+
+
+@dataclass(frozen=True)
+class MemeRequest:
+    topics: tuple[str, ...]  # 관심 분야(대표 주제)
+    character_name: str
+    character_description: str  # 외형·성격·말버릇(프로필이 있으면 거기서, 없으면 페르소나)
+    tone: str  # 밈 말투(호출별, 전역 페르소나를 덮어쓰지 않는다)
+    recent: tuple[str, ...] = ()  # 최근 밈 요약("상황 → 반전")들: 같은 농담을 피하게
+    hook: str = ""  # 연재 훅(정보 사건 한 줄). 비우면 뉴스 없이 창작
+    hook_sources: tuple[SourceItem, ...] = ()  # 훅의 자료(있으면 claims·출처 허용)
+    count: int = 3  # 아이디어 수
+
+
+@dataclass(frozen=True)
+class MemeIdea:
+    situation: str  # 공감 상황 한 줄("극중 월급 vs 현실 연봉")
+    contrast: str  # 두 컷의 대비("시무룩 vs 느긋")
+    punchline: str  # 반전 한 줄
+    why: str = ""  # 왜 웃긴지(검토자용)
+
+
+@dataclass(frozen=True)
+class MemePanel:
+    label: str  # 검은 라벨(≤30자)
+    bubble: str  # 말풍선(≤40자)
+    scene: str  # 장면 지시(표정·행동·배경, 그림 생성용)
+    bubble_side: Literal["left", "right"] = "right"
+
+
+@dataclass(frozen=True)
+class MemeScript:
+    idea: MemeIdea
+    panels: tuple[MemePanel, MemePanel]
+    caption: str
+    threads_text: str
+    cta: str = ""
+    claims: tuple[tuple[str, str], ...] = ()  # (문장, 자료 id). 뉴스 훅이 있을 때만
+
+
+@runtime_checkable
+class ScenarioWriter(Protocol):
+    def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]: ...
+    def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript: ...
+
+
 @runtime_checkable
 class CardRenderer(Protocol):
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...

@@ -33,7 +33,7 @@ COMMENT_CATEGORIES: tuple[CommentCategory, ...] = (
 )
 CommentAction = Literal["auto_reply", "hide", "escalate", "ignore"]
 # editorial(S12 제안, ADR 0052): 사진 우선 소식형. 중간 장에 body·products·facts를 섞어 쓸 수 있는 유일한 템플릿
-TemplateKind = Literal["info", "list", "compare", "editorial"]
+TemplateKind = Literal["info", "list", "compare", "editorial", "meme"]
 CostKind = Literal["llm", "image", "classifier"]
 
 
@@ -133,7 +133,18 @@ class DeckPersona(_Model):
 class DeckLabels(_Model):
     virtual_person: bool = True
     ad: bool = False
-    ai_generated_image: bool = False
+    ai_generated_image: bool = False  # 레거시(덱 전체 플래그). ai_slides가 None일 때만 판정에 쓴다
+    # S14 제안(ADR 0055): "AI 생성 이미지"를 **장별·자산별**로. None = 레거시 덱(위 플래그 + background 규칙),
+    # [] = AI 이미지 없음(빈 값은 "없음"이지 "모름"이 아니다). 값은 0부터 세는 장 번호
+    ai_slides: list[int] | None = None
+
+
+class ImageAsset(_Model):
+    """장에 붙는 그림 하나(S14 제안): 경로 + 출처. 글자는 절대 그림에 넣지 않는다(ADR 0007)."""
+
+    path: str
+    ai: bool = False  # AI로 만든 그림이면 그 장에 "AI 생성 이미지" 표기
+    alt: str = ""
 
 
 class CoverSlide(_Model):
@@ -149,6 +160,7 @@ class BodySlide(_Model):
     body: str
     bullets: list[str] = Field(default_factory=list)
     background: str | None = None
+    sticker: ImageAsset | None = None  # 메모 상자에 걸친 보조 캐릭터(S14 제안)
 
 
 class ListSlide(_Model):
@@ -193,6 +205,7 @@ class ProductsSlide(_Model):
     heading: str
     items: list[ProductItem] = Field(min_length=2, max_length=4)
     background: str | None = None
+    sticker: ImageAsset | None = None
 
 
 class FactRow(_Model):
@@ -205,10 +218,35 @@ class FactsSlide(_Model):
     heading: str
     rows: list[FactRow] = Field(min_length=2, max_length=6)
     background: str | None = None
+    sticker: ImageAsset | None = None
+
+
+# ---- S14 제안(ADR 0055): 2컷 만화. 같은 캐릭터가 두 장면에 나오고 라벨(검은 상자)·말풍선은 HTML 글자다
+
+
+class ComicPanel(_Model):
+    image: ImageAsset | None = None  # 없으면 "그림 없음" 자리(도형으로 대체하지 않는다)
+    label: str = Field(default="", max_length=30)  # 왼쪽 위 검은 라벨("치이카와 역 월급 225만원")
+    bubble: str = Field(default="", max_length=40)  # 말풍선 대사("시러~")
+    bubble_side: Literal["left", "right"] = "right"
+    scene: str = ""  # 장면 지시(생성·재생성용, 카드에는 안 그린다)
+
+
+class ComicSlide(_Model):
+    kind: Literal["comic"] = "comic"
+    panels: list[ComicPanel] = Field(min_length=2, max_length=2)
+    background: str | None = None
 
 
 Slide = Annotated[
-    CoverSlide | BodySlide | ListSlide | CompareSlide | ProductsSlide | FactsSlide | OutroSlide,
+    CoverSlide
+    | BodySlide
+    | ListSlide
+    | CompareSlide
+    | ProductsSlide
+    | FactsSlide
+    | ComicSlide
+    | OutroSlide,
     Field(discriminator="kind"),
 ]
 
@@ -222,8 +260,12 @@ class CardDeck(_Model):
 
     @model_validator(mode="after")
     def _shape(self) -> CardDeck:
-        if self.slides[0].kind != "cover":
-            raise ValueError("첫 슬라이드는 cover")
+        # 밈(S14 제안): 첫 장이 만화 자체일 수 있다(레퍼런스는 2컷이 곧 첫 이미지). 다른 템플릿은 표지로 시작
+        first_ok = {"cover", "comic"} if self.template == "meme" else {"cover"}
+        if self.slides[0].kind not in first_ok:
+            raise ValueError(
+                "첫 슬라이드는 cover" + ("(밈은 comic도 가능)" if self.template == "meme" else "")
+            )
         if self.slides[-1].kind != "outro":
             raise ValueError("마지막 슬라이드는 outro")
         middle = {s.kind for s in self.slides[1:-1]}
@@ -231,8 +273,9 @@ class CardDeck(_Model):
             "info": {"body"},
             "list": {"list"},
             "compare": {"compare"},
-            # 소식형: 개요(body) + 상품 그리드 + 일정·구매처 패널을 한 덱에(S12 제안)
-            "editorial": {"body", "products", "facts"},
+            # 소식형: 개요(body) + 상품 그리드 + 일정·구매처 패널(S12) + 만화 한 장(혼합 표현, S14)
+            "editorial": {"body", "products", "facts", "comic"},
+            "meme": {"comic", "body"},
         }[self.template]
         if not middle <= allowed:
             raise ValueError(f"{self.template} 템플릿에 허용되지 않는 슬라이드: {middle - allowed}")

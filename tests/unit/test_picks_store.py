@@ -34,8 +34,9 @@ def env(db, clock, app_config):
     return {"repo": repo, "store": store, "items": items, "content": content}
 
 
-def test_schema_v4_has_picks_table(db) -> None:
-    assert db.schema_version == 4
+def test_schema_v5_has_picks_and_slots_tables(db) -> None:
+    assert db.schema_version == 6
+    assert db.execute("SELECT count(*) FROM pick_slots")[0][0] == 0
     assert db.execute("SELECT count(*) FROM picks")[0][0] == 0
 
 

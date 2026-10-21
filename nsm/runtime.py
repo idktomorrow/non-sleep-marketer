@@ -17,6 +17,7 @@ from nsm.config.secrets import KeyringSecretStore, SecretStore
 from nsm.config.store import load_config
 from nsm.domain.clock import SystemClock
 from nsm.engine.context import Adapters, JobContext
+from nsm.ports import ScenarioWriter
 from nsm.store.costs import CostLedger
 from nsm.store.db import Database
 from nsm.store.picks import PicksStore
@@ -135,6 +136,8 @@ def make_adapters(
         text_generator_reason=reason,
         image_generator=make_image_generator(cfg, secrets, sink, paths.media_dir()),
         image_studio=make_image_studio(cfg, secrets, sink, paths.media_dir()),
+        # 밈 대본 작가(S14): Claude·OpenAI 텍스트 생성기가 겸한다(ScenarioWriter 메서드가 있으면)
+        scenario_writer=text_gen if isinstance(text_gen, ScenarioWriter) else None,
         platforms=make_platform_adapters(cfg, clock),
         read_image=read_image,
         resources=stack,
@@ -242,8 +245,18 @@ def build_context(
         character=lambda: character_art(
             ctx.config.brand
         ),  # 설정 화면에서 바꾸면 다음 렌더부터(C17)
+        title_style=lambda: ctx.config.workspace.title_style,  # 작업 공간별 디자인 옵션(S14)
     )
     return ctx
+
+
+def recover_stale_slots(ctx: JobContext) -> None:
+    """재시작 복구(S14): 쓰는 중·제작 중에서 오래 멈춘 추천 슬롯을 다음 단계 시작점으로 되돌린다."""
+    from nsm.store.slots import SlotStore
+
+    n = SlotStore(ctx.repo.db, ctx.clock).recover_stale(ctx.clock.now())
+    if n:
+        log.info("중단된 추천 슬롯 %d개를 되돌림", n)
 
 
 def _current_read_image(ctx: JobContext):
@@ -315,6 +328,7 @@ def run_job_once(job: str, arg: str | None = None) -> None:
             # 이 프로세스가 DB를 연 유일한 프로세스이므로(DuckDB 잠금), 남은 publishing은 중단된 것이다
             recover_interrupted(ctx)
             recover_interrupted_replies(ctx)
+            recover_stale_slots(ctx)
             result = run_job(job, ctx, arg=arg)
             print(f"{result.job}: {result.summary()}")
             if not result.ok:
@@ -368,6 +382,7 @@ def run_forever() -> None:
         ctx.notifier = RecordingNotifier(ctx.repo, notifier)
         recover_interrupted(ctx)
         recover_interrupted_replies(ctx)
+        recover_stale_slots(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
         scheduler.start()

@@ -16,21 +16,28 @@ from zoneinfo import ZoneInfo
 from nsm.adapters.generator.prompts import (
     LLM_SCHEMA,
     MAX_MIDDLE_SLIDES,
+    MEME_IDEAS_SCHEMA,
+    MEME_SCRIPT_SCHEMA,
     REPLY_CONTEXT_CHARS,
     REPLY_SCHEMA,
     REPLY_SYSTEM,
     TEMPLATE_GUIDE,
     build_deck,
     content_from_output,
+    ideas_from_output,
     llm_schema,
+    meme_ideas_user,
+    meme_script_user,
+    meme_system,
     reply_system,
     reply_user,
+    script_from_output,
     system_prompt,
     user_prompt,
 )
 from nsm.adapters.pricing import claude_cost
 from nsm.domain.models import Brand, Comment, ContentBrief, GeneratedContent, Persona
-from nsm.ports import AdapterError, CostSink
+from nsm.ports import AdapterError, CostSink, MemeIdea, MemeRequest, MemeScript
 
 log = logging.getLogger(__name__)
 
@@ -134,3 +141,34 @@ class ClaudeTextGenerator:
             messages=[{"role": "user", "content": reply_user(comment, post_context)}],
         )
         return str(self._parse(raw)["reply"]).strip()
+
+    # ------------------------------------------------------------------ ScenarioWriter(S14)
+    def _meme_call(
+        self, ref: str, system: str, user: str, schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        raw = self._call(
+            ref,
+            max_tokens=4000,
+            system=system,
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
+            messages=[{"role": "user", "content": user}],
+        )
+        return self._parse(raw)
+
+    def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]:
+        out = self._meme_call(
+            "meme:ideas", meme_system(req), meme_ideas_user(req), MEME_IDEAS_SCHEMA
+        )
+        ideas = ideas_from_output(out)
+        if not ideas:
+            raise AdapterError("밈 아이디어가 비었습니다")
+        return ideas
+
+    def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript:
+        out = self._meme_call(
+            "meme:script", meme_system(req), meme_script_user(req, idea), MEME_SCRIPT_SCHEMA
+        )
+        try:
+            return script_from_output(out, idea)
+        except (KeyError, TypeError) as e:
+            raise AdapterError(f"밈 대본 형식이 맞지 않습니다: {e}") from e

@@ -112,6 +112,8 @@ def test_photo_use_sets_cover_and_outro_background_and_resets_render_check(env) 
     cover_bg, outro_bg = deck.slides[0].background, deck.slides[-1].background
     assert cover_bg and outro_bg and cover_bg != outro_bg
     assert Path(cover_bg).read_bytes() == Path(outro_bg).read_bytes()
+    # 1×1 투명 PNG는 쓸 만한 색이 없어 브랜드 색 그대로(색을 못 뽑으면 바꾸지 않는다, S14)
+    assert deck.brand.primary_color == env["holder"]["cfg"].brand.primary_color
     assert Path(deck.slides[0].background).is_file() and not deck.labels.ai_generated_image
     assert store.get("pk1").photo_status == "applied" and store.get("pk1").render_checked_at is None
     assert _post(env, "/picks/pk1/photo/use").status_code == 409  # 후보는 한 번만
@@ -226,3 +228,66 @@ def test_settings_form_round_trips_picks_fields(env) -> None:
     assert apply_settings_form(new, {**form, "picks_aliases": ""}).workspace.aliases == {}
     with pytest.raises(SettingsError):
         apply_settings_form(new, {**form, "picks_count": "5", "meme_count": "3"})  # 합계 6 초과
+
+
+def test_plan_override_and_slot_rows(env) -> None:
+    from nsm.engine.picks import PLAN_OVERRIDE_KEY
+
+    r = _post(env, "/picks/plan", info="1", meme="1")
+    assert r.status_code == 303 and r.headers["location"].endswith("plan=saved")
+    ov = env["repo"].get_setting(PLAN_OVERRIDE_KEY)
+    assert ov["info"] == 1 and ov["meme"] == 1
+    html = env["client"].get("/picks").text
+    assert "오늘만 바꾼 값" in html and "계획됨" in html and 'name="meme"' in html
+    assert _post(env, "/picks/plan", info="5", meme="3").status_code == 400  # 합계 6 초과
+
+
+def test_slot_retry_route_and_stage_badge(env, clock) -> None:
+    from datetime import timedelta
+
+    from nsm.store.slots import SlotStore
+
+    slots = SlotStore(env["repo"].db, clock)
+    today = clock.now().date()
+    slots.plan(today, 1, 0, "기본")
+    sl = slots.claim(today, "info", "r", clock.now())
+    slots.fail(sl, "failed_text", "AI 장애", timedelta(minutes=15))
+    html = env["client"].get("/picks").text
+    assert "AI 장애" in html and "(시도 1회)" in html
+    # 재시도 시각이 지나면 planned로 돌아와 있고, 사람이 누른 재시도는 횟수 안에서 받는다
+    sl = slots.get(today, "info", 1)
+    slots.set_stage(sl, "failed_text", error="거절")
+    r = _post(env, f"/picks/slots/{sl.key}/retry")
+    assert r.status_code == 303 and slots.get(today, "info", 1).stage == "planned"
+    assert _post(env, "/picks/slots/2026-01-01:info:9/retry").status_code == 404
+    assert (
+        _post(env, "/picks/slots/abc:info:x/retry").status_code == 404
+    )  # 형식이 틀려도 500이 아님
+    # 그림 제작이 끝나지 않은 밈 슬롯의 원고는 게시로 보낼 수 없다
+    store = env["store"]
+    pk = store.get("pk1")
+    env["repo"].db.execute(
+        "UPDATE picks SET kind = 'meme', slot_key = ? WHERE content_id = 'pk1'",
+        [f"{today.isoformat()}:meme:1"],
+    )
+    slots.plan(today, 1, 1, "기본")
+    m = slots.claim(today, "meme", "r", clock.now())
+    env["repo"].db.execute(
+        "UPDATE pick_slots SET content_id = 'pk1', stage = 'images_pending', actual_kind = 'meme' WHERE requested_kind = 'meme' AND slot_no = 1"
+    )
+    assert _post(env, "/picks/pk1/queue").status_code == 409
+    assert "그림 제작 대기" in env["client"].get("/picks").text and pk is not None and m is not None
+
+
+def test_picks_page_renders_meme_pick_with_comic_first(env, clock) -> None:
+    import json
+
+    from nsm.domain.models import CardDeck
+    from tests.render.test_html_renderer import FIXTURES
+
+    deck = CardDeck.model_validate(json.loads((FIXTURES / "meme.json").read_text("utf-8")))
+    c = env["repo"].get_content("pk1")
+    g = c.generated.model_copy(update={"deck": deck, "template": "meme"})
+    env["repo"].update_generated("pk1", g)
+    html = env["client"].get("/picks").text
+    assert "카페 알바 루나" in html  # 만화 첫 장이면 라벨을 제목으로(500이 아님)

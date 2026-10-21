@@ -4,7 +4,35 @@
 <h1>오늘의 추천</h1>
 <p class="muted small">최근 소식 중 서로 다른 소재를 완성 원고로 추천합니다(유행 순위가 아니라 공개 시각·관련성 기준). 마음에 드는 것은 <b>게시</b>, 나중에 쓸 것은 <b>보관</b>, 아닌 것은 <b>관심 없음</b>. 사진 후보는 검토 상세에서 확인한 뒤에만 카드에 들어갑니다.</p>
 {% if not picks_enabled %}<div class="notice warn">추천 모드가 꺼져 있어 매일 자동으로 만들지 않습니다. <a href="/settings#picks">설정</a>에서 관심 분야를 고르거나 추천 모드를 켜세요.{% if can_run %} 지금 한 번 만들어 보려면 아래 버튼을 누르세요.{% endif %}</div>{% endif %}
-{% if can_run %}<form class="inline" method="post" action="/jobs/picks/run" style="margin-bottom:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">지금 추천 만들기</button> <span class="muted small">자료를 모은 뒤 최대 {{ cfg.workspace.info_count }}건(원고 1건에 약 4~6센트)</span></form>{% endif %}
+{% if can_run %}<form class="inline" method="post" action="/jobs/picks/run" style="margin-bottom:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">지금 추천 만들기</button> <span class="muted small">자료를 모은 뒤 오늘 구성(정보 {{ plan.info }}·밈 {{ plan.meme }})만큼(원고 1건에 약 4~6센트, 밈 대본 약 2센트)</span></form>{% endif %}
+
+<h2>오늘 구성</h2>
+<div class="panel">
+  {% if plan_msg == 'saved' %}<div class="notice info">오늘 구성을 바꿨습니다. 이미 만든 원고는 그대로이고, 아직 시작하지 않은 초과 슬롯만 제외됩니다.</div>{% endif %}
+  <form class="inline" method="post" action="/picks/plan">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>정보 <input type="number" name="info" value="{{ plan.info }}" min="0" max="5" style="width:70px"></label>
+    <label>밈 <input type="number" name="meme" value="{{ plan.meme }}" min="0" max="3" style="width:70px"></label>
+    <button class="btn-sm" type="submit">오늘만 변경</button>
+    <span class="muted small">{% if plan.source == 'override' %}오늘만 바꾼 값{% else %}작업 공간 기본값{% endif %} · 합계 6까지 · 기본값은 <a href="/settings#picks">설정</a>에서</span>
+  </form>
+  {% if slot_rows %}
+  <table class="preset-list" style="margin-top:10px">
+    <thead><tr><th>슬롯</th><th>종류</th><th>상태</th><th>이유</th><th></th></tr></thead>
+    <tbody>
+    {% for r in slot_rows %}
+      <tr>
+        <td>{{ r.slot.slot_no }}</td>
+        <td>{{ r.kind }}{% if r.actual and r.actual != r.kind %} → {{ r.actual }}{% endif %}</td>
+        <td><span class="badge {{ r.stage[0] }}">{{ r.stage[1] }}</span></td>
+        <td class="muted small">{{ r.slot.last_error or '' }}{% if r.slot.attempts %} (시도 {{ r.slot.attempts }}회){% endif %}</td>
+        <td>{% if r.retryable %}<form class="inline" method="post" action="/picks/slots/{{ r.slot.key }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">재시도</button></form>{% elif r.slot.content_id %}<a class="btn btn-sm" href="/review/{{ r.slot.content_id }}">열어 보기</a>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
 
 <h2>오늘</h2>
 {% if todays %}<div class="review-list">{% for v in todays %}{{ pick_card(v, csrf, thumbs) }}{% endfor %}</div>

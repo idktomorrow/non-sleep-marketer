@@ -6,12 +6,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from nsm.app.review_actions import ReviewActions
 from nsm.domain.policy import local
 from nsm.store.picks import Pick
+from nsm.store.slots import Slot, SlotStore
 
 STATE_LABELS = {
     "ready": "오늘의 추천",
@@ -28,19 +29,46 @@ PHOTO_LABELS = {
 FRESH_LABELS = {"fresh": "최근 소식", "stale": "오래된 자료", "unknown": "날짜 확인 필요"}
 
 
-def pick_view(p: Pick, content, now, tz: str) -> dict[str, Any]:
-    """카드 한 장에 보일 값. 상태 배지는 사진 준비·렌더 확인·재확인 여부를 함께 본다."""
+STAGE_LABELS = {
+    "planned": ("gray", "계획됨"),
+    "writing": ("warn", "쓰는 중"),
+    "written": ("gray", "기획 완료"),
+    "images_pending": ("warn", "그림 제작 대기"),
+    "producing": ("warn", "그림 제작 중"),
+    "ready": ("ok", "검토 가능"),
+    "failed_text": ("bad", "원고 실패"),
+    "failed_image": ("bad", "그림 실패"),
+    "empty": ("gray", "후보 없음"),
+    "unknown_image": ("warn", "그림 응답 불명"),
+    "cancelled": ("gray", "제외됨"),
+}
+KIND_LABELS = {"info": "정보", "meme": "밈"}
+PRODUCTION_BLOCKING = ("images_pending", "producing", "failed_image", "unknown_image")
+
+
+def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[str, Any]:
+    """카드 한 장에 보일 값. 상태 배지는 슬롯 제작 단계·사진 준비·렌더 확인·재확인 여부를 함께 본다(S14)."""
     age = now - content.created_at
     needs_recheck = ReviewActions.needs_recheck(content.created_at, p.rechecked_at, now)
-    if p.ready_to_publish:
+    stage = slot.stage if slot else "ready"
+    if stage in PRODUCTION_BLOCKING:
+        readiness = STAGE_LABELS[stage]  # 그림이 끝나기 전엔 "게시 준비"가 아니다
+    elif p.ready_to_publish:
         readiness = ("ok", "게시 준비 완료")
     elif p.photo_status == "candidate":
         readiness = ("warn", "사진 확인 대기")
     else:
         readiness = ("gray", "미리보기 확인 전")
+    kind = p.kind or "info"
+    requested = slot.requested_kind if slot else kind
     return {
         "pick": p,
         "content": content,
+        "slot": slot,
+        "kind": KIND_LABELS.get(kind, kind),
+        "substituted": requested != kind,
+        "requested_kind": KIND_LABELS.get(requested, requested),
+        "stage": STAGE_LABELS.get(stage, ("gray", stage)),
         "state": STATE_LABELS.get(p.state, p.state),
         "fresh": FRESH_LABELS.get(p.freshness, p.freshness),
         "photo": PHOTO_LABELS.get(p.photo_status, p.photo_status),
@@ -65,14 +93,46 @@ def install_picks_routes(
     def tz() -> str:
         return state.get_config().settings.timezone
 
+    def _slots() -> SlotStore:
+        return SlotStore(state.repo.db, state.clock)
+
     def _views(picks: list[Pick]) -> list[dict[str, Any]]:
         now = state.clock.now()
+        store = _slots()
+        by_key: dict[str, Slot] = {}
+        for d in {p.run_date for p in picks if p.slot_key}:  # 날짜마다 한 번만 읽는다(S14 리뷰)
+            by_key.update({s.key: s for s in store.list_for_date(d)})
         out = []
         for p in picks:
             c = state.repo.get_content(p.content_id)
             if c is not None:
-                out.append(pick_view(p, c, now, tz()))
+                out.append(pick_view(p, c, now, tz(), by_key.get(p.slot_key or "")))
         return out
+
+    def _plan_today(today):
+        from nsm.engine.picks import effective_plan
+
+        class _Ctx:  # effective_plan은 repo·config만 쓴다
+            repo = state.repo
+            config = state.get_config()
+
+        return effective_plan(_Ctx(), today)  # type: ignore[arg-type]
+
+    def _slot_rows(today) -> list[dict[str, Any]]:
+        rows = []
+        for sl in _slots().list_for_date(today):
+            if sl.stage == "cancelled":
+                continue
+            rows.append(
+                {
+                    "slot": sl,
+                    "kind": KIND_LABELS.get(sl.requested_kind, sl.requested_kind),
+                    "actual": KIND_LABELS.get(sl.actual_kind or "", "") if sl.actual_kind else "",
+                    "stage": STAGE_LABELS.get(sl.stage, ("gray", sl.stage)),
+                    "retryable": sl.retryable,
+                }
+            )
+        return rows
 
     _run = act  # ActionError → HTTPException 변환은 server.create_app과 같은 함수
 
@@ -86,6 +146,7 @@ def install_picks_routes(
         todays = [v for v in ready if v["pick"].run_date == today]
         older = [v for v in ready if v["pick"].run_date != today]
         all_c = [v["content"] for v in ready + saved]
+        plan = _plan_today(today)
         return page(
             request,
             "picks.html",
@@ -95,7 +156,35 @@ def install_picks_routes(
             thumbs=thumbs(all_c),
             picks_enabled=state.get_config().settings.picks.enabled,
             can_run=state.run_job_now is not None and "picks" in state.job_names,
+            plan=plan,
+            slot_rows=_slot_rows(today),
+            plan_msg=request.query_params.get("plan"),
         )
+
+    @app.post("/picks/plan", dependencies=[Depends(check_csrf)])
+    def plan_override(info: int = Form(...), meme: int = Form(...)) -> RedirectResponse:
+        """오늘만 구성 변경(S14): 프리셋 DB에 저장. 이미 만든 원고는 지우거나 다시 만들지 않는다."""
+        from nsm.engine.picks import PLAN_OVERRIDE_KEY
+
+        if not (0 <= info <= 5 and 0 <= meme <= 3 and info + meme <= 6):
+            raise HTTPException(400, "정보 0~5, 밈 0~3, 합계 6까지")
+        today = local(state.clock.now(), tz()).date()
+        state.repo.set_setting(
+            PLAN_OVERRIDE_KEY, {"date": today.isoformat(), "info": info, "meme": meme}
+        )
+        _slots().plan(today, info, meme, state.get_config().settings.preset)
+        return RedirectResponse("/picks?plan=saved", status_code=303)
+
+    @app.post("/picks/slots/{key}/retry", dependencies=[Depends(check_csrf)])
+    def retry_slot(key: str) -> RedirectResponse:
+        sl = _slots().by_key(key) if key.count(":") == 2 else None
+        if sl is None:
+            raise HTTPException(404, "슬롯이 없습니다")
+        if not _slots().retry(sl):
+            raise HTTPException(409, "다시 시도할 수 없는 상태이거나 횟수를 넘었습니다")
+        if state.run_job_now is not None and "slots_retry" in state.job_names:
+            state.run_job_now("slots_retry")
+        return RedirectResponse("/picks", status_code=303)
 
     @app.post("/picks/{cid}/save", dependencies=[Depends(check_csrf)])
     def save_pick(cid: str) -> RedirectResponse:
@@ -124,7 +213,12 @@ def install_picks_routes(
 
     @app.post("/picks/{cid}/photo/use", dependencies=[Depends(check_csrf)])
     def photo_use(cid: str) -> RedirectResponse:
-        _run(lambda: actions.photo_use(cid, state.media_dir))
+        # 사진 색을 카드 색으로(작업 공간 옵션, S14)
+        _run(
+            lambda: actions.photo_use(
+                cid, state.media_dir, recolor=state.get_config().workspace.color_from_photo
+            )
+        )
         return back(f"/review/{cid}")
 
     @app.post("/picks/{cid}/photo/drop", dependencies=[Depends(check_csrf)])

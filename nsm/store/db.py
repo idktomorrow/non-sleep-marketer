@@ -16,7 +16,7 @@ from pathlib import Path
 
 import duckdb
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 # 버전 n-1 -> n 으로 올리는 SQL. schema.sql은 항상 최신 형태(새 설치용)이고,
 # 기존 사용자 DB는 여기 단계를 차례로 적용해 따라잡는다.
@@ -25,6 +25,20 @@ MIGRATIONS: dict[int, list[str]] = {
     2: ["ALTER TABLE contents ADD COLUMN persona_topic VARCHAR"],
     3: [],  # notifications 테이블: schema.sql의 CREATE TABLE IF NOT EXISTS가 만든다(N2)
     4: [],  # picks 테이블(S11 제안): schema.sql의 CREATE TABLE IF NOT EXISTS가 만든다
+    5: [  # 추천 슬롯(S14 제안): picks에 종류·슬롯 키, 기존 추천을 슬롯으로 옮겨 배포 당일 재생성을 막는다
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'info'",
+        "ALTER TABLE picks ADD COLUMN IF NOT EXISTS slot_key VARCHAR",
+        "INSERT INTO pick_slots (run_date, requested_kind, slot_no, actual_kind, stage, content_id, "
+        "attempts, mix, created_at, updated_at) "
+        "SELECT run_date, 'info', rank, 'info', 'ready', content_id, 0, 'none', created_at, updated_at "
+        "FROM picks WHERE content_id NOT IN (SELECT coalesce(content_id, '') FROM pick_slots) "
+        "ON CONFLICT DO NOTHING",
+        "UPDATE picks SET slot_key = strftime(run_date, '%Y-%m-%d') || ':info:' || CAST(rank AS VARCHAR) "
+        "WHERE slot_key IS NULL",
+    ],
+    6: [  # 사람이 누른 슬롯 재시도 표시(S14 리뷰): 재시도 잡이 '후보 없음' 재시도도 집게
+        "ALTER TABLE pick_slots ADD COLUMN IF NOT EXISTS retried_at TIMESTAMP",
+    ],
 }
 
 
