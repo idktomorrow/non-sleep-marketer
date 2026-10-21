@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from nsm.domain.interest_presets import search_terms
 from nsm.domain.models import Classification, SourceItem
+from nsm.domain.picks_policy import search_terms
 from nsm.domain.policy import should_act
 from nsm.domain.quality import excluded_genre
 from nsm.engine.context import JobContext, JobResult

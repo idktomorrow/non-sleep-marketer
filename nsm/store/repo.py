@@ -440,6 +440,19 @@ class Repository:
         if changed == 0:
             raise InvalidTransitionError("승인하려던 판이 아닙니다(그 사이 원고나 그림이 바뀜)")
 
+    def content_topic(self, content_id: str) -> str | None:
+        rows = self.db.execute("SELECT persona_topic FROM contents WHERE id = ?", [content_id])
+        return rows[0][0] if rows else None
+
+    def topic_last_used(self, kind: str) -> dict[str, datetime]:
+        """종류(info|meme)별로 관심 주제마다 마지막으로 추천한 시각(관심 주제 순환, S16)."""
+        rows = self.db.execute(
+            "SELECT c.persona_topic, max(c.created_at) FROM contents c JOIN picks p ON p.content_id = c.id "
+            "WHERE coalesce(p.kind, 'info') = ? AND c.persona_topic IS NOT NULL GROUP BY 1",
+            [kind],
+        )
+        return {r[0]: from_db(r[1]) for r in rows}
+
     def content_revision(self, content_id: str) -> int:
         """원고 판 번호(S15). 고칠 때마다 +1: 미리보기·승인 산출물이 같은 판인지 비교한다."""
         rows = self.db.execute(

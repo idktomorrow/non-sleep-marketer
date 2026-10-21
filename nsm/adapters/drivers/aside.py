@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from nsm.adapters.drivers import find_aside_cli
-from nsm.adapters.drivers.base import DriverUnavailableError, Link
+from nsm.adapters.drivers.base import LINK_CONTEXT_JS, DriverUnavailableError, Link
 
 log = logging.getLogger(__name__)
 
@@ -204,14 +204,11 @@ class AsideRepl:
 _LINKS_BODY = r"""
 const pg = await nsmOpen(ARGS.url);
 await sleep(1500);
-const links = await pg.evaluate(() => Array.from(document.querySelectorAll('a[href]')).map(a => {
-  const block = a.closest('li, article, section, div');
-  const ctx = block ? block.innerText : a.innerText;
-  return { text: (a.innerText || '').trim(), href: a.href, context: (ctx || '').trim().slice(0, 400) };
-}));
+const links = await pg.evaluate(() => { const ctxOf = __CTX__; return Array.from(document.querySelectorAll('a[href]')).map(a => (
+  { text: (a.innerText || '').trim(), href: a.href, context: ctxOf(a) })); });
 const text = await pg.evaluate(() => document.body.innerText);
 return { links, text };
-"""
+""".replace("__CTX__", LINK_CONTEXT_JS.strip())
 
 
 class AsideDriver:

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from nsm.app.review_actions import ReviewActions
 from nsm.domain.policy import local
+from nsm.domain.topics import account_topic_conflict
 from nsm.store.picks import Pick
 from nsm.store.slots import Slot, SlotStore
 
@@ -69,6 +70,7 @@ def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[
         "substituted": requested != kind,
         "requested_kind": KIND_LABELS.get(requested, requested),
         "stage": STAGE_LABELS.get(stage, ("gray", stage)),
+        "plan": (slot.plan or {}) if slot else {},
         "state": STATE_LABELS.get(p.state, p.state),
         "fresh": FRESH_LABELS.get(p.freshness, p.freshness),
         "photo": PHOTO_LABELS.get(p.photo_status, p.photo_status),
@@ -107,7 +109,17 @@ def install_picks_routes(
         for p in picks:
             c = state.repo.get_content(p.content_id)
             if c is not None:
-                out.append(pick_view(p, c, now, tz(), by_key.get(p.slot_key or "")))
+                v = pick_view(p, c, now, tz(), by_key.get(p.slot_key or ""))
+                v["topic"] = state.repo.content_topic(c.id) or v["plan"].get("topic") or ""
+                v["sources"] = [
+                    s
+                    for s in (
+                        state.repo.get_source_item(i)
+                        for i in dict.fromkeys(x.source_item_id for x in c.generated.claims)
+                    )
+                    if s is not None
+                ][:4]
+                out.append(v)
         return out
 
     def _plan_today(today):
@@ -159,6 +171,12 @@ def install_picks_routes(
             can_run=state.run_job_now is not None and "picks" in state.job_names,
             plan=plan,
             slot_rows=_slot_rows(today),
+            topics=list(state.get_config().persona.topics),
+            conflict=account_topic_conflict(
+                state.get_config().brand.industry,
+                state.get_config().persona.character,
+                list(state.get_config().persona.topics),
+            ),
             plan_msg=request.query_params.get("plan"),
         )
 

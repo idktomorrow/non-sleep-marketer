@@ -138,11 +138,29 @@ def make_adapters(
         image_studio=make_image_studio(cfg, secrets, sink, paths.media_dir()),
         # 밈 대본 작가(S14): Claude·OpenAI 텍스트 생성기가 겸한다(ScenarioWriter 메서드가 있으면)
         scenario_writer=text_gen if isinstance(text_gen, ScenarioWriter) else None,
+        meme_discovery=_meme_discovery(cfg, clock, sources),
         platforms=make_platform_adapters(cfg, clock),
         read_image=read_image,
         resources=stack,
     )
     return bundle, classifiers  # type: ignore[return-value]
+
+
+def _meme_discovery(cfg: AppConfig, clock, sources: list):
+    """밈 탐색(S16): 네이버 수집기와 같은 브라우저 드라이버를 쓴다. 웹 수집이 꺼져 있으면 None."""
+    from nsm.adapters.sources.common import Pacer
+    from nsm.adapters.sources.meme_discovery import MemeDiscovery
+
+    naver = next((s for s in sources if getattr(s, "name", "") == "naver"), None)
+    if naver is None:
+        return None
+    c = cfg.settings.collect
+    return MemeDiscovery(
+        naver.driver,
+        clock,
+        Pacer(c.min_delay_seconds, c.max_delay_seconds),
+        tuple(c.community_urls),
+    )
 
 
 def _adapter_settings(cfg: AppConfig) -> tuple:

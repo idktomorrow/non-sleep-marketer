@@ -100,14 +100,15 @@
 .style-editorial .outro:not(.has-bg) .cta { color: var(--primary-ink); }
 
 /* 본문(사진 없음): 여백 큰 점선 메모(레퍼런스의 메모 카드). 제목은 잉크색, 밑줄 막대는 가늘게 */
+/* 메모는 글 길이만큼(세로를 꽉 채운 빈 상자 금지, 2026-10-21 실키 결과), 카드 가운데쯤에 */
 .style-editorial .body:not(.has-bg) .content {
-  margin: 36px 0 24px; padding: 56px 60px; border: 3px dashed color-mix(in srgb, var(--ink) 34%, transparent);
-  border-radius: 36px; background: rgba(255,255,255,.72); justify-content: flex-start; gap: 28px;
+  flex: 0 1 auto; margin: auto 0; padding: 60px 64px; border: 3px dashed color-mix(in srgb, var(--ink) 34%, transparent);
+  border-radius: 36px; background: rgba(255,255,255,.72); justify-content: flex-start; gap: 30px;
 }
-.style-editorial .body:not(.has-bg) h2 { font-size: 54px; color: var(--ink); }
+.style-editorial .body:not(.has-bg) h2 { font-size: 64px; color: var(--ink); }
 .style-editorial .body:not(.has-bg) h2::after { width: 64px; height: 6px; margin-top: 16px; background: var(--primary); }
-.style-editorial .body:not(.has-bg) .text { font-size: 38px; line-height: 1.55; }
-.style-editorial .body:not(.has-bg) li { font-size: 32px; }
+.style-editorial .body:not(.has-bg) .text { font-size: 44px; line-height: 1.55; }
+.style-editorial .body:not(.has-bg) li { font-size: 36px; }
 /* 스티커가 메모 테두리에 걸치려면 위 여백이 필요하다(스티커는 base.css) */
 .style-editorial .body:not(.has-bg) .sticker { top: -92px; left: 36px; }
 .style-editorial .body:not(.has-bg) .content.has-sticker { padding-top: 112px; }

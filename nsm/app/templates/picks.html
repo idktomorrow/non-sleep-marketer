@@ -3,9 +3,11 @@
 {% block content %}
 <h1>오늘의 추천</h1>
 <p class="muted small">최근 소식 중 서로 다른 소재를 완성 원고로 추천합니다(유행 순위가 아니라 공개 시각·관련성 기준). 마음에 드는 것은 <b>게시</b>, 나중에 쓸 것은 <b>보관</b>, 아닌 것은 <b>관심 없음</b>. 사진 후보는 검토 상세에서 확인한 뒤에만 카드에 들어갑니다.</p>
-{% if not picks_enabled %}<div class="notice warn">추천 모드가 꺼져 있어 매일 자동으로 만들지 않습니다. <a href="/settings#picks">설정</a>에서 관심 분야를 고르거나 추천 모드를 켜세요.{% if can_run %} 지금 한 번 만들어 보려면 아래 버튼을 누르세요.{% endif %}</div>{% endif %}
+{% if not picks_enabled %}<div class="notice warn">추천 모드가 꺼져 있어 매일 자동으로 만들지 않습니다. <a href="/settings#picks">설정</a>에서 관심 주제를 적고 추천 모드를 켜세요.{% if can_run %} 지금 한 번 만들어 보려면 아래 버튼을 누르세요.{% endif %}</div>{% endif %}
 {% if can_run %}<form class="inline" method="post" action="/jobs/picks/run" style="margin-bottom:12px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">지금 추천 만들기</button> <span class="muted small">자료를 모은 뒤 오늘 구성(정보 {{ plan.info }}·밈 {{ plan.meme }})만큼(원고 1건에 약 4~6센트, 밈 대본 약 2센트)</span></form>{% endif %}
 
+<p class="small">관심 주제: {% for t in topics %}<span class="badge">{{ t }}</span> {% else %}<span class="warn">없음 — <a href="/settings">설정 → 페르소나 → 관심 주제</a>에 적으세요</span>{% endfor %} <span class="muted">(무엇을 다룰지는 이 칸이, 몇 개씩 만들지는 아래 구성이 정합니다)</span></p>
+{% if conflict %}<div class="notice warn small">{{ conflict }}</div>{% endif %}
 <h2>오늘 구성</h2>
 <div class="panel">
   {% if plan_msg == 'saved' %}<div class="notice info">오늘 구성을 바꿨습니다. 이미 만든 원고는 그대로이고, 아직 시작하지 않은 초과 슬롯만 제외됩니다.</div>{% endif %}

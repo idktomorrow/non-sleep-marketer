@@ -1,4 +1,5 @@
-"""분류기 선택 (ADR 0048): auto = Gemini 키 → gemini, Anthropic 키 → claude, 둘 다 없으면 keyword.
+"""분류기 선택 (ADR 0048·0060): auto = Gemini 키 → gemini, Anthropic 키 → claude, OpenAI 키 → openai,
+모두 없으면 keyword.
 
 고른 분류기가 호출에 실패하면 다음 분류기로 넘어간다(FallbackClassifier). 관련성·주제·댓글 세 분류기가
 상태(ChainState)를 함께 써서 한 번만 넘어가고 알림도 한 번만 간다. 넘어간 뒤 일정 시간이 지나면 첫 분류기를
@@ -137,15 +138,27 @@ def _claude(cfg: AppConfig, key: str, cost_sink: CostSink) -> Classifier:
     )
 
 
+def _openai(cfg: AppConfig, key: str, cost_sink: CostSink) -> Classifier:
+    from nsm.adapters.classifier.openai import OpenAIClassifier
+    from nsm.adapters.openai_common import OpenAIClient
+
+    return OpenAIClassifier(
+        OpenAIClient(key, timeout=90.0), cfg.settings.models.openai_text, cost_sink
+    )
+
+
 def make_classifiers(cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink) -> ClassifierSet:
     choice = cfg.settings.classifier
     gemini_key = secrets.get("gemini_api_key")
     anthropic_key = secrets.get("anthropic_api_key")
+    openai_key = secrets.get("openai_api_key")
 
     if choice == "gemini" and not gemini_key:
         raise RuntimeError("classifier=gemini인데 Gemini API 키가 없습니다 (`nsm init`)")
     if choice == "claude" and not anthropic_key:
         raise RuntimeError("classifier=claude인데 Claude API 키가 없습니다 (`nsm init`)")
+    if choice == "openai" and not openai_key:
+        raise RuntimeError("classifier=openai인데 OpenAI API 키가 없습니다(설정 → API 키)")
 
     # 키가 있는 순서대로 사슬을 만든다. 고정 선택이면 그것부터, 뒤에는 대체용
     chain: list[tuple[str, Classifier]] = []
@@ -153,6 +166,9 @@ def make_classifiers(cfg: AppConfig, secrets: SecretStore, cost_sink: CostSink) 
         chain.append(("gemini", _gemini(cfg, gemini_key, cost_sink)))
     if anthropic_key and choice in ("auto", "gemini", "claude"):
         chain.append(("claude", _claude(cfg, anthropic_key, cost_sink)))
+    # OpenAI 키만 있어도 넓은 주제를 판정할 수 있게(S16). 무료 Gemini·Claude Haiku 뒤에 둔다
+    if openai_key and choice in ("auto", "gemini", "claude", "openai"):
+        chain.append(("openai", _openai(cfg, openai_key, cost_sink)))
     kw_rel, kw_topic, kw_comment = _keyword_set(cfg)
     if not chain or choice == "keyword":
         return ClassifierSet("keyword", kw_rel, kw_topic, kw_comment)
