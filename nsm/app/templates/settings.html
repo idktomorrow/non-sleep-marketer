@@ -64,6 +64,20 @@
   </details>
 </div>
 
+<h2 id="picks">오늘의 추천 <span class="muted small" style="font-weight:400">(제안)</span></h2>
+<div class="panel">
+  <label class="check"><input type="checkbox" name="picks_enabled" {% if v.picks_enabled == 'on' %}checked{% endif %}> 추천 모드 켜기 <span class="hint">매일 활동 시간이 시작되면 자료를 모은 뒤 최근 소식 중 서로 다른 소재를 완성 원고로 추천합니다(전부 검토 대기). 켜면 평소의 "원고 만들기" 자동 실행은 쉽니다. 유행 순위가 아니라 공개 시각·관련성 기준입니다</span></label>
+  <div class="field-row">
+    <label>하루 추천 수(1~5) <span class="hint">게시 수와 별개입니다. 추천 1건에 Claude 약 4~6센트</span><input type="number" name="picks_count" value="{{ v.picks_count }}" min="1" max="5" step="1" required></label>
+    <label>검색 별칭(한 줄에 "대표 주제: 별칭, 별칭") <span class="hint">검색에만 씁니다(예: 치이카와 굿즈: ちいかわ グッズ, Chiikawa goods). 주제 분류와 추천은 대표 주제 하나로 묶입니다</span><textarea name="picks_aliases" rows="3">{{ v.picks_aliases }}</textarea></label>
+  </div>
+  <p class="muted small" style="margin-bottom:0">관심 분야를 고르면 관심 주제·검색 별칭·수집 제외어가 채워지고 추천 모드가 켜집니다(지금 값은 덮어씁니다. 치이카와는 밈 말투도 함께). 사진 후보는 기사 대표 이미지를 받아 둘 뿐이며, 검토 상세에서 "이 사진 쓰기"를 눌러야 카드에 들어갑니다.</p>
+</div>
+<div class="panel" style="margin-top:-6px">
+  <div class="actions">{% for k, ps in interest_presets.items() %}<button class="btn-sm" type="submit" form="interest-{{ k }}" title="{{ ps.note }}">{{ ps.name }}</button>{% endfor %}</div>
+  <p class="muted small" style="margin:6px 0 0">{% for k, ps in interest_presets.items() %}<b>{{ ps.name }}</b>: {{ ps.note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+</div>
+
 <h2>브랜드</h2>
 <div class="panel">
   <div class="field-row">
@@ -80,12 +94,12 @@
     <label>보조 색(카드 강조)<span class="color-input"><input type="color" value="{{ v.accent_color if v.accent_color|length == 7 else '#F2A541' }}" data-for="accent_color"><input type="text" name="accent_color" value="{{ v.accent_color }}" pattern="#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" required></span></label>
   </div>
   <fieldset class="style-picker">
-    <legend>카드 스타일 <span class="hint">모든 원고의 카드 모양. 견본은 지금 색과 페르소나로 그린 표지·본문 장입니다(색을 바꾸면 저장 전에도 따라 바뀜). 저장하면 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그립니다(글이 넘치면 올리지 않고 검토로). 배경은 코드로 그려서 추가 비용이 없습니다</span></legend>
+    <legend>카드 스타일 <span class="hint">모든 원고의 카드 모양. 견본은 지금 색과 페르소나로 그린 표지·본문 장입니다(색을 바꾸면 저장 전에도 따라 바뀜). 저장하면 다음에 그리는 카드부터 바뀌고, 게시 대기 중인 원고도 올릴 때 새 스타일로 다시 그립니다(글이 넘치면 올리지 않고 검토로). 배경은 코드로 그려서 추가 비용이 없습니다. 사진 우선형은 검토 상세에서 올린 사진을 크게 쓰는 스타일이라 직접 찍었거나 쓸 권리가 있는 사진만 올리세요</span></legend>
     <div class="style-options">
     {% for k, label in card_styles.items() %}{% set name, desc = label.split(': ', 1) %}
       <label class="style-option">
         <span class="style-head"><input type="radio" name="card_style" value="{{ k }}" {% if v.card_style == k %}checked{% endif %}> <b>{{ name }}</b></span>
-        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}{% if k == 'illust' %}&amp;c={{ character_fp }}{% endif %}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
+        {% if style_previews %}<span class="style-thumbs">{% for n in (1, 2) %}<img class="style-thumb" data-style="{{ k }}" data-n="{{ n }}" src="/settings/style-preview/{{ k }}/{{ n }}.png?primary={{ v.primary_color | urlencode }}&amp;accent={{ v.accent_color | urlencode }}{% if k == 'illust' %}&amp;c={{ character_fp }}{% elif k == 'editorial' %}&amp;c={{ photo_fp }}{% endif %}" width="128" height="160" loading="lazy" alt="{{ name }} 견본 {{ n }}장">{% endfor %}</span>{% endif %}
         <span class="hint">{{ desc }}</span>
       </label>
     {% endfor %}
@@ -137,6 +151,8 @@
 <div class="actionbar settings-bar"><span class="muted small grow">시간 형식: 09:00-12:00, 18:00-23:00 (쉼표로 여러 구간)</span><button class="btn-primary">저장</button></div>
 </form>
 
+{% for k, ps in interest_presets.items() %}<form id="interest-{{ k }}" method="post" action="/settings/interest-preset" onsubmit="return confirm('관심 주제·검색 별칭·수집 제외어를 {{ ps.name }} 기본값으로 바꾸고 추천 모드를 켤까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ k }}"></form>{% endfor %}
+
 {% if can_brand_images %}
 <h2 id="brand-images">캐릭터·로고 그림</h2>
 <div class="panel">
@@ -149,7 +165,7 @@
   {% for kind, title, hint in [
       ('character_cover', '표지 캐릭터', '표지 왼쪽 아래. 흰 종이 같은 바탕은 자동으로 지우고 그림만 남깁니다'),
       ('character_outro', '마지막 장 캐릭터', '마지막 장 오른쪽 아래. 비우면 표지 캐릭터를 씁니다'),
-      ('logo_path', '로고', '세 스타일 모두 표지·마지막 장의 이름 앞에 작게 들어갑니다. 바탕은 그대로 둡니다. 새로 만드는 원고부터 들어갑니다'),
+      ('logo_path', '로고', '모든 스타일에서 표지·마지막 장의 이름 앞에 작게 들어갑니다. 바탕은 그대로 둡니다. 새로 만드는 원고부터 들어갑니다'),
   ] %}
     <div class="brand-image">
       <b>{{ title }}</b>

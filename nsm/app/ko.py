@@ -21,8 +21,16 @@ PUB_STATUS = {
     "failed": "실패(다시 시도 예정)",
     "abandoned": "포기(검토로 돌아옴)",
 }
-TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
-SLIDE_KIND = {"cover": "표지", "body": "본문", "list": "목록", "compare": "비교", "outro": "마무리"}
+TEMPLATE = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
+SLIDE_KIND = {
+    "cover": "표지",
+    "body": "본문",
+    "list": "목록",
+    "compare": "비교",
+    "products": "상품",
+    "facts": "일정·정보",
+    "outro": "마무리",
+}
 PLATFORM = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
 COMMENT_CATEGORY = {
     "praise_general": "칭찬·일반",
@@ -64,6 +72,10 @@ JOBS: dict[str, tuple[str, str]] = {
     "maintenance": (
         "백업·정리",
         "데이터를 백업하고(설정한 개수만큼 보관, 기본 7개) 오래된 실행 기록을 정리합니다",
+    ),
+    "picks": (
+        "오늘의 추천 만들기",
+        "자료를 모은 뒤 최근 소식 중 서로 다른 소재 최대 3개로 원고를 만들어 추천합니다(전부 검토 대기, Claude 약 10~18센트)",
     ),
 }
 

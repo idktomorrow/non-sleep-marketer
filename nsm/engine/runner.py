@@ -11,6 +11,7 @@ from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
 from nsm.engine.keyword import run_keyword_draft
 from nsm.engine.maintenance import run_maintenance
+from nsm.engine.picks import run_picks
 from nsm.engine.publish import run_publish
 from nsm.engine.reply import run_reply
 from nsm.engine.weekly_report import run_weekly_report
@@ -26,6 +27,7 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "metrics": run_metrics,
     "weekly_report": run_weekly_report,
     "maintenance": run_maintenance,
+    "picks": run_picks,  # 오늘의 추천(S11 제안)
 }
 
 
@@ -35,6 +37,8 @@ MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "publish": lambda ctx: run_publish(ctx, manual=True),  # 게시 간격 무시(하루 한도는 지킴)
     # 댓글 확인: 플랫폼별 최소 간격 무시(요청 제한으로 쉬는 중이면 그대로 쉼)
     "reply": lambda ctx: run_reply(ctx, manual=True),
+    # 오늘의 추천: 모드가 꺼져 있어도 누르면 만든다(오늘 이미 만들었어도 추천 수만큼 더)
+    "picks": lambda ctx: run_picks(ctx, manual=True),
 }
 
 

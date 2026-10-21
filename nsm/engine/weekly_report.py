@@ -22,7 +22,7 @@ from nsm.store.db import to_db
 PERIOD_DAYS = 7
 # 성과 기록이 없는 주제는 평균보다 조금 낮게 본다: 검증된 주제를 앞세우되 새 주제도 시도할 여지를 둔다
 UNTRIED_TOPIC_FACTOR = 0.8
-TEMPLATE_KO = {"info": "정보형", "list": "리스트형", "compare": "비교형"}
+TEMPLATE_KO = {"info": "정보형", "list": "리스트형", "compare": "비교형", "editorial": "소식형"}
 
 
 def _engagement(p: dict[str, Any]) -> float | None:

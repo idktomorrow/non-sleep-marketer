@@ -106,3 +106,32 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 .slide.has-bg .badge:not(.ad) { background: #fff; color: #111; }
 .slide.has-bg h2, .slide.has-bg h3 { color: inherit; }
 .slide.has-bg.list li, .slide.has-bg .col { background: rgba(255,255,255,.14); }
+
+/* 상품 그리드·일정 패널(S12 제안, ADR 0052). 모든 스타일의 기본 모양. 글자는 HTML, 그림은 사람이 올린 파일 */
+.products h2, .facts h2 { font-size: 72px; font-weight: 800; line-height: 1.2; color: var(--primary-ink); }
+.products h2::after, .facts h2::after {
+  content: ""; display: block; width: 96px; height: 10px; margin-top: 28px; border-radius: 5px; background: var(--accent);
+}
+.products .grid { display: grid; gap: 24px; grid-template-columns: 1fr 1fr; }
+.products .grid.items-3 { grid-template-columns: 1fr 1fr 1fr; }
+.product {
+  background: var(--card); border-radius: 28px; padding: 22px; min-width: 0;
+  display: flex; flex-direction: column; gap: 10px; align-items: center; text-align: center;
+}
+/* 그림 높이는 개수에 맞춘다(글자는 줄어들지만 그림은 안 줄어드니 보수적으로): 2개 4:3, 3개 1:1, 4개 2:1 */
+.product-img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 18px; background: #fff; }
+.items-3 .product-img { aspect-ratio: 1 / 1; }
+.items-4 .product-img { aspect-ratio: 2 / 1; }
+.product-img.placeholder { background: color-mix(in srgb, var(--primary) 10%, #fff); }
+.product-name { font-size: 34px; font-weight: 700; line-height: 1.25; }
+.product-note { font-size: 24px; opacity: .75; }
+.product-price {
+  font-size: 30px; font-weight: 800; letter-spacing: 0; color: var(--accent-ink);
+  background: var(--card-accent); padding: 6px 20px; border-radius: 999px;
+}
+.facts .rows { display: flex; flex-direction: column; gap: 18px; }
+.fact { display: grid; grid-template-columns: 230px 1fr; gap: 22px; align-items: start; padding: 22px 28px; border-radius: 24px; background: var(--card); }
+.fact dt { font-size: 32px; font-weight: 800; color: var(--primary-ink); line-height: 1.3; }
+.fact dd { font-size: 34px; font-weight: 600; line-height: 1.4; }
+.slide.has-bg .product, .slide.has-bg .fact { background: rgba(255,255,255,.14); }
+.slide.has-bg .fact dt { color: inherit; }

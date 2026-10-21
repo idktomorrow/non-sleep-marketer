@@ -417,9 +417,11 @@ class Repository:
             raise InvalidTransitionError("검토 대기 중인 콘텐츠만 고칠 수 있습니다")
 
     def count_contents_between(self, start: datetime, end: datetime) -> int:
+        """오늘 만든 원고 수(일일 생성 목표용). 오늘의 추천(picks)으로 만든 원고는 세지 않는다(S11)."""
         return int(
             self.db.execute(
-                "SELECT count(*) FROM contents WHERE created_at >= ? AND created_at < ?",
+                "SELECT count(*) FROM contents c WHERE c.created_at >= ? AND c.created_at < ? "
+                "AND NOT EXISTS (SELECT 1 FROM picks p WHERE p.content_id = c.id)",
                 [to_db(start), to_db(end)],
             )[0][0]
         )

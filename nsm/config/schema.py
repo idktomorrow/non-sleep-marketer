@@ -17,8 +17,9 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
-CardStyle = Literal["clean", "photo", "illust"]
+# 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. clean·photo·illust는 배경을 코드(CSS·SVG)로 그린다.
+# editorial(S10 제안, ADR 0050): 사람이 확인한 사진을 크게 깔고 글은 그 위 패널에 올리는 사진 우선 레이아웃.
+CardStyle = Literal["clean", "photo", "illust", "editorial"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 
@@ -77,6 +78,24 @@ class CollectSettings(_Model):
         return v
 
 
+class PicksSettings(_Model):
+    """오늘의 추천(S11 제안, ADR 0051): 매일 최근 소식 중 서로 다른 소재 최대 N개를 완성 원고로 추천한다.
+
+    켜면 일일 원고 만들기(generate)는 쉬고 추천(picks)이 대신 돈다. 추천 원고는 전부 검토 대기로 가고,
+    일일 생성 목표·게시 쿼터를 쓰지 않는다. 사진 후보는 사람이 "쓰기"를 눌러야 카드에 들어간다.
+    """
+
+    enabled: bool = False
+    count: int = Field(default=3, ge=1, le=5)  # 하루 추천 수(게시 수와 별개)
+    fresh_hours: int = Field(default=72, ge=6, le=24 * 14)  # 이 안에 공개된 자료만 "최근 소식"
+    photo_candidates: bool = (
+        True  # 기사 대표 이미지(og:image)를 후보로 받아 둘지(카드에는 사람이 확인한 뒤)
+    )
+    # 대표 주제 → 검색 별칭(예: {"치이카와": ["ちいかわ", "Chiikawa"]}). 별칭은 검색어 확장에만 쓰고
+    # 분류 라벨·추천 주제는 대표 주제 하나로 정규화한다
+    aliases: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class ModelSettings(_Model):
     generation: str = "claude-sonnet-5-5"
     classifier: str = "claude-haiku-5-5"
@@ -130,6 +149,7 @@ class Settings(_Model):
     preset: str = "기본"  # 지금 쓰는 프리셋(페르소나+브랜드+DB 묶음, C29 ADR 0049)
     collect: CollectSettings = Field(default_factory=CollectSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
+    picks: PicksSettings = Field(default_factory=PicksSettings)
 
     @field_validator("classifier", mode="before")
     @classmethod
