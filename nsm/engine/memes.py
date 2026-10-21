@@ -15,8 +15,9 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
-from nsm.adapters.generator.prompts import meme_content
+from nsm.adapters.generator.prompts import meme_content, meme_format_content
 from nsm.domain.clock import new_id
 from nsm.domain.meme_discovery import CATEGORY_LABELS, MemeCandidate, candidates
 from nsm.domain.meme_policy import (
@@ -31,7 +32,15 @@ from nsm.domain.policy import find_banned
 from nsm.domain.production import Cast, CharacterRef
 from nsm.domain.quality import rule_violations
 from nsm.engine.context import JobContext
-from nsm.ports import AdapterError, MemeExample, MemeIdea, MemeRequest, ScenarioWriter
+from nsm.ports import (
+    AdapterError,
+    MemeExample,
+    MemeFormatPlanner,
+    MemeFormatRequest,
+    MemeIdea,
+    MemeRequest,
+    ScenarioWriter,
+)
 from nsm.store.picks import Pick, PicksStore
 from nsm.store.slots import Slot, SlotStore
 
@@ -131,7 +140,14 @@ def run_meme_slot(
     info_titles: list[str] | None = None,
     mc: MemeContext | None = None,
 ) -> MemeOutcome:
-    """claim한 슬롯 하나를 밈 원고로 채운다. 실패는 슬롯 상태로 남긴다(호출자가 fail/set_stage)."""
+    """claim한 슬롯 하나를 밈 원고로 채운다. 실패는 슬롯 상태로 남긴다(호출자가 fail/set_stage).
+
+    S17: 밈 형식 탐색이 있으면 유명·유행 밈을 골라 구도·레이아웃까지 재해석한 한 장(기본). 형식 후보를 하나도
+    못 찾았을 때만 예전 2컷 대본 경로로 간다."""
+    if getattr(ctx, "meme_formats", None) is not None and isinstance(writer, MemeFormatPlanner):
+        out = run_format_meme(ctx, slot, writer, store, slots, mc, info_titles)
+        if out is not None:
+            return out
     from nsm.engine.production import default_cast
 
     topic = mc.topic if mc else (ctx.config.persona.topics or [""])[0]
@@ -287,3 +303,307 @@ def discover_for(ctx: JobContext, topic: str) -> MemeContext:
     except Exception as e:  # noqa: BLE001
         mc.access = {"밈 탐색": f"실패: {type(e).__name__}: {str(e)[:80]}"}
     return mc
+
+
+# ---------------------------------------------------------------- 밈 형식 재해석(S17 제안, ADR 0061)
+
+MAX_FORMATS = 10
+
+
+def discover_formats(ctx: JobContext):
+    """밈 형식 후보(같은 날은 캐시). 실패해도 빈 결과와 접근 상태를 돌려준다."""
+    from nsm.adapters.sources.meme_formats import FormatDiscovery
+
+    src = getattr(ctx, "meme_formats", None)
+    if src is None:
+        return FormatDiscovery(access={"밈 형식 탐색": "꺼짐"})
+    try:
+        return src.discover()
+    except Exception as e:  # noqa: BLE001
+        return FormatDiscovery(access={"밈 형식 탐색": f"실패: {type(e).__name__}: {str(e)[:80]}"})
+
+
+def format_request(ctx, topic, hero, candidates, plans, mc, force_key="") -> MemeFormatRequest:
+    tone = ctx.config.workspace.meme_tone or ctx.config.persona.tone
+    return MemeFormatRequest(
+        topic=topic,
+        character_name=hero.name if hero else "",
+        character_description=hero.appearance if hero else "",
+        tone=tone,
+        candidates=tuple(candidates[:MAX_FORMATS]),
+        recent_formats=tuple(
+            str(p.get("format", {}).get("key", "")) for p in plans if p.get("format")
+        ),
+        recent_jokes=tuple(
+            f"{p.get('situation', '')} → {p.get('punchline', '')}"
+            for p in plans
+            if p.get("situation")
+        )[:15],
+        hook=mc.hook_title if mc else "",
+        hook_sources=mc.hook_sources if mc else (),
+        caution=CAUTION,
+        force_key=force_key,
+    )
+
+
+def _credits(hero, cand) -> tuple[list[str], list[str]]:
+    """(장 안 작은 표기, 캡션 끝 출처 줄). 캐릭터 출처·참고 밈·(사실 근거는 claims)를 구분한다."""
+    small, lines = [], []
+    if hero is not None and hero.sources:
+        small.append(f"캐릭터 참조 {_host(hero.sources[0])}")
+        lines.append("캐릭터 참조 출처: " + " · ".join(hero.sources[:2]))
+    small.append(f"참고 밈 {cand.title[:28]}({cand.site})")
+    lines.append(f"참고 밈: {cand.title} — {cand.url}")
+    return small, lines
+
+
+def _host(src: str) -> str:
+    from urllib.parse import urlsplit
+
+    h = urlsplit(src).netloc
+    return (h[4:] if h.startswith("www.") else h) or src[:30]
+
+
+def format_reasons(ctx, plan, cand, topic, gen, persona, info_titles=None) -> list[str]:
+    """검토 사유: 2컷 경로와 같은 검사(규칙·금칙어·사실 신호·정보 겹침)를 한 장 밈에도(S17 리뷰)."""
+    from nsm.domain.meme_policy import fact_signals_in, text_overlap
+
+    texts = [plan.caption, plan.threads_text, *(o.text for o in plan.overlays)]
+    reasons = [f"오늘의 추천(밈 · {cand.title} 재해석 · 주제 {topic})"]
+    reasons += rule_violations(gen, persona)
+    reasons += fact_signals_in(texts, bool(plan.claims))
+    banned = find_banned(texts, persona)
+    if banned:
+        reasons.append(f"금칙어: {', '.join(banned)}")
+    overlap = text_overlap(
+        f"{plan.reinterpretation} {' '.join(o.text for o in plan.overlays)}",
+        info_titles or [],
+        ctx.config.workspace.aliases,
+    )
+    if overlap >= 0.5:
+        reasons.append(f"정보 소재와 겹침 {int(overlap * 100)}%(검토 참고)")
+    return reasons
+
+
+def pick_reason(cand, topic, plan) -> str:
+    return f"밈 · '{cand.title}' 재해석 · 주제 '{topic}' · {plan.why[:120]}"
+
+
+def build_format_content(ctx, plan, cand, topic, hero, persona, hook_sources):
+    small, lines = _credits(hero, cand)
+    return meme_format_content(
+        plan, ctx.config.brand, persona, f"밈: {cand.title}", small, lines, list(hook_sources)
+    )
+
+
+def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
+    by_key = {c.key: c for c in candidates}
+    return {
+        "mode": "format",
+        "topic": topic,
+        # 형식 재해석은 사례 탐색 분류(A~D)와 다른 축이라 category를 두지 않고 시기만 남긴다(S17 리뷰)
+        "era": cand.era,
+        "category_label": {
+            "recent": "최근 확산 밈",
+            "classic": "유명 형식 밈",
+            "local": "국내 유행 밈",
+        }.get(cand.era, "밈"),
+        "format": {
+            "key": cand.key,
+            "title": cand.title,
+            "url": cand.url,
+            "site": cand.site,
+            "era": cand.era,
+            "evidence": cand.evidence[:700],
+            "image_url": cand.image_url,
+            "checked_at": cand.checked_at,
+        },
+        "why": plan.why,
+        "funny_point": plan.funny_point,
+        "structure": plan.structure,
+        "reinterpretation": plan.reinterpretation,
+        "situation": plan.reinterpretation,
+        "punchline": " / ".join(o.text for o in plan.overlays)[:120],
+        "fingerprint": f"format:{cand.key}:{plan.reinterpretation[:60]}",
+        "ranking": [
+            {
+                "key": r.key,
+                "title": by_key[r.key].title if r.key in by_key else r.key,
+                "url": by_key[r.key].url if r.key in by_key else "",
+                "era": by_key[r.key].era if r.key in by_key else "",
+                "score": r.score,
+                "reason": r.reason,
+            }
+            for r in sorted(plan.ranking, key=lambda r: -r.score)
+        ],
+        "access": access,
+        "hook": {"title": mc.hook_title, "urls": [s.url for s in mc.hook_sources]}
+        if mc and mc.hook_title
+        else None,
+        "character": {
+            "name": cast.hero.name if cast.hero else "",
+            "kind": cast.hero.kind if cast.hero else "",
+            "references": len(cast.hero.references) if cast.hero else 0,
+            "chosen": cast.hero is not None,
+            "suggested": plan.suggested_character,
+        },
+        "sources": {
+            "character": list(cast.hero.sources) if cast.hero else [],
+            "meme_ref": [cand.url] + ([cand.image_url] if cand.image_url else []),
+            "facts": [s.url for s in (mc.hook_sources if mc else ()) if s.url],
+        },
+        "overlays": [o.__dict__ for o in plan.overlays],
+        "scene": plan.scene,
+    }
+
+
+def copy_meme_ref(ctx, cid: str, cand) -> None:
+    import shutil
+
+    from nsm.engine.production import content_dir
+
+    d = content_dir(ctx.media_dir, cid) / "meme_ref"
+    if d.is_dir():
+        shutil.rmtree(d)
+    if cand.image_path and Path(cand.image_path).is_file():
+        d.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cand.image_path, d / f"{cand.key}{Path(cand.image_path).suffix}")
+
+
+def run_format_meme(
+    ctx: JobContext,
+    slot: Slot,
+    writer,
+    store: PicksStore,
+    slots: SlotStore,
+    mc: MemeContext | None,
+    info_titles: list[str] | None = None,
+) -> MemeOutcome | None:
+    """밈 형식을 골라 한 장을 기획·저장한다. 형식 후보가 없으면 None(호출자가 2컷 경로로)."""
+    from nsm.engine.production import default_cast
+
+    topic = mc.topic if mc else (ctx.config.persona.topics or [""])[0]
+    fd = discover_formats(ctx)
+    if not fd.candidates:
+        if mc is not None:
+            mc.access.update(fd.access)
+        return None
+    plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
+    cid = new_id()
+    cast = default_cast(ctx, cid, copy=False)
+    req = format_request(ctx, topic, cast.hero, fd.candidates, plans, mc)
+    try:
+        plan = writer.plan_meme_format(req)
+    except AdapterError as e:
+        return MemeOutcome(False, reason=f"밈 형식 기획 실패: {e}")
+    except Exception as e:  # noqa: BLE001  장애: 나중에
+        return MemeOutcome(False, reason=f"AI API 장애: {e}", retry_later=True)
+    cand = next(c for c in fd.candidates if c.key == plan.key)
+    persona = ctx.config.persona.model_copy(update={"tone": req.tone})
+    final_cast = default_cast(ctx, cid) if (cast.hero or cast.sidekick) else Cast()
+    try:
+        gen = build_format_content(
+            ctx, plan, cand, topic, final_cast.hero, persona, req.hook_sources
+        )
+    except Exception as e:  # noqa: BLE001  계약에 안 맞는 계획(좌표 등)
+        return MemeOutcome(False, reason=f"밈 형식 계획이 카드 계약에 맞지 않음: {str(e)[:160]}")
+    access = {**(mc.access if mc else {}), **fd.access}
+    reasons = format_reasons(ctx, plan, cand, topic, gen, persona, info_titles)
+    content = Content(
+        id=cid,
+        status="pending_review",
+        generated=gen,
+        relevance_confidence=1.0,
+        is_ad=persona.ad_label,
+        created_at=ctx.clock.now(),
+        review_reason="; ".join(reasons),
+    )
+    pick = Pick(
+        content_id=cid,
+        run_date=slot.run_date,
+        rank=slot.slot_no,
+        reason=pick_reason(cand, topic, plan),
+        freshness="unknown",
+        title_fingerprint=f"format:{cand.key}:{topic}",
+        kind="meme",
+        slot_key=slot.key,
+    )
+    plan_json = json.dumps(
+        format_plan_json(plan, cand, fd.candidates, topic, access, final_cast, mc),
+        ensure_ascii=False,
+    )
+    store.save(
+        content,
+        persona_topic=topic,
+        item_ids=[s.id for s in req.hook_sources],
+        pick=pick,
+        slot_stage="images_pending",
+        slot_plan=plan_json,
+    )
+    copy_meme_ref(ctx, cid, cand)
+    from nsm.store.production import ProductionStore
+
+    ProductionStore(ctx.repo.db, ctx.clock).set_cast(
+        cid, final_cast.to_json(), ctx.config.settings.preset
+    )
+    hero = final_cast.hero
+    if hero is None or not hero.references:
+        sl = slots.get(slot.run_date, slot.requested_kind, slot.slot_no)
+        if sl is not None:
+            slots.set_stage(
+                sl,
+                "images_pending",
+                error="기획 완성. 그림 전에 주인공 캐릭터와 참조 이미지를 고르세요"
+                f"(제안: {plan.suggested_character or '-'})",
+            )
+        return MemeOutcome(True, content_id=cid, needs_character=True)
+    return MemeOutcome(True, content_id=cid)
+
+
+def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
+    """'다른 밈으로 다시 만들기'(S17): 같은 원고·같은 슬롯을 다른 형식으로 다시 기획한다. 그림은 새로 만든다."""
+    from nsm.engine.production import ensure_cast
+    from nsm.store.production import ProductionStore
+
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    slots = SlotStore(ctx.repo.db, ctx.clock)
+    c = ctx.repo.get_content(cid)
+    sl = slots.by_content(cid)
+    writer = ctx.scenario_writer
+    if c is None or sl is None or writer is None or not isinstance(writer, MemeFormatPlanner):
+        raise AdapterError("다시 만들 수 있는 밈 원고가 아닙니다")
+    fd = discover_formats(ctx)
+    if key not in {x.key for x in fd.candidates}:
+        raise AdapterError("그 밈 후보를 오늘 탐색 결과에서 찾지 못했습니다")
+    old = sl.plan or {}
+    topic = old.get("topic") or (ctx.config.persona.topics or [""])[0]
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    cast = ensure_cast(ctx, prod, cid)
+    plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
+    hook_sources = tuple(ctx.repo.sources_for_content(cid)) if old.get("hook") else ()
+    mc = MemeContext(
+        topic=topic, hook_title=(old.get("hook") or {}).get("title", ""), hook_sources=hook_sources
+    )
+    req = format_request(ctx, topic, cast.hero, fd.candidates, plans, mc, force_key=key)
+    plan = writer.plan_meme_format(req)
+    cand = next(x for x in fd.candidates if x.key == plan.key)
+    persona = ctx.config.persona.model_copy(update={"tone": req.tone})
+    gen = build_format_content(ctx, plan, cand, topic, cast.hero, persona, hook_sources)
+    ctx.repo.update_generated(cid, gen)
+    ctx.repo.set_review_reason(cid, "; ".join(format_reasons(ctx, plan, cand, topic, gen, persona)))
+    store.set_reason(cid, pick_reason(cand, topic, plan), f"format:{cand.key}:{topic}")
+    copy_meme_ref(ctx, cid, cand)
+    # 예전 형식의 그림·장면 지시가 새 형식에 남지 않게(S17 리뷰)
+    for s_ in ("s0.image",):
+        prod.archive_active(cid, s_)
+        prod.clear_scene(cid, s_)
+    plan_json = format_plan_json(
+        plan, cand, fd.candidates, topic, {**old.get("access", {}), **fd.access}, cast, mc
+    )
+    slots.set_stage(sl, "images_pending", error=None, plan=plan_json)
+    store.set_render_checked(cid, None)
+    if ctx.config.workspace.production_mode == "full" and cast.hero and cast.hero.references:
+        from nsm.engine.production import enqueue_production
+
+        enqueue_production(ctx, cid, force=True)
+    return cand.title

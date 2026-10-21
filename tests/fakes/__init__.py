@@ -250,6 +250,33 @@ class FakeScenarioWriter:
             raise AdapterError("가짜 실패")
         return list(self.ideas)
 
+    def plan_meme_format(self, req):
+        """형식 재해석 가짜(S17): force_key 또는 첫 후보. 말풍선 하나·캡션 하나."""
+        from nsm.ports import AdapterError, MemeFormatPlan, MemeOverlaySpec, MemeRank
+
+        self.format_requests = getattr(self, "format_requests", [])
+        self.format_requests.append(req)
+        if self.fail:
+            raise AdapterError("가짜 실패")
+        key = req.force_key or req.candidates[0].key
+        return MemeFormatPlan(
+            key=key,
+            why=f"{key}가 주제와 맞음",
+            funny_point="태연함과 위기의 대비",
+            structure="넓은 한 컷, 왼쪽 인물, 오른쪽 탁자",
+            reinterpretation="불타는 방에서 차 마시는 주인공",
+            scene="cozy room on fire, character sits calmly with a mug, leave top area empty",
+            overlays=(
+                MemeOverlaySpec("caption", "굿즈 결제 알림 폭주 중", 6, 4, 60, "left", "l"),
+                MemeOverlaySpec("bubble", "괜찮아", 55, 30, 28, "center", "m", 40, 55),
+            ),
+            caption="오늘도 괜찮아요. #밈",
+            threads_text="괜찮아요",
+            ranking=tuple(
+                MemeRank(c.key, 9.0 - i, "근거·적합성") for i, c in enumerate(req.candidates)
+            ),
+        )
+
     def write_meme_script(self, req, idea):
         from nsm.ports import MemePanel, MemeScript
 

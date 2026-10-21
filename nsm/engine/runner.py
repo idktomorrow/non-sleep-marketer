@@ -46,8 +46,25 @@ MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 
 
 # 사람이 값을 넘겨 부르는 잡(예약하지 않음). 키워드 원고는 키워드를 받는다(C15)
+def run_meme_remake(ctx: JobContext, arg: str) -> JobResult:
+    """'다른 밈으로 다시 만들기'(S17): arg = "원고id|형식key"."""
+    from nsm.engine.memes import remake_with_format
+
+    result = JobResult("meme_remake")
+    cid, _, key = arg.partition("|")
+    try:
+        title = remake_with_format(ctx, cid, key)
+    except Exception as e:  # noqa: BLE001  사람에게 이유를 보인다
+        result.ok = False
+        result.errors.append(str(e)[:200])
+        return result
+    result.counts["format"] = title
+    return result
+
+
 ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "keyword": run_keyword_draft,
+    "meme_remake": run_meme_remake,
 }
 
 

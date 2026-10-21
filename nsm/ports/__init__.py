@@ -196,10 +196,87 @@ class MemeScript:
     suggested_character: str = ""  # 주인공 미정일 때 대본이 제안한 주인공(예: 작품 캐릭터 이름)
 
 
+# ---- S17 제안(ADR 0061): 유명·유행 밈 형식을 찾아 구도·연출·레이아웃까지 재해석한다(2컷 고정이 아님)
+
+
+@dataclass(frozen=True)
+class MemeFormatCandidate:
+    """탐색한 밈 형식 하나. 그림은 **밈 참조**(구도·행동·표정 대비·텍스트 위치 이해용)이지 캐릭터 참조가 아니다."""
+
+    key: str  # 안정된 이름(예: "this-is-fine")
+    title: str
+    url: str  # 확인한 출처 페이지
+    image_path: str = ""  # 대표 사례 그림(로컬 사본). 없으면 ""
+    image_url: str = ""
+    era: str = ""  # "recent"(최근 확산) | "classic"(오래됐지만 유명한 형식) | "local"(국내 유행)
+    evidence: str = ""  # 확인 가능한 확산 근거(페이지에 적힌 날짜·수치 그대로, 추정 없음)
+    about: str = ""  # 형식 설명(페이지 요약)
+    site: str = ""  # 출처 사이트 이름
+    checked_at: str = ""
+
+
+@dataclass(frozen=True)
+class MemeFormatRequest:
+    topic: str
+    character_name: str
+    character_description: str
+    tone: str
+    candidates: tuple[MemeFormatCandidate, ...]
+    recent_formats: tuple[str, ...] = ()  # 최근에 쓴 형식 key(반복 피하기)
+    recent_jokes: tuple[str, ...] = ()
+    hook: str = ""
+    hook_sources: tuple[SourceItem, ...] = ()
+    caution: str = ""
+    force_key: str = ""  # "다른 밈으로 다시 만들기": 이 형식으로
+
+
+@dataclass(frozen=True)
+class MemeOverlaySpec:
+    kind: Literal["caption", "headline", "label", "stamp", "bubble"]
+    text: str
+    x: float
+    y: float
+    w: float
+    align: Literal["left", "center", "right"] = "center"
+    size: Literal["s", "m", "l", "xl"] = "m"
+    tail_x: float | None = None
+    tail_y: float | None = None
+
+
+@dataclass(frozen=True)
+class MemeRank:
+    key: str
+    score: float  # 0~10
+    reason: str  # 확산 근거·주제 적합성·시각적 재미·최근 사용을 함께 본 한 줄
+
+
+@dataclass(frozen=True)
+class MemeFormatPlan:
+    key: str  # 고른 형식
+    why: str  # 고른 이유(사람이 읽음)
+    funny_point: str  # 원 밈의 웃긴 포인트
+    structure: str  # 원 밈의 구도·표정·동작·텍스트 배치 핵심
+    reinterpretation: str  # 치이카와(주인공)로 바꾼 장면 한 줄
+    scene: str  # 그림 생성 지시(카메라 거리·배경·동작·시선·표정·컷 나눔, 글자 자리 비우기)
+    overlays: tuple[MemeOverlaySpec, ...]
+    caption: str
+    threads_text: str
+    ranking: tuple[MemeRank, ...] = ()
+    claims: tuple[tuple[str, str], ...] = ()
+    suggested_character: str = ""
+
+
 @runtime_checkable
 class ScenarioWriter(Protocol):
     def propose_meme_ideas(self, req: MemeRequest) -> list[MemeIdea]: ...
     def write_meme_script(self, req: MemeRequest, idea: MemeIdea) -> MemeScript: ...
+
+
+@runtime_checkable
+class MemeFormatPlanner(Protocol):
+    """S17 제안: 밈 형식 재해석. ScenarioWriter와 따로 둬, 이 메서드가 없는 작가도 ScenarioWriter로 남는다(S17 리뷰)."""
+
+    def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan: ...
 
 
 @runtime_checkable

@@ -85,9 +85,14 @@ def pick_idea(ideas: list[MemeIdea], recent: list[tuple[str, str]]) -> MemeIdea 
 
 def fact_signals(script: MemeScript) -> list[str]:
     """검토 신호: 사실처럼 보이는 표현이 있는데 자료 근거(claims)가 없다. 창작 대사일 수 있으니 오류는 아니다."""
-    if script.claims:
-        return []
     texts = [p.label for p in script.panels] + [p.bubble for p in script.panels] + [script.caption]
+    return fact_signals_in(texts, bool(script.claims))
+
+
+def fact_signals_in(texts: list[str], has_claims: bool) -> list[str]:
+    """글 목록에서 사실 확인 신호(밈 한 장도 같은 규칙, S17 리뷰)."""
+    if has_claims:
+        return []
     hits = []
     for t in texts:
         if _MONEY.search(t) or _NUMBER.search(t) or any(w in t for w in _FACT_WORDS):
@@ -97,7 +102,11 @@ def fact_signals(script: MemeScript) -> list[str]:
 
 def info_overlap(idea: MemeIdea, info_titles: list[str], aliases=None) -> float:
     """정보 클러스터 제목과 얼마나 겹치는지(0~1). 화면 신호용이며 자동 제외에 쓰지 않는다."""
-    mine = normalize_tokens(f"{idea.situation} {idea.punchline}", aliases)
+    return text_overlap(f"{idea.situation} {idea.punchline}", info_titles, aliases)
+
+
+def text_overlap(text: str, info_titles: list[str], aliases=None) -> float:
+    mine = normalize_tokens(text, aliases)
     best = 0.0
     for t in info_titles:
         best = max(best, jaccard(mine, normalize_tokens(t, aliases)))

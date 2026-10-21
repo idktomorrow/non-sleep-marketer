@@ -289,3 +289,12 @@ def test_picks_page_renders_meme_pick_with_comic_first(env, clock) -> None:
     env["repo"].update_generated("pk1", g)
     html = env["client"].get("/picks").text
     assert "카페 알바 루나" in html  # 만화 첫 장이면 라벨을 제목으로(500이 아님)
+
+
+def test_remake_meme_route_queues_job_with_valid_key(env) -> None:
+    """다른 밈으로 다시 만들기(S17): 작업 스레드에 원고·형식을 넘긴다. 형식 이름은 형식 검사."""
+    calls: list[tuple] = []
+    env["state"].run_job_now = lambda *a: calls.append(a)
+    r = _post(env, "/picks/pk1/meme/remake", key="daily-struggle")
+    assert r.status_code == 303 and calls == [("meme_remake", "pk1|daily-struggle")]
+    assert _post(env, "/picks/pk1/meme/remake", key="../etc").status_code == 400

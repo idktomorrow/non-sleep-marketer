@@ -5,7 +5,7 @@
   <a href="/review/{{ c.id }}">{% if thumbs and thumbs.get(c.id) %}<img src="{{ thumbs[c.id] }}" alt="표지 카드">{% elif p.photo_status == 'candidate' %}<img src="/picks/{{ c.id }}/photo" alt="사진 후보">{% else %}<span class="thumb" aria-hidden="true"></span>{% endif %}</a>
   <div>
     {%- set first = c.generated.deck.slides[0] %}
-    <h3><a href="/review/{{ c.id }}">{% if first.kind == 'comic' %}{{ (first.panels | map(attribute='label') | select | join(' / ')).replace('\n', ' ') or c.generated.topic }}{% else %}{{ first.title.replace('\n', ' ') }}{% endif %}</a></h3>
+    <h3><a href="/review/{{ c.id }}">{% if first.kind == 'comic' %}{{ (first.panels | map(attribute='label') | select | join(' / ')).replace('\n', ' ') or c.generated.topic }}{% elif first.kind == 'meme_image' %}{{ v.plan.reinterpretation or (first.overlays | map(attribute='text') | join(' / ')) or c.generated.topic }}{% else %}{{ first.title.replace('\n', ' ') }}{% endif %}</a></h3>
     <div class="actions small">
       {% if v.topic %}<span class="badge on">{{ v.topic }}</span>{% endif %}
       <span class="badge">{{ v.kind }}{% if v.plan.category_label %} · {{ v.plan.category_label }}{% elif p.kind != 'meme' %} · {{ '최신 소식' if p.freshness == 'fresh' else '소식·이슈' }}{% endif %}{% if v.substituted %} <span class="muted">({{ v.requested_kind }} 대신)</span>{% endif %}</span>
@@ -16,12 +16,25 @@
     </div>
     <p class="muted small" style="margin:6px 0 0">{{ p.reason }}{% if v.published_local %} · 공개 {{ v.published_local.strftime('%m/%d %H:%M') }}{% endif %}{% if p.photo_status == 'candidate' %} · 사진 후보 있음(검토 상세에서 확인){% endif %}</p>
     {% if v.plan.character is defined %}<p class="small" style="margin:6px 0 0">등장 캐릭터: <b>{{ v.plan.character.name or '미정' }}</b>{% if not v.plan.character.name and v.plan.character.suggested %} <span class="muted">(대본 제안: {{ v.plan.character.suggested }})</span>{% endif %} · 참조 {{ v.plan.character.references }}장{% if not v.plan.character.references %} <span class="warn">(그림 전에 캐릭터·참조를 고르세요)</span>{% endif %}</p>{% endif %}
+    {% if v.plan.mode == 'format' %}
+    <p class="small" style="margin:6px 0 0">재해석한 밈: <a href="{{ v.plan.format.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ v.plan.format.title }}</a> <span class="muted">({{ v.plan.format.site }} · 확인 {{ (v.plan.format.checked_at or '')[:16].replace('T', ' ') }})</span><br>고른 이유: {{ v.plan.why }}</p>
+    {% endif %}
     <details class="small" style="margin-top:6px"><summary>근거 보기</summary>
-      {% if v.plan.basis %}<p style="margin:4px 0">참고한 밈 사례(구조만 참고, 새로 씀):</p><ul>{% for b in v.plan.basis %}<li>{{ b.label }} · {{ b.reason }}<ul>{% for s in b.sightings[:4] %}<li><a href="{{ s.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ s.platform }}</a> {{ s.title }} <span class="muted">게시 {{ (s.posted_at or '미상')[:10] }} · 확인 {{ s.observed_at[:16].replace('T', ' ') }} · 반응 {{ '미확인' if s.metrics is none else s.metrics }}{% if not s.body_checked %} · 검색 결과만 봄{% endif %}</span></li>{% endfor %}</ul></li>{% endfor %}</ul>{% elif v.plan.category %}<p style="margin:4px 0">참고한 사례 없음(창작 밈).</p>{% endif %}
+      {% if v.plan.mode == 'format' %}
+      <p style="margin:4px 0">원 밈의 웃긴 점: {{ v.plan.funny_point }}<br>구도·배치 핵심: {{ v.plan.structure }}<br>재해석: {{ v.plan.reinterpretation }}</p>
+      <p style="margin:4px 0">확산 근거(출처 페이지에 적힌 것만): {{ v.plan.format.evidence[:300] or '적힌 근거 없음' }}</p>
+      <p style="margin:4px 0">출처 — 캐릭터 참조: {{ v.plan.sources.character | join(' · ') or '없음(직접 올린 참조)' }} / 참고 밈: {% for u in v.plan.sources.meme_ref %}<a href="{{ u|safe_url }}" target="_blank" rel="noopener noreferrer">{{ loop.index }}</a>{% if not loop.last %}, {% endif %}{% endfor %} / 사실 자료: {{ v.plan.sources.facts | length }}건 <span class="muted">(출처 표기는 사용 허락이 아닙니다)</span></p>
+      {% endif %}
+      {% if v.plan.basis %}<p style="margin:4px 0">참고한 밈 사례(구조만 참고, 새로 씀):</p><ul>{% for b in v.plan.basis %}<li>{{ b.label }} · {{ b.reason }}<ul>{% for s in b.sightings[:4] %}<li><a href="{{ s.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ s.platform }}</a> {{ s.title }} <span class="muted">게시 {{ (s.posted_at or '미상')[:10] }} · 확인 {{ s.observed_at[:16].replace('T', ' ') }} · 반응 {{ '미확인' if s.metrics is none else s.metrics }}{% if not s.body_checked %} · 검색 결과만 봄{% endif %}</span></li>{% endfor %}</ul></li>{% endfor %}</ul>{% elif v.plan.category and v.plan.mode != 'format' %}<p style="margin:4px 0">참고한 사례 없음(창작 밈).</p>{% endif %}
       {% if v.plan.access %}<p style="margin:4px 0">탐색 출처: {% for k, a in v.plan.access.items() %}{{ k }} — {{ a }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
       {% if v.plan.hook %}<p style="margin:4px 0">연결한 소식: {{ v.plan.hook.title }}</p>{% endif %}
       {% if v.sources %}<p style="margin:4px 0">자료:</p><ul>{% for s in v.sources %}<li><a href="{{ s.url|safe_url }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a> <span class="muted">게시 {{ s.published_at.strftime('%m/%d') if s.published_at else '미상(확인 필요)' }} · 수집 {{ s.collected_at.strftime('%m/%d %H:%M') }}</span></li>{% endfor %}</ul>{% endif %}
     </details>
+    {% if v.plan.mode == 'format' and v.plan.ranking | length > 1 %}
+    <details class="small" style="margin-top:6px"><summary>다른 밈으로 다시 만들기</summary><ul>
+      {% for r in v.plan.ranking if r.key != v.plan.format.key %}<li><form class="inline" method="post" action="/picks/{{ c.id }}/meme/remake" onsubmit="return confirm('이 밈으로 다시 기획할까요? AI 호출 1회, 그림은 새로 만듭니다')"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="key" value="{{ r.key }}"><button class="btn-sm">{{ r.title }}</button></form> <span class="muted">{{ '%.1f' % r.score }}점 · {{ r.reason }}</span></li>{% endfor %}
+    </ul></details>
+    {% endif %}
     {% if v.slot and v.slot.last_error %}<p class="warn small" style="margin:6px 0 0">{{ v.slot.last_error }}</p>{% endif %}
     {% if v.needs_recheck %}<p class="warn small" style="margin:6px 0 0">보관한 지 오래됐습니다. 자료의 날짜·가격·행사 종료 여부를 다시 확인한 뒤 "다시 확인했어요"를 누르면 게시로 보낼 수 있습니다.</p>{% endif %}
   </div>

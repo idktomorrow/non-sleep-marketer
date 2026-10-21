@@ -139,11 +139,30 @@ def make_adapters(
         # 밈 대본 작가(S14): Claude·OpenAI 텍스트 생성기가 겸한다(ScenarioWriter 메서드가 있으면)
         scenario_writer=text_gen if isinstance(text_gen, ScenarioWriter) else None,
         meme_discovery=_meme_discovery(cfg, clock, sources),
+        meme_formats=_meme_formats(cfg, clock, stack),
         platforms=make_platform_adapters(cfg, clock),
         read_image=read_image,
         resources=stack,
     )
     return bundle, classifiers  # type: ignore[return-value]
+
+
+def _meme_formats(cfg: AppConfig, clock, stack: ExitStack):
+    """밈 형식 탐색(S17): 공개 페이지(Know Your Meme·캐릿)를 HTTP로 읽는다. 웹 수집이 꺼져 있거나 밈 추천이 0이면
+    만들지 않는다(밖으로 요청하지 않음). HTTP 연결은 묶음의 ExitStack이 닫는다(S17 리뷰)."""
+    c = cfg.settings.collect
+    if not (c.naver or c.community) or cfg.workspace.meme_count <= 0:
+        return None
+    from nsm.adapters.sources.common import Pacer
+    from nsm.adapters.sources.meme_formats import MemeFormatSource
+
+    src = MemeFormatSource(
+        clock,
+        Pacer(min(c.min_delay_seconds, 2.0), min(c.max_delay_seconds, 4.0)),
+        paths.media_dir() / "meme_formats",
+    )
+    stack.callback(src.client.close)
+    return src
 
 
 def _meme_discovery(cfg: AppConfig, clock, sources: list):
@@ -176,6 +195,7 @@ def _adapter_settings(cfg: AppConfig) -> tuple:
         tuple(sorted(s.accounts.items())),
         s.collect.model_dump_json(),
         s.timezone,
+        cfg.workspace.meme_count,  # 밈 형식 탐색을 켜고 끈다(S17 리뷰)
     )
 
 

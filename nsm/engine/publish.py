@@ -42,6 +42,8 @@ def ai_slides_from_assets(deck) -> list[int]:
         assets = [getattr(s, "sticker", None)]
         if s.kind == "comic":
             assets += [p.image for p in s.panels]
+        if s.kind == "meme_image":
+            assets.append(s.image)
         if any(a is not None and a.ai for a in assets):
             out.append(i)
     return out

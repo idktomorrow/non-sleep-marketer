@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from nsm.adapters.generator.prompts import (
     LLM_SCHEMA,
     MAX_MIDDLE_SLIDES,
+    MEME_FORMAT_SCHEMA,
     MEME_IDEAS_SCHEMA,
     MEME_SCRIPT_SCHEMA,
     REPLY_CONTEXT_CHARS,
@@ -24,8 +25,11 @@ from nsm.adapters.generator.prompts import (
     TEMPLATE_GUIDE,
     build_deck,
     content_from_output,
+    format_plan_from_output,
     ideas_from_output,
     llm_schema,
+    meme_format_system,
+    meme_format_user,
     meme_ideas_user,
     meme_script_user,
     meme_system,
@@ -37,7 +41,15 @@ from nsm.adapters.generator.prompts import (
 )
 from nsm.adapters.pricing import claude_cost
 from nsm.domain.models import Brand, Comment, ContentBrief, GeneratedContent, Persona
-from nsm.ports import AdapterError, CostSink, MemeIdea, MemeRequest, MemeScript
+from nsm.ports import (
+    AdapterError,
+    CostSink,
+    MemeFormatPlan,
+    MemeFormatRequest,
+    MemeIdea,
+    MemeRequest,
+    MemeScript,
+)
 
 log = logging.getLogger(__name__)
 
@@ -144,11 +156,11 @@ class ClaudeTextGenerator:
 
     # ------------------------------------------------------------------ ScenarioWriter(S14)
     def _meme_call(
-        self, ref: str, system: str, user: str, schema: dict[str, Any]
+        self, ref: str, system: str, user: str, schema: dict[str, Any], max_tokens: int = 4000
     ) -> dict[str, Any]:
         raw = self._call(
             ref,
-            max_tokens=4000,
+            max_tokens=max_tokens,
             system=system,
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
             messages=[{"role": "user", "content": user}],
@@ -172,3 +184,17 @@ class ClaudeTextGenerator:
             return script_from_output(out, idea)
         except (KeyError, TypeError) as e:
             raise AdapterError(f"밈 대본 형식이 맞지 않습니다: {e}") from e
+
+    def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan:
+        """유명·유행 밈 형식 하나를 골라 구도·연출·레이아웃까지 재해석(S17 제안, ADR 0061)."""
+        out = self._meme_call(
+            "meme:format",
+            meme_format_system(req),
+            meme_format_user(req),
+            MEME_FORMAT_SCHEMA,
+            max_tokens=8000,  # 후보 점수·캡션·장면·글자 자리까지라 2컷 대본보다 길다(S17 리뷰)
+        )
+        try:
+            return format_plan_from_output(out, req)
+        except (KeyError, TypeError, ValueError) as e:
+            raise AdapterError(f"밈 형식 계획이 맞지 않습니다: {e}") from e
