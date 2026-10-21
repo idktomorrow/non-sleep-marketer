@@ -268,14 +268,18 @@ class PicksStore:
 
     # ------------------------------------------------------------ 상태 묶음(트랜잭션)
 
-    def queue(self, content_id: str, platforms: list[Platform]) -> None:
-        """게시로 보내기: 승인(사람) + 게시 레코드 + 포기했던 게시 되살림 + picks(queued)를 한 번에."""
+    def queue(
+        self, content_id: str, platforms: list[Platform], expected_revision: int | None = None
+    ) -> None:
+        """게시로 보내기: 승인(사람) + 게시 레코드 + 포기했던 게시 되살림 + picks(queued)를 한 번에.
+        expected_revision을 주면 그 판일 때만(S15 리뷰)."""
         now = self._now()
         with self.db.transaction() as cur:
             cur.execute(
                 "UPDATE contents SET status = 'approved', approved_by = 'human', updated_at = ? "
-                "WHERE id = ? AND status IN ('draft', 'pending_review')",
-                [now, content_id],
+                "WHERE id = ? AND status IN ('draft', 'pending_review') "
+                "AND (? IS NULL OR coalesce(revision, 0) = ?)",
+                [now, content_id, expected_revision, expected_revision],
             )
             if self._count(cur.fetchall()) == 0:
                 raise InvalidTransitionError("검토 대기 중인 원고만 게시로 보낼 수 있습니다")

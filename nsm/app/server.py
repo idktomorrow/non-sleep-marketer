@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import secrets
 from collections.abc import Callable
@@ -56,7 +57,8 @@ from nsm.app.materials import (
 )
 from nsm.app.next_publish import next_publishes
 from nsm.app.picks_routes import install_picks_routes, pick_view
-from nsm.app.review_actions import ActionError, ReviewActions
+from nsm.app.production_routes import install_production_routes, production_context
+from nsm.app.review_actions import ActionError, ApprovalGate, PreviewNeeded, ReviewActions
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
@@ -76,6 +78,7 @@ from nsm.config.secrets import SecretStore
 from nsm.domain.interest_presets import PRESETS, apply_preset
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
+from nsm.engine.artifacts import write_manifest
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
@@ -84,6 +87,7 @@ from nsm.ports import CardRenderer, Clock, CostLedger, PlatformAdapter
 from nsm.render.character import character_art
 from nsm.store import queries
 from nsm.store.picks import PicksStore
+from nsm.store.production import ProductionStore
 from nsm.store.repo import InvalidTransitionError, Repository
 
 HERE = Path(__file__).resolve().parent
@@ -277,8 +281,15 @@ def create_app(state: AppState) -> FastAPI:
     def back(url: str) -> RedirectResponse:
         return RedirectResponse(url, status_code=303)
 
-    # 승인·폐기·게시 취소는 추천 원고(picks)에도 같은 뜻으로 동작해야 한다(S11)
-    actions = ReviewActions(state.repo, state.picks, state.clock)
+    # 승인·폐기·게시 취소는 추천 원고(picks)에도 같은 뜻으로 동작해야 한다(S11).
+    # 렌더러가 있으면 사람 승인 = 본 미리보기 판을 굳히기(S15)
+    prod = ProductionStore(state.repo.db, state.clock)
+    gate = (
+        ApprovalGate(prod, state.media_dir, lambda: str(getattr(state.renderer, "version", "")))
+        if state.renderer is not None
+        else None
+    )
+    actions = ReviewActions(state.repo, state.picks, state.clock, gate)
 
     def _act(fn: Callable[[], Any]) -> Any:
         try:
@@ -372,6 +383,14 @@ def create_app(state: AppState) -> FastAPI:
 
     # ------------------------------------------------------------------ 설정 (M17)
 
+    def _characters_list() -> list:
+        from nsm.engine.production import characters
+
+        try:
+            return characters(state.get_config()).list()
+        except Exception:  # noqa: BLE001  캐릭터 폴더가 없어도 설정 화면은 열린다
+            return []
+
     def settings_extra(request: Request) -> dict[str, Any]:
         b = state.get_config().brand
         q = request.query_params
@@ -399,6 +418,9 @@ def create_app(state: AppState) -> FastAPI:
             "can_keys": state.secrets is not None,
             "key_msg": q.get("key_msg"),
             "key_error": q.get("key_error"),
+            "char_profiles": _characters_list(),
+            "char_msg": q.get("char_msg"),
+            "char_error": q.get("char_error"),
             "text_providers": TEXT_PROVIDER_NAMES,
             "image_qualities": IMAGE_QUALITY_NAMES,
         }
@@ -864,6 +886,8 @@ def create_app(state: AppState) -> FastAPI:
                 if state.picks is not None and (pk := state.picks.get(cid)) is not None
                 else None
             ),
+            approve_blocked=request.query_params.get("approve_blocked"),
+            **production_context(state, prod, c),
         )
 
     def _png_name_ok(name: str) -> bool:
@@ -898,16 +922,25 @@ def create_app(state: AppState) -> FastAPI:
             raise HTTPException(404)
         return FileResponse(path, media_type="image/png")
 
-    @app.post("/review/{cid}/approve", dependencies=[Depends(check_csrf)])
-    def approve(cid: str) -> RedirectResponse:
+    def approve_or_preview(cid: str, done: str) -> RedirectResponse:
+        """승인. 지금 원고와 같은 미리보기가 없으면 승인하지 않고 새로 그려 보여 준다(S15)."""
         cfg = state.get_config()
-        # 추천 원고(S11)면 승인과 함께 게시 레코드까지 한 트랜잭션으로 만든다
-        _act(
-            lambda: actions.approve(
+        try:
+            # 추천 원고(S11)면 승인과 함께 게시 레코드까지 한 트랜잭션으로 만든다
+            actions.approve(
                 cid, persona=cfg.persona, platforms=list(cfg.settings.enabled_platforms)
             )
-        )
-        return back("/review")
+        except PreviewNeeded as e:
+            with contextlib.suppress(HTTPException):  # 그리기가 늦으면 상세 화면이 안내한다
+                preview(cid)
+            return back(f"/review/{cid}?" + urlencode({"approve_blocked": e.detail}) + "#preview")
+        except ActionError as e:
+            raise HTTPException(e.status, e.detail) from e
+        return back(done)
+
+    @app.post("/review/{cid}/approve", dependencies=[Depends(check_csrf)])
+    def approve(cid: str) -> RedirectResponse:
+        return approve_or_preview(cid, "/review")
 
     @app.post("/review/{cid}/discard", dependencies=[Depends(check_csrf)])
     def discard(cid: str, request: Request) -> RedirectResponse:
@@ -1035,9 +1068,17 @@ def create_app(state: AppState) -> FastAPI:
             if c is None:
                 return
             try:
-                renderer.render(labeled_deck(c), out)
+                deck = labeled_deck(c)
+                revision = state.repo.content_revision(
+                    cid
+                )  # 그리기 전 판(그 사이 고치면 판이 달라 승인 때 걸린다)
+                renderer.render(deck, out)
                 overflow = list(getattr(renderer, "last_overflow", []) or [])
                 (out / "overflow.txt").write_text(",".join(map(str, overflow)), encoding="utf-8")
+                # 미리보기 판(S15): 사람이 본 이 PNG가 승인 때 그대로 산출물이 된다
+                write_manifest(
+                    prod, c, revision, deck, str(getattr(renderer, "version", "")), out, overflow
+                )
                 actions.mark_render_checked(cid, overflow)  # 추천 원고의 "게시 준비 완료" 조건(S11)
             except Exception:
                 clear_rendered(state.media_dir, cid, cards=False)
@@ -1159,5 +1200,9 @@ def create_app(state: AppState) -> FastAPI:
         act=_act,
         actions=actions,
         thumbs=_thumbs,
+        approve_or_preview=approve_or_preview,
+    )
+    install_production_routes(
+        app, state, check_csrf=check_csrf, back=back, act=_act, editable=_editable, prod=prod
     )
     return app

@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS contents (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     approved_by VARCHAR,               -- 'policy' | 'human'
-    persona_topic VARCHAR              -- 페르소나 관심 주제(주제 순환용, v2)
+    persona_topic VARCHAR,             -- 페르소나 관심 주제(주제 순환용, v2)
+    revision INTEGER NOT NULL DEFAULT 0 -- 원고·그림이 바뀔 때마다 +1(S15: 미리보기·승인 산출물이 같은 판인지)
 );
 
 CREATE TABLE IF NOT EXISTS publications (
@@ -179,4 +180,81 @@ CREATE TABLE IF NOT EXISTS pick_slots (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (run_date, requested_kind, slot_no)
+);
+
+-- 그림 제작(S15 제안, ADR 0058·0059). 콘텐츠 상태(동결)와 분리한다.
+CREATE TABLE IF NOT EXISTS content_production (
+    content_id VARCHAR PRIMARY KEY,
+    cast_json VARCHAR,                  -- 출연진(주인공·보조): 정체성 출처 × 생성 여부 + 제작 당시 참조 복사본
+    scenes_json VARCHAR,                -- 슬롯별 장면 지시(만화 컷은 덱의 scene, 스티커는 여기)
+    preset VARCHAR,
+    updated_at TIMESTAMP NOT NULL
+);
+
+-- 유료 그림 호출 하나 = 작업 하나. 호출 전에 claim하고, 보내기 직전 sent, 결과는 한 트랜잭션으로 반영한다
+CREATE TABLE IF NOT EXISTS image_jobs (
+    id VARCHAR PRIMARY KEY,
+    content_id VARCHAR,                 -- 캐릭터 참조 그림이면 NULL
+    target VARCHAR NOT NULL,            -- 슬롯("s1.panel0", "s2.sticker") 또는 "char:<id>"
+    role VARCHAR NOT NULL,              -- panel | sticker | reference
+    spec_hash VARCHAR NOT NULL,         -- 장면·출연 캐릭터·참조 파일·구도·크기의 지문(유효성은 이것으로 판단)
+    spec_json VARCHAR NOT NULL,
+    depends_on VARCHAR,                 -- 2번째 컷: 1번째 컷 작업(그 결과를 참조로)
+    status VARCHAR NOT NULL,            -- queued | claimed | sent | saved | succeeded | succeeded_stale | apply_failed | failed | unknown | cancelled
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP,
+    run_id VARCHAR,
+    request_id VARCHAR,
+    error VARCHAR,
+    preset VARCHAR,
+    cost_status VARCHAR,                -- confirmed | estimated | unknown
+    result_image_id VARCHAR,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    result_path VARCHAR                 -- 유료 결과 파일(적용 전 보존, 적용 실패 시 API 없이 다시 적용)
+);
+
+-- 그림 이력: 업로드·외부 원본·AI 생성 모두. 상태 active(덱에 쓰는 중) | candidate | archived
+CREATE TABLE IF NOT EXISTS content_images (
+    id VARCHAR PRIMARY KEY,
+    content_id VARCHAR NOT NULL,
+    target VARCHAR NOT NULL,
+    role VARCHAR NOT NULL,
+    source VARCHAR NOT NULL,            -- upload | external | ai
+    path VARCHAR NOT NULL,
+    sha256 VARCHAR NOT NULL,
+    provider VARCHAR,
+    model VARCHAR,
+    prompt VARCHAR,
+    references_json VARCHAR,
+    spec_hash VARCHAR,
+    job_id VARCHAR,
+    state VARCHAR NOT NULL,
+    cost_usd DOUBLE,
+    cost_status VARCHAR,
+    created_at TIMESTAMP NOT NULL
+);
+
+-- 미리보기 판(사용자가 본 것): 승인은 이 판을 그대로 산출물로 굳힌다
+CREATE TABLE IF NOT EXISTS preview_manifests (
+    id VARCHAR PRIMARY KEY,
+    content_id VARCHAR NOT NULL,
+    revision INTEGER NOT NULL,
+    fingerprint VARCHAR NOT NULL,       -- 덱(표기 포함)·그림 파일·렌더러 판(템플릿·스타일·캐릭터)의 지문
+    dir VARCHAR NOT NULL,
+    files_sha VARCHAR NOT NULL,
+    overflow VARCHAR,
+    created_at TIMESTAMP NOT NULL
+);
+
+-- 승인 산출물(불변): 게시는 이것만 쓴다
+CREATE TABLE IF NOT EXISTS approved_artifacts (
+    content_id VARCHAR NOT NULL,
+    revision INTEGER NOT NULL,
+    manifest_id VARCHAR,
+    dir VARCHAR NOT NULL,
+    files_sha VARCHAR NOT NULL,
+    approved_by VARCHAR,                -- human | policy | legacy
+    created_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (content_id, revision)
 );

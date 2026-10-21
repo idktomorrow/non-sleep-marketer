@@ -63,6 +63,8 @@
 | [0048](0048-gemini-classifier-replaces-jev.md) | 분류기는 Gemini 무료 구간(Flash-Lite, 10건 묶음)을 기본으로, jev·MotherDuck은 제거. 자동 선택 Gemini → Claude → 낱말 규칙, 실패하면 다음으로 넘어가며 알림 | 제안 |
 | [0050](0050-editorial-style-verified-photos.md) | 사진 우선형(editorial) 카드 스타일 추가: 사람이 올리거나 확인한 사진만 장별 배경으로 크게 깔고 글은 그 위 패널에. 프로그램이 고른 사진은 넣지 않음(ADR 0045 수정 제안) | 제안 |
 | [0051](0051-daily-picks-and-saved-drafts.md) | 오늘의 추천: 켜면 일일 원고 대신 수집→사건 묶기→최근 소식 최대 3건을 검토 대기 원고로. `picks` 표로 보관·사진 후보·재확인을 다루고(동결 상태 그대로), 사진 후보는 사람이 "쓰기"를 눌러야 카드에 | 제안 |
+| [0058](0058-cast-and-persistent-image-jobs.md) | 출연진(주인공·보조, 정체성 출처 account/content/custom × 생성 여부, 제작 당시 참조 복사본)·작업 공간별 캐릭터 프로필, 영속 그림 작업(호출 전 행, 슬롯별 spec 지문으로 유효성, 2컷 의존, 응답 불명 무재시도, 재시작 복구), 그림 이력(재사용·직접 올리기) | 제안 |
+| [0059](0059-approved-artifacts-from-preview.md) | 승인 = 사용자가 본 미리보기 판(판 번호·지문·PNG 해시)을 임시 경로→해시→이름 바꾸기로 굳히기, 게시는 굳힌 PNG·캡션만(판이 다르거나 유실되면 재렌더 없이 검토로), 기존 승인 원고 마이그레이션 | 제안 |
 | [0055](0055-deck-comic-sticker-and-per-asset-ai-label.md) | 덱 JSON에 2컷 만화(comic: 컷 2개, 라벨 30자·말풍선 40자 HTML)·보조 캐릭터 스티커(ImageAsset)·장별 AI 표기(ai_slides: None=레거시, []=없음)·밈 템플릿. 사진 우선형·밈 경로에서 코드 도형 캐릭터 제거, 소재 사진 색. **동결 계약 변경, 합의 필요** | 제안 |
 | [0056](0056-meme-path-and-scenario-writer.md) | 밈은 정보 원고와 분리된 경로: ScenarioWriter 포트(아이디어→대본), 호출별 밈 말투, 중복은 상황+반전 겹침이고 대비 구조도 같을 때만, 사실 표현은 검토 신호, 훅 있을 때만 claims. 포트 추가(합의 필요) | 제안 |
 | [0057](0057-pick-slots-state-machine.md) | 추천 슬롯 표(날짜+종류+번호, 계획부터 존재): 정보 N+밈 M, 오늘만 변경, 축소 시 미시작분만 제외, claim·한 트랜잭션 저장, 실패→복귀 단계·next_attempt_at 재시도, 대체는 requested/actual 기록, 기존 picks 마이그레이션 | 제안 |

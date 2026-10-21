@@ -122,6 +122,15 @@ class CostLedger:
             [reservation_id],
         )
 
+    def release_unknown_by_ref(self, ref: str) -> int:
+        """사람이 "과금 안 됨"을 확인한 미확인 요청을 푼다(그 ref의 unknown 행 전부)."""
+        rows = self.db.execute(
+            "UPDATE cost_ledger SET status = 'released', reserved_usd = 0 WHERE status = 'unknown' AND ref = ? "
+            "RETURNING id",
+            [ref],
+        )
+        return len(rows)
+
     def mark_unknown(self, reservation_id: str, request_id: str = "") -> None:
         self.db.execute(
             "UPDATE cost_ledger SET status = 'unknown', request_id = coalesce(?, request_id) "
