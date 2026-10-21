@@ -33,20 +33,18 @@ class MemeOutcome:
     content_id: str | None = None
     reason: str = ""  # 사람이 읽는 실패·부족 이유
     retry_later: bool = False  # 장애: 슬롯을 planned로 돌리고 나중에
+    empty: bool = False  # 후보 없음(아이디어가 모두 중복): 재시도하지 않고 빈 슬롯으로
 
 
 def meme_request(
     ctx: JobContext,
-    slots: SlotStore,
+    plans: list[dict],
     hook: str = "",
     hook_sources: tuple[SourceItem, ...] = (),
 ) -> MemeRequest:
     persona = ctx.config.persona
-    since = ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS)
     recent = tuple(
-        f"{p.get('situation', '')} → {p.get('punchline', '')}"
-        for p in slots.recent_meme_plans(since)
-        if p.get("situation")
+        f"{p.get('situation', '')} → {p.get('punchline', '')}" for p in plans if p.get("situation")
     )
     tone = ctx.config.workspace.meme_tone or persona.tone
     return MemeRequest(
@@ -61,11 +59,10 @@ def meme_request(
     )
 
 
-def _recent_fingerprints(ctx: JobContext, slots: SlotStore) -> list[tuple[str, str]]:
-    since = ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS)
+def _recent_fingerprints(plans: list[dict]) -> list[tuple[str, str]]:
     return [
         (str(p.get("fingerprint", "")), str(p.get("contrast", "")))
-        for p in slots.recent_meme_plans(since)
+        for p in plans
         if p.get("fingerprint")
     ]
 
@@ -79,16 +76,19 @@ def run_meme_slot(
     info_titles: list[str] | None = None,
 ) -> MemeOutcome:
     """claim한 슬롯 하나를 밈 원고로 채운다. 실패는 슬롯 상태로 남긴다(호출자가 fail/set_stage)."""
-    req = meme_request(ctx, slots)
+    plans = slots.recent_meme_plans(
+        ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS)
+    )  # 한 번만 읽는다
+    req = meme_request(ctx, plans)
     try:
         ideas = writer.propose_meme_ideas(req)
     except AdapterError as e:
         return MemeOutcome(False, reason=f"밈 아이디어 실패: {e}")
     except Exception as e:  # noqa: BLE001  장애: 나중에
         return MemeOutcome(False, reason=f"AI API 장애: {e}", retry_later=True)
-    idea = pick_idea(ideas, _recent_fingerprints(ctx, slots))
+    idea = pick_idea(ideas, _recent_fingerprints(plans))
     if idea is None:
-        return MemeOutcome(False, reason="밈 아이디어가 모두 최근 것과 겹침")
+        return MemeOutcome(False, reason="밈 아이디어가 모두 최근 것과 겹침", empty=True)
     try:
         script = writer.write_meme_script(req, idea)
     except AdapterError as e:

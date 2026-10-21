@@ -260,6 +260,9 @@ def test_slot_retry_route_and_stage_badge(env, clock) -> None:
     r = _post(env, f"/picks/slots/{sl.key}/retry")
     assert r.status_code == 303 and slots.get(today, "info", 1).stage == "planned"
     assert _post(env, "/picks/slots/2026-01-01:info:9/retry").status_code == 404
+    assert (
+        _post(env, "/picks/slots/abc:info:x/retry").status_code == 404
+    )  # 형식이 틀려도 500이 아님
     # 그림 제작이 끝나지 않은 밈 슬롯의 원고는 게시로 보낼 수 없다
     store = env["store"]
     pk = store.get("pk1")
@@ -274,3 +277,17 @@ def test_slot_retry_route_and_stage_badge(env, clock) -> None:
     )
     assert _post(env, "/picks/pk1/queue").status_code == 409
     assert "그림 제작 대기" in env["client"].get("/picks").text and pk is not None and m is not None
+
+
+def test_picks_page_renders_meme_pick_with_comic_first(env, clock) -> None:
+    import json
+
+    from nsm.domain.models import CardDeck
+    from tests.render.test_html_renderer import FIXTURES
+
+    deck = CardDeck.model_validate(json.loads((FIXTURES / "meme.json").read_text("utf-8")))
+    c = env["repo"].get_content("pk1")
+    g = c.generated.model_copy(update={"deck": deck, "template": "meme"})
+    env["repo"].update_generated("pk1", g)
+    html = env["client"].get("/picks").text
+    assert "카페 알바 루나" in html  # 만화 첫 장이면 라벨을 제목으로(500이 아님)

@@ -35,7 +35,7 @@ from nsm.engine.collect import excluded_word, run_collect
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import _RETRY_LATER, _SKIP_MATERIAL, SOURCES_PER_CONTENT, build_draft
 from nsm.engine.memes import run_meme_slot
-from nsm.store.picks import Pick, PicksStore
+from nsm.store.picks import Pick, PicksStore, SlotConflictError
 from nsm.store.slots import Slot, SlotStore
 
 log = logging.getLogger(__name__)
@@ -236,49 +236,25 @@ def run_picks(
                 slot = slots.claim(run_date, kind, run_id, now)
                 if slot is None:
                     break
-                outcome, reason = _fill_slot(
-                    ctx,
-                    slot,
-                    kind,
-                    ranked,
-                    made_tokens,
-                    store,
-                    slots,
-                    result,
-                    fetch_photo,
-                    now,
-                    info_titles,
-                )
+                args = (ranked, made_tokens, store, slots, result, fetch_photo, now, info_titles)
+                outcome, reason = _guarded_fill(ctx, slot, kind, *args)
+                filled_kind = kind
+                if outcome == "empty" and ctx.config.workspace.allow_substitute:
+                    other = "meme" if kind == "info" else "info"
+                    alt, alt_reason = _guarded_fill(ctx, slot, other, *args)
+                    if alt != "empty":  # 대체 결과(성공·실패·장애)를 그대로 따른다(S14 리뷰)
+                        outcome, reason, filled_kind = alt, alt_reason, other
                 if outcome == "made":
-                    made[slot.actual_kind or kind] += 1
-                elif outcome == "retry":
+                    made[filled_kind] += 1
+                elif outcome == "cancelled":
+                    continue  # 저장은 되돌려졌고 슬롯은 취소 상태 그대로
+                elif outcome in ("retry", "failed"):
                     slots.fail(slot, "failed_text", reason, RETRY_IN)
                     failed += 1
-                    stop_reason = reason
-                elif outcome == "failed":
-                    slots.fail(slot, "failed_text", reason, RETRY_IN)
-                    failed += 1
+                    if outcome == "retry":
+                        stop_reason = reason
                 else:  # empty
                     empty += 1
-                    if ctx.config.workspace.allow_substitute:
-                        other = "meme" if kind == "info" else "info"
-                        alt, alt_reason = _fill_slot(
-                            ctx,
-                            slot,
-                            other,
-                            ranked,
-                            made_tokens,
-                            store,
-                            slots,
-                            result,
-                            fetch_photo,
-                            now,
-                            info_titles,
-                        )
-                        if alt == "made":
-                            made[other] += 1
-                            empty -= 1
-                            continue
                     slots.set_stage(slot, "empty", error=reason)
                     break  # 이 종류는 더 못 채운다
 
@@ -304,6 +280,18 @@ def run_picks(
     return result
 
 
+def _guarded_fill(ctx, slot, kind, *args) -> tuple[str, str]:
+    """예상 못 한 예외(검증·DB·사진 코드)가 잡 전체를 끊고 슬롯을 '쓰는 중'에 남기지 않게(S14 리뷰)."""
+    try:
+        return _fill_slot(ctx, slot, kind, *args)
+    except SlotConflictError as e:  # 실행 중에 목표가 줄어 슬롯이 취소됐다: 원고는 되돌려졌다
+        log.info("%s", e)
+        return "cancelled", str(e)
+    except Exception as e:  # noqa: BLE001
+        log.exception("추천 슬롯 %s 채우기 실패", slot.key)
+        return "failed", f"{type(e).__name__}: {str(e)[:160]}"
+
+
 def _fill_slot(
     ctx, slot, kind, ranked, made_tokens, store, slots, result, fetch_photo, now, info_titles
 ) -> tuple[str, str]:
@@ -318,7 +306,7 @@ def _fill_slot(
         return "made", ""
     if out.retry_later:
         return "retry", out.reason
-    return ("empty" if "겹침" in out.reason else "failed"), out.reason
+    return ("empty" if out.empty else "failed"), out.reason
 
 
 def run_slots_retry(ctx: JobContext) -> JobResult:

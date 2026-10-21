@@ -61,6 +61,12 @@ def test_fact_signals_are_review_hints_not_errors() -> None:
         == []
     )
     assert fact_signals(_script(["전", "후"], ["시러", "싫다"])) == []  # 숫자·사실어 없음
+    # "원래·응원·엔딩"처럼 한 글자 통화 단위가 낱말 안에 든 것은 신호가 아니다(S14 리뷰)
+    assert (
+        fact_signals(_script(["원래 이런 캐릭터", "응원해"], ["엔딩까지", "직원"], caption="밈"))
+        == []
+    )
+    assert fact_signals(_script(["월급", "연봉"], ["225만원", "¥5,500"], caption="밈"))
 
 
 def test_info_overlap_is_a_signal_only() -> None:

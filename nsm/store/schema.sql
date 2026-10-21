@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS pick_slots (
     plan_json VARCHAR,                  -- 밈 아이디어·지문 등 content 생기기 전 보관
     cast_json VARCHAR,                  -- 출연진(S15)
     mix VARCHAR NOT NULL DEFAULT 'none',-- none | comic_intro (혼합 표현)
+    retried_at TIMESTAMP,               -- 사람이 재시도를 누른 시각(재시도 잡이 집는다)
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
     PRIMARY KEY (run_date, requested_kind, slot_no)

@@ -32,7 +32,9 @@ _PARTICLES = (
     "한테",
 )
 _MEME_STOP = frozenset(["vs", "대", "그리고", "근데"])
-_FACT_WORDS = ("출시", "확정", "발표", "공개", "예약", "가격", "할인", "원", "엔", "%", "판매")
+# 낱말 단위로만(한 글자 "원"·"엔"은 "원래·응원·엔딩"에 걸려 신호가 소음이 된다, S14 리뷰). 통화는 숫자와 붙은 것만
+_FACT_WORDS = ("출시", "확정", "발표", "공개", "예약", "가격", "할인", "판매")
+_MONEY = re.compile(r"\d[\d,.]*\s*(원|엔|달러|만원|억)|[¥$₩]\s*\d|\d\s*%")
 _NUMBER = re.compile(r"\d")
 
 
@@ -88,7 +90,7 @@ def fact_signals(script: MemeScript) -> list[str]:
     texts = [p.label for p in script.panels] + [p.bubble for p in script.panels] + [script.caption]
     hits = []
     for t in texts:
-        if _NUMBER.search(t) or any(w in t for w in _FACT_WORDS):
+        if _MONEY.search(t) or _NUMBER.search(t) or any(w in t for w in _FACT_WORDS):
             hits.append(t[:40])
     return [f"사실 확인 신호: {h}" for h in hits[:3]]
 

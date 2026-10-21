@@ -4,7 +4,8 @@
 <article class="panel review-item pick-item">
   <a href="/review/{{ c.id }}">{% if thumbs and thumbs.get(c.id) %}<img src="{{ thumbs[c.id] }}" alt="표지 카드">{% elif p.photo_status == 'candidate' %}<img src="/picks/{{ c.id }}/photo" alt="사진 후보">{% else %}<span class="thumb" aria-hidden="true"></span>{% endif %}</a>
   <div>
-    <h3><a href="/review/{{ c.id }}">{{ c.generated.deck.slides[0].title.replace('\n', ' ') }}</a></h3>
+    {%- set first = c.generated.deck.slides[0] %}
+    <h3><a href="/review/{{ c.id }}">{% if first.kind == 'comic' %}{{ (first.panels | map(attribute='label') | select | join(' / ')).replace('\n', ' ') or c.generated.topic }}{% else %}{{ first.title.replace('\n', ' ') }}{% endif %}</a></h3>
     <div class="actions small">
       <span class="badge">{{ v.kind }}{% if v.substituted %} <span class="muted">({{ v.requested_kind }} 대신)</span>{% endif %}</span>
       <span class="badge {{ v.readiness[0] }}">{{ v.readiness[1] }}</span>

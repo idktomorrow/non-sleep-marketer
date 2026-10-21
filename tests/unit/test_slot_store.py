@@ -65,6 +65,9 @@ def test_fail_without_retry_and_retry_targets(db, clock) -> None:
     e = s.get(D, "info", 1)
     s.set_stage(e, "empty", error="후보 없음")
     assert s.retry(s.get(D, "info", 1)) and s.get(D, "info", 1).stage == "planned"
+    # 사람이 누른 재시도(시도 0회)도 재시도 잡이 집는다(S14 리뷰)
+    assert [x.key for x in s.due(clock.now())] == [s.get(D, "info", 1).key]
+    assert s.by_key("abc:info:x") is None and s.by_key("2026-10-11:nope:1") is None
 
 
 def test_recover_stale_and_preset_filter(db, clock) -> None:
@@ -104,7 +107,7 @@ def test_migration_from_v4_moves_existing_picks_into_slots(tmp_path, clock) -> N
     )
     con.close()
     db = Database(path)
-    assert db.schema_version == 5
+    assert db.schema_version == 6
     s = SlotStore(db, clock)
     rows = s.list_for_date(date(2026, 10, 10))
     assert len(rows) == 1 and rows[0].content_id == "c1" and rows[0].stage == "ready"

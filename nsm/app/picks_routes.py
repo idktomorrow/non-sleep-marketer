@@ -98,13 +98,15 @@ def install_picks_routes(
 
     def _views(picks: list[Pick]) -> list[dict[str, Any]]:
         now = state.clock.now()
+        store = _slots()
+        by_key: dict[str, Slot] = {}
+        for d in {p.run_date for p in picks if p.slot_key}:  # 날짜마다 한 번만 읽는다(S14 리뷰)
+            by_key.update({s.key: s for s in store.list_for_date(d)})
         out = []
         for p in picks:
             c = state.repo.get_content(p.content_id)
             if c is not None:
-                out.append(
-                    pick_view(p, c, now, tz(), _slots().by_key(p.slot_key) if p.slot_key else None)
-                )
+                out.append(pick_view(p, c, now, tz(), by_key.get(p.slot_key or "")))
         return out
 
     def _plan_today(today):

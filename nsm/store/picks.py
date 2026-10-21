@@ -17,6 +17,11 @@ from nsm.ports import Clock
 from nsm.store.db import Database, from_db, to_db
 from nsm.store.repo import InvalidTransitionError
 
+
+class SlotConflictError(RuntimeError):
+    """저장하려던 슬롯이 더 이상 쓰는 중이 아니다(목표 축소로 취소 등). 트랜잭션은 되돌려진다."""
+
+
 PICK_STATES = ("ready", "saved", "queued", "dismissed")
 PHOTO_STATES = ("none", "candidate", "applied", "dropped")
 FRESHNESS = ("fresh", "stale", "unknown")
@@ -161,11 +166,17 @@ class PicksStore:
                 from nsm.store.slots import parse_key
 
                 d, kind, no = parse_key(pick.slot_key)
-                cur.execute(
+                linked = cur.execute(
                     "UPDATE pick_slots SET stage = ?, content_id = ?, actual_kind = ?, plan_json = coalesce(?, plan_json), "
-                    "updated_at = ? WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
+                    "updated_at = ? WHERE run_date = ? AND requested_kind = ? AND slot_no = ? "
+                    "AND stage = 'writing' AND content_id IS NULL RETURNING slot_no",
                     [slot_stage, content.id, pick.kind, slot_plan, now, d, kind, no],
-                )
+                ).fetchall()
+                if not linked:
+                    # 슬롯이 취소됐거나 다른 실행이 채웠다: 원고·자료 표시·추천을 함께 되돌린다(고아 원고 방지)
+                    raise SlotConflictError(
+                        f"슬롯 {pick.slot_key}에 원고를 연결할 수 없습니다(취소·이미 채움)"
+                    )
 
     def get(self, content_id: str) -> Pick | None:
         rows = self.db.execute(f"SELECT {self._COLS} FROM picks WHERE content_id = ?", [content_id])

@@ -127,3 +127,71 @@ def test_today_override_beats_workspace(ctx) -> None:  # noqa: F811
 def test_zero_plan_skips(ctx) -> None:  # noqa: F811
     _workspace(ctx, info_count=0, meme_count=0)
     assert "추천 개수가 0" in run_picks(ctx, fetch_photo=_fake_photo).skipped
+
+
+def test_unexpected_error_marks_slot_failed_not_stuck(ctx, monkeypatch) -> None:  # noqa: F811
+    import nsm.engine.picks as picks_mod
+
+    _workspace(ctx, info_count=0, meme_count=1)
+    ctx.scenario_writer = FakeScenarioWriter()
+
+    def boom(*a, **k):
+        raise ValueError("덱 검증 실패")
+
+    monkeypatch.setattr(picks_mod, "run_meme_slot", boom)
+    r = run_picks(ctx, fetch_photo=_fake_photo)
+    slot = SlotStore(ctx.repo.db, ctx.clock).get(ctx.clock.now().date(), "meme", 1)
+    assert r.counts["failed"] == 1 and slot.stage == "planned" and "ValueError" in slot.last_error
+
+
+def test_substitute_outage_is_recorded_not_hidden(ctx) -> None:  # noqa: F811
+    ctx.sources = [FakeSource("naver", [])]
+    _workspace(ctx, info_count=1, meme_count=0, allow_substitute=True)
+
+    class Down(FakeScenarioWriter):
+        def propose_meme_ideas(self, req):
+            raise RuntimeError("503")
+
+    ctx.scenario_writer = Down()
+    r = run_picks(ctx, fetch_photo=_fake_photo)
+    slot = SlotStore(ctx.repo.db, ctx.clock).get(ctx.clock.now().date(), "info", 1)
+    assert slot.stage == "planned" and slot.attempts == 1 and "장애" in slot.last_error
+    assert "장애" in r.counts["reason"]
+
+
+def test_cancelled_slot_rejects_late_save(ctx) -> None:  # noqa: F811
+    from nsm.store.picks import SlotConflictError
+
+    _workspace(ctx, info_count=1, meme_count=0)
+    slots = SlotStore(ctx.repo.db, ctx.clock)
+    today = ctx.clock.now().date()
+    slots.plan(today, 1, 0, "기본")
+    sl = slots.claim(today, "info", "r", ctx.clock.now())
+    assert (
+        slots.plan(today, 0, 0, "기본")["cancelled"] == 0
+    )  # 쓰는 중인 슬롯은 축소로 취소하지 않는다
+    ctx.repo.db.execute("UPDATE pick_slots SET stage = 'cancelled'")
+    from nsm.domain.models import Content, ContentBrief
+    from nsm.store.picks import Pick
+    from tests.fakes import FakeTextGenerator, load_source_items
+
+    gen = FakeTextGenerator().generate_content(
+        ContentBrief(topic="t", template="info", sources=load_source_items()[:1]),
+        ctx.config.persona,
+        ctx.config.brand,
+    )
+    c = Content(
+        id="late",
+        status="pending_review",
+        generated=gen,
+        relevance_confidence=1.0,
+        created_at=ctx.clock.now(),
+    )
+    with pytest.raises(SlotConflictError):
+        PicksStore(ctx.repo.db, ctx.clock).save(
+            c,
+            persona_topic=None,
+            item_ids=[],
+            pick=Pick(content_id="late", run_date=today, rank=1, reason="r", slot_key=sl.key),
+        )
+    assert ctx.repo.get_content("late") is None and slots.get(today, "info", 1).stage == "cancelled"

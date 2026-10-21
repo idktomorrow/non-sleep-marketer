@@ -39,6 +39,8 @@ _COLS = (
     "run_date, requested_kind, slot_no, actual_kind, stage, content_id, preset, run_id, attempts, "
     "next_attempt_at, last_error, plan_json, cast_json, mix, created_at, updated_at"
 )
+# 쓰기 중 상태(잡이 결과를 써야 하는 슬롯): 목표 축소로 취소하지 않는다
+IN_FLIGHT = ("writing", "producing")
 
 
 @dataclass
@@ -74,7 +76,10 @@ class Slot:
 
 
 def parse_key(key: str) -> tuple[date, str, int]:
+    """슬롯 키를 푼다. 형식이 틀리면 ValueError."""
     d, kind, no = key.split(":")
+    if kind not in KINDS:
+        raise ValueError(f"슬롯 종류가 아닙니다: {kind}")
     return date.fromisoformat(d), kind, int(no)
 
 
@@ -136,7 +141,9 @@ class SlotStore:
                         [now, run_date, kind, no],
                     )
             for no, (stage, cid) in existing.items():
-                if no > target and cid is None and stage != "cancelled":
+                # 지금 쓰는 중·제작 중인 슬롯은 건드리지 않는다(실행 중인 잡이 결과를 덮어쓰는 경합, S14 리뷰).
+                # 아직 시작하지 않았거나(planned) 끝난 실패·빈 슬롯만 제외한다
+                if no > target and cid is None and stage in ("planned", "failed_text", "empty"):
                     self.db.execute(
                         "UPDATE pick_slots SET stage = 'cancelled', updated_at = ? "
                         "WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
@@ -154,7 +161,10 @@ class SlotStore:
         return self._row(rows[0]) if rows else None
 
     def by_key(self, key: str) -> Slot | None:
-        return self.get(*parse_key(key))
+        try:
+            return self.get(*parse_key(key))
+        except ValueError:
+            return None
 
     def by_content(self, content_id: str) -> Slot | None:
         rows = self.db.execute(f"SELECT {_COLS} FROM pick_slots WHERE content_id = ?", [content_id])
@@ -177,8 +187,11 @@ class SlotStore:
 
     def due(self, now: datetime, preset: str | None = None) -> list[Slot]:
         """재시도할 때가 된 슬롯(planned이고 next_attempt_at이 지났거나 없음). 다른 작업 공간 것은 제외."""
+        # 재시도 대상 = 한 번이라도 실패했거나(attempts>0) 사람이 재시도를 누른(retried_at) planned 슬롯.
+        # 처음 계획된 슬롯은 매일 잡이 채운다(S14 리뷰: '후보 없음' 재시도가 집히지 않던 것)
         rows = self.db.execute(
-            f"SELECT {_COLS} FROM pick_slots WHERE stage = 'planned' AND attempts > 0 "
+            f"SELECT {_COLS} FROM pick_slots WHERE stage = 'planned' "
+            "AND (attempts > 0 OR retried_at IS NOT NULL) "
             "AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY run_date, requested_kind, slot_no",
             [to_db(now)],
         )
@@ -197,7 +210,7 @@ class SlotStore:
             return None
         no = int(rows[0][0])
         updated = self.db.execute(
-            "UPDATE pick_slots SET stage = 'writing', run_id = ?, updated_at = ? "
+            "UPDATE pick_slots SET stage = 'writing', run_id = ?, actual_kind = NULL, updated_at = ? "
             "WHERE run_date = ? AND requested_kind = ? AND slot_no = ? AND stage = 'planned' RETURNING slot_no",
             [run_id, self._now(), run_date, kind, no],
         )
@@ -218,7 +231,7 @@ class SlotStore:
         self.db.execute(
             "UPDATE pick_slots SET stage = ?, last_error = ?, plan_json = coalesce(?, plan_json), "
             "actual_kind = coalesce(?, actual_kind), mix = coalesce(?, mix), updated_at = ? "
-            "WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
+            "WHERE run_date = ? AND requested_kind = ? AND slot_no = ? AND stage <> 'cancelled'",
             [
                 stage,
                 error,
@@ -243,7 +256,7 @@ class SlotStore:
         )
         self.db.execute(
             "UPDATE pick_slots SET stage = ?, attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = ? "
-            "WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
+            "WHERE run_date = ? AND requested_kind = ? AND slot_no = ? AND stage <> 'cancelled'",
             [
                 back,
                 attempts,
@@ -262,9 +275,16 @@ class SlotStore:
         if slot.stage not in RETRY_TO or slot.attempts >= MAX_ATTEMPTS:
             return False
         self.db.execute(
-            "UPDATE pick_slots SET stage = ?, next_attempt_at = NULL, last_error = NULL, updated_at = ? "
-            "WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
-            [RETRY_TO[slot.stage], self._now(), slot.run_date, slot.requested_kind, slot.slot_no],
+            "UPDATE pick_slots SET stage = ?, next_attempt_at = NULL, last_error = NULL, retried_at = ?, "
+            "updated_at = ? WHERE run_date = ? AND requested_kind = ? AND slot_no = ?",
+            [
+                RETRY_TO[slot.stage],
+                self._now(),
+                self._now(),
+                slot.run_date,
+                slot.requested_kind,
+                slot.slot_no,
+            ],
         )
         return True
 
