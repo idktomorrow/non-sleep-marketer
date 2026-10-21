@@ -292,7 +292,7 @@ class FakeImageStudio:
         self.specs.append(spec)
         for r in spec.references:
             Path(r).read_bytes()  # 없는 참조는 실제 제작기처럼 FileNotFoundError
-        target = spec.ref.split(":", 1)[-1]
+        target = spec.ref.rsplit(":", 1)[-1]
         if self.on_make:
             self.on_make(spec)
         err = self.fail.pop(target, None)

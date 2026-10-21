@@ -271,3 +271,70 @@ def test_profile_cast_copies_references(ctx, tmp_path) -> None:
     assert "content" in copied.parts and copied.read_bytes() == PNG  # 원고 폴더 복사본
     store.remove_reference(p.id, Path(p.references[0]).name)
     assert copied.is_file()  # 프로필을 고쳐도 이 원고의 참조는 그대로
+
+
+def test_apply_failure_keeps_paid_image_and_reapplies_without_api(
+    ctx, tmp_path, monkeypatch
+) -> None:
+    import nsm.engine.production as prodmod
+    from nsm.engine.production import apply_saved_result
+
+    cid = _meme_content(ctx)
+    _cast(ctx, cid, tmp_path)
+    enqueue_production(ctx, cid, targets=["s0.panel0"])
+    real = prodmod._apply_to_deck
+    monkeypatch.setattr(
+        prodmod, "_apply_to_deck", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db busy"))
+    )
+    run_images(ctx, max_jobs=1)
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    job = prod.jobs_for(cid)[0]
+    assert job.status == "apply_failed" and Path(job.result_path).is_file()
+    assert [i.state for i in prod.images(cid, "s0.panel0")] == ["candidate"]  # 이력·파일 보존
+    calls = len(ctx.image_studio.specs)
+    monkeypatch.setattr(prodmod, "_apply_to_deck", real)
+    assert apply_saved_result(ctx, job.id) == "succeeded"
+    assert len(ctx.image_studio.specs) == calls  # API를 다시 부르지 않았다
+    assert _deck(ctx, cid).slides[0].panels[0].image is not None
+
+
+def test_default_cast_never_invents_a_hero(ctx, tmp_path) -> None:
+    from nsm.engine.production import default_cast
+
+    b = tmp_path / "brand.png"
+    b.write_bytes(PNG)
+    ctx.config = ctx.config.model_copy(
+        update={
+            "brand": ctx.config.brand.model_copy(
+                update={"character": "custom", "character_cover": str(b)}
+            )
+        }
+    )
+    cast = default_cast(ctx, "x")
+    assert (
+        cast.hero is None and cast.sidekick is None
+    )  # 페르소나·브랜드 그림으로 주인공을 만들지 않는다
+
+
+def test_cost_ref_includes_content_id(ctx, tmp_path) -> None:
+    cid = _meme_content(ctx)
+    _cast(ctx, cid, tmp_path)
+    enqueue_production(ctx, cid, targets=["s0.panel0"])
+    run_images(ctx, max_jobs=1)
+    assert ctx.image_studio.specs[0].ref == f"panel:{cid}:s0.panel0"
+
+
+def test_new_content_ai_slides_ignore_legacy_flag(ctx, tmp_path) -> None:
+    cid = _meme_content(ctx)
+    c = ctx.repo.get_content(cid)
+    deck = c.generated.deck.model_copy(
+        update={"labels": c.generated.deck.labels.model_copy(update={"ai_generated_image": True})}
+    )
+    raw = deck.model_dump(mode="json")
+    raw["slides"][-1]["background"] = str(tmp_path / "real.jpg")
+    (tmp_path / "real.jpg").write_bytes(PNG)
+    ctx.repo.update_generated(
+        cid, c.generated.model_copy(update={"deck": CardDeck.model_validate(raw)})
+    )
+    # ai_slides=[](새 콘텐츠): 배경이 있어도 레거시 플래그로 AI 표기를 붙이지 않는다
+    assert labeled_deck(ctx.repo.get_content(cid)).labels.ai_slides == []

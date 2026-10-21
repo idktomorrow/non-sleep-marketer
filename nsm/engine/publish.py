@@ -53,7 +53,12 @@ def labeled_deck(content: Content):
     deck = content.generated.deck
     update = {"virtual_person": True, "ad": content.is_ad}
     if deck.labels.ai_slides is not None:
-        update["ai_slides"] = ai_slides_from_assets(deck)
+        # 자산(스티커·컷)은 매번 다시 계산. 배경 장 번호는 레거시 덱을 옮길 때 기록해 둔 것만 유지한다
+        # (새 콘텐츠의 []에는 레거시 플래그를 합치지 않는다)
+        kept_bg = {
+            i for i in deck.labels.ai_slides if i < len(deck.slides) and deck.slides[i].background
+        }
+        update["ai_slides"] = sorted(set(ai_slides_from_assets(deck)) | kept_bg)
     labels = deck.labels.model_copy(update=update)
     slides = [
         s.model_copy(update={"sources": card_sources(list(s.sources))}) if s.kind == "outro" else s

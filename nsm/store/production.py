@@ -19,7 +19,7 @@ from nsm.store.db import Database, from_db, to_db
 IN_FLIGHT = ("queued", "claimed", "sent")
 JOB_COLS = (
     "id, content_id, target, role, spec_hash, spec_json, depends_on, status, attempts, next_attempt_at, "
-    "run_id, request_id, error, preset, cost_status, result_image_id, created_at, updated_at"
+    "run_id, request_id, error, preset, cost_status, result_image_id, created_at, updated_at, result_path"
 )
 IMG_COLS = (
     "id, content_id, target, role, source, path, sha256, provider, model, prompt, references_json, "
@@ -47,6 +47,7 @@ class ImageJob:
     result_image_id: str | None
     created_at: datetime | None
     updated_at: datetime | None
+    result_path: str | None = None
 
 
 @dataclass
@@ -150,6 +151,7 @@ class ProductionStore:
             result_image_id=r[15],
             created_at=from_db(r[16]),
             updated_at=from_db(r[17]),
+            result_path=r[18],
         )
 
     def enqueue(
@@ -175,7 +177,7 @@ class ProductionStore:
             now = self._now()
             cur.execute(
                 f"INSERT INTO image_jobs ({JOB_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, "
-                "NULL, ?, NULL, NULL, ?, ?)",
+                "NULL, ?, NULL, NULL, ?, ?, NULL)",
                 [
                     jid,
                     content_id,
@@ -270,12 +272,22 @@ class ProductionStore:
             )
         )
 
-    def cancel_dependents(self, jid: str, reason: str) -> None:
-        self.db.execute(
-            "UPDATE image_jobs SET status = 'cancelled', error = ?, updated_at = ? "
-            "WHERE depends_on = ? AND status = 'queued'",
-            [reason, self._now(), jid],
+    def save_result(
+        self,
+        jid: str,
+        image_id: str | None,
+        path: str,
+        request_id: str | None,
+        cost_status: str | None,
+        cur=None,
+    ) -> None:
+        """유료 결과 보존(적용 전): status=saved, 파일 경로·이력 id·요청 id."""
+        sql = (
+            "UPDATE image_jobs SET status = 'saved', result_image_id = ?, result_path = ?, "
+            "request_id = coalesce(?, request_id), cost_status = ?, updated_at = ? WHERE id = ?"
         )
+        args = [image_id, path, request_id or None, cost_status, self._now(), jid]
+        (cur.execute(sql, args) if cur is not None else self.db.execute(sql, args))
 
     def recover(self) -> tuple[int, int]:
         """재시작: claimed(아직 안 보냄) → queued, sent(보냈는데 결과 모름) → unknown(자동 재시도 금지)."""
@@ -286,6 +298,12 @@ class ProductionStore:
         b = self.db.execute(
             "UPDATE image_jobs SET status = 'unknown', error = '응답을 받기 전에 프로그램이 멈췄습니다(과금 여부 불명)', "
             "cost_status = 'unknown', updated_at = ? WHERE status = 'sent' RETURNING id",
+            [self._now()],
+        )
+        # 결과는 저장했는데 적용 전에 멈춤: 다시 부르지 않고 적용만 다시(사람이 버튼, 또는 다음 images 잡)
+        self.db.execute(
+            "UPDATE image_jobs SET status = 'apply_failed', error = '적용 전에 멈춤(그림 보존, 다시 적용 가능)', "
+            "updated_at = ? WHERE status = 'saved'",
             [self._now()],
         )
         return len(a), len(b)

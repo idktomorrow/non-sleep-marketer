@@ -19,8 +19,10 @@ from nsm.config.characters import CharacterError
 from nsm.domain.production import Cast, CharacterRef
 from nsm.engine.context import JobContext
 from nsm.engine.production import (
+    apply_saved_result,
     characters,
     content_dir,
+    cost_ref,
     current_slots,
     enqueue_production,
     production_status,
@@ -39,6 +41,8 @@ JOB_LABELS = {
     "claimed": ("warn", "그리는 중"),
     "sent": ("warn", "그리는 중"),
     "succeeded": ("ok", "적용됨"),
+    "saved": ("warn", "적용 중"),
+    "apply_failed": ("bad", "적용 실패(그림 보존)"),
     "succeeded_stale": ("gray", "후보로 보관"),
     "failed": ("bad", "실패"),
     "unknown": ("warn", "응답 불명"),
@@ -79,7 +83,7 @@ def production_context(state: Any, prod: ProductionStore, c) -> dict[str, Any]:
     """검토 상세에 보일 그림 칸. 그림 자리가 없는 원고(사진만 쓰는 정보 카드)는 빈 칸."""
     try:
         ctx = _ctx(state)
-        _gen, cast, slots = current_slots(ctx, prod, c.id)
+        _gen, cast, slots = current_slots(ctx, prod, c.id, persist=False)  # 보기만: 저장·복사 없음
     except Exception:  # noqa: BLE001  화면은 그림 칸 없이도 열린다
         return {"production": None}
     latest = prod.latest_jobs(c.id)
@@ -232,6 +236,16 @@ def install_production_routes(
         wake()
         return here(cid)
 
+    @app.post("/review/{cid}/production/jobs/{jid}/apply", dependencies=[Depends(check_csrf)])
+    def reapply(cid: str, jid: str) -> RedirectResponse:
+        """보존된 그림을 다시 적용(API를 다시 부르지 않음)."""
+        editable(cid)
+        j = prod.job(jid)
+        if j is None or j.content_id != cid:
+            raise HTTPException(404, "작업이 없습니다")
+        guard(lambda: apply_saved_result(_ctx(state), jid))
+        return here(cid)
+
     @app.post("/review/{cid}/production/jobs/{jid}/release", dependencies=[Depends(check_csrf)])
     def release_cost(cid: str, jid: str) -> RedirectResponse:
         """응답 불명 요청이 과금되지 않았음을 확인(OpenAI 사용량 화면 등)했을 때 예약액을 푼다."""
@@ -239,7 +253,7 @@ def install_production_routes(
         if j is None or j.content_id != cid or j.status != "unknown":
             raise HTTPException(404, "응답 불명 작업이 없습니다")
         if state.cost_ledger is not None:
-            state.cost_ledger.release_unknown_by_ref(f"{j.role}:{j.target}")
+            state.cost_ledger.release_unknown_by_ref(cost_ref(j))
         prod.finish(
             jid, "failed", error="응답 불명 → 과금 안 됨 확인(사람)", cost_status="released"
         )
@@ -365,6 +379,12 @@ def install_production_routes(
             return to_settings(error=str(e))
         if not p.appearance:
             return to_settings(error="외형 설명을 먼저 적어 주세요")
+        from nsm.config.characters import MAX_REFS
+
+        if len(p.references) >= MAX_REFS:  # 돈을 쓰기 전에 확인(S15 리뷰)
+            return to_settings(
+                error=f"참조 이미지는 {MAX_REFS}장까지입니다. 하나를 지운 뒤 만드세요"
+            )
         spec = {
             "prompt": (
                 f"Character reference sheet of {p.name}: {p.appearance}. Front view, full body, neutral pose, "

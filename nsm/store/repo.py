@@ -416,6 +416,30 @@ class Repository:
         if not changed:
             raise InvalidTransitionError("검토 대기 중인 콘텐츠만 고칠 수 있습니다")
 
+    def update_generated_in(self, cur, content_id: str, generated: GeneratedContent, now) -> bool:
+        """트랜잭션 커서 안에서 원고 저장(검토 대기일 때만) + 판 번호 +1. 바뀌었으면 True."""
+        cur.execute(
+            "UPDATE contents SET generated = ?, updated_at = ?, revision = coalesce(revision, 0) + 1 "
+            "WHERE id = ? AND status = 'pending_review' RETURNING id",
+            [generated.model_dump_json(), now, content_id],
+        )
+        return bool(cur.fetchall())
+
+    def approve_human(self, content_id: str, expected_revision: int | None = None) -> None:
+        """사람 승인. expected_revision을 주면 그 판일 때만(승인 직전 그림이 바뀌는 경합 방지, S15 리뷰)."""
+        if expected_revision is None:
+            self.transition_content(content_id, "approved", approved_by="human")
+            return
+        changed = self._count(
+            self.db.execute(
+                "UPDATE contents SET status = 'approved', approved_by = 'human', updated_at = ? "
+                "WHERE id = ? AND status IN ('draft', 'pending_review') AND coalesce(revision, 0) = ?",
+                [self._now(), content_id, expected_revision],
+            )
+        )
+        if changed == 0:
+            raise InvalidTransitionError("승인하려던 판이 아닙니다(그 사이 원고나 그림이 바뀜)")
+
     def content_revision(self, content_id: str) -> int:
         """원고 판 번호(S15). 고칠 때마다 +1: 미리보기·승인 산출물이 같은 판인지 비교한다."""
         rows = self.db.execute(

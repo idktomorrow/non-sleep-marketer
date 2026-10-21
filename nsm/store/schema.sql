@@ -200,7 +200,7 @@ CREATE TABLE IF NOT EXISTS image_jobs (
     spec_hash VARCHAR NOT NULL,         -- 장면·출연 캐릭터·참조 파일·구도·크기의 지문(유효성은 이것으로 판단)
     spec_json VARCHAR NOT NULL,
     depends_on VARCHAR,                 -- 2번째 컷: 1번째 컷 작업(그 결과를 참조로)
-    status VARCHAR NOT NULL,            -- queued | claimed | sent | succeeded | succeeded_stale | failed | unknown | cancelled
+    status VARCHAR NOT NULL,            -- queued | claimed | sent | saved | succeeded | succeeded_stale | apply_failed | failed | unknown | cancelled
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMP,
     run_id VARCHAR,
@@ -210,7 +210,8 @@ CREATE TABLE IF NOT EXISTS image_jobs (
     cost_status VARCHAR,                -- confirmed | estimated | unknown
     result_image_id VARCHAR,
     created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    updated_at TIMESTAMP NOT NULL,
+    result_path VARCHAR                 -- 유료 결과 파일(적용 전 보존, 적용 실패 시 API 없이 다시 적용)
 );
 
 -- 그림 이력: 업로드·외부 원본·AI 생성 모두. 상태 active(덱에 쓰는 중) | candidate | archived

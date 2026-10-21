@@ -259,6 +259,13 @@ def test_migration_adopts_cards_or_reverts(env, app_config) -> None:
         and ctx.notifier.calls[-1][0] == "다시 승인 필요"
     )
     repo.transition_content("m1", "approved", approved_by="human")
+    migrate_approved(
+        ctx
+    )  # 두 번째 시작: 한 번만 돌므로 렌더러 없이 승인한 원고를 되돌리지 않는다(S15 리뷰)
+    assert repo.get_content("m1").status == "approved"
+    from nsm.engine.artifacts import MIGRATED_KEY
+
+    repo.set_setting(MIGRATED_KEY, False)  # (다른 작업 공간 DB처럼) 처음 보는 DB
     cards = env["state"].media_dir / "cards" / "m1"
     cards.mkdir(parents=True)
     for i in range(2):
@@ -269,3 +276,35 @@ def test_migration_adopts_cards_or_reverts(env, app_config) -> None:
         repo.get_content("m1").status == "approved"
         and prod.latest_artifact("m1").approved_by == "legacy"
     )
+
+
+def test_approve_rejects_when_revision_moves_after_freeze(env) -> None:
+    from nsm.store.picks import PicksStore  # noqa: F401
+
+    repo = env["repo"]
+    assert _post(env, "/review/m1/preview").status_code == 303
+    real = repo.approve_human
+
+    def bump_then_approve(cid, expected):
+        repo.db.execute(
+            "UPDATE contents SET revision = revision + 1 WHERE id = ?", [cid]
+        )  # 그 사이 그림 반영
+        return real(cid, expected)
+
+    repo.approve_human = bump_then_approve
+    r = _post(env, "/review/m1/approve")
+    assert r.status_code == 409 and repo.get_content("m1").status == "pending_review"
+    prod = ProductionStore(repo.db, env["state"].clock)
+    assert prod.latest_artifact("m1") is None  # 굳힌 것은 되돌렸다
+    approved_dir = env["state"].media_dir / "approved" / "m1"
+    assert (
+        not any(p.name.startswith("rev") for p in approved_dir.iterdir())
+        if approved_dir.exists()
+        else True
+    )
+
+
+def test_view_has_no_side_effects(env) -> None:
+    prod = ProductionStore(env["repo"].db, env["state"].clock)
+    env["client"].get("/review/m1")
+    assert prod.get_production("m1") == (None, {})  # 화면을 열기만 해서는 출연진을 저장하지 않는다

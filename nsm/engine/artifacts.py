@@ -23,6 +23,9 @@ from nsm.store.production import Artifact, Manifest, ProductionStore
 log = logging.getLogger(__name__)
 
 
+MIGRATED_KEY = "artifacts_migrated_v7"
+
+
 class PreviewRequired(Exception):
     """승인하려는 원고에 지금 상태와 같은 미리보기가 없다(새로 그려 보여 주고 다시 승인받는다)."""
 
@@ -194,6 +197,8 @@ def migrate_approved(ctx) -> None:
     """
     from nsm.store.production import ProductionStore
 
+    if ctx.repo.get_setting(MIGRATED_KEY):
+        return  # 작업 공간 DB마다 한 번만(이후 렌더러 없이 승인한 원고를 되돌리지 않게, S15 리뷰)
     prod = ProductionStore(ctx.repo.db, ctx.clock)
     rows = ctx.repo.db.execute(
         "SELECT id, approved_by FROM contents WHERE status = 'approved' AND id NOT IN "
@@ -223,6 +228,7 @@ def migrate_approved(ctx) -> None:
             cid, "pending_review", reason="승인 산출물이 없어 미리보기 확인 뒤 다시 승인 필요(S15)"
         )
         reverted += 1
+    ctx.repo.set_setting(MIGRATED_KEY, True)
     if reverted:
         ctx.notifier.notify(
             "다시 승인 필요",

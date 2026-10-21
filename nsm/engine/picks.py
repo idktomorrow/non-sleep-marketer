@@ -307,7 +307,13 @@ def _fill_slot(
             # 완성본 모드(S15): 대본까지 만들었으면 그림 작업을 넣는다(예산은 images 잡이 장마다 확인)
             from nsm.engine.production import enqueue_production
 
-            enqueue_production(ctx, out.content_id)
+            try:
+                enqueue_production(ctx, out.content_id)
+            except Exception as e:  # noqa: BLE001  원고는 저장됐다: 슬롯에 이유를 남기고 화면에서 다시 시도
+                log.exception("그림 예약 실패: %s", out.content_id)
+                sl = slots.get(slot.run_date, slot.requested_kind, slot.slot_no)
+                if sl is not None:
+                    slots.set_stage(sl, "failed_image", error=f"그림 예약 실패: {str(e)[:160]}")
         return "made", ""
     if out.retry_later:
         return "retry", out.reason

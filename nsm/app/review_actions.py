@@ -61,12 +61,16 @@ class ApprovalGate:
         except PreviewRequired as e:
             raise PreviewNeeded(f"{e}. 새 미리보기를 확인한 뒤 다시 승인해 주세요") from e
 
-    def freeze(self, repo: Repository, content, manifest) -> int:
+    def freeze(self, repo: Repository, content, manifest):
+        """굳히고 (판 번호, 같은 판의 이전 산출물, 새 폴더)를 돌려준다(실패 시 되돌리기용)."""
         from nsm.engine.artifacts import freeze
 
         revision = manifest.revision
+        previous = self.prod.latest_artifact(content.id)
+        if previous is not None and previous.revision != revision:
+            previous = None
         pngs = sorted(Path(manifest.dir).glob("slide-*.png"))
-        freeze(
+        art = freeze(
             self.prod,
             self.media_dir,
             content,
@@ -76,10 +80,26 @@ class ApprovalGate:
             manifest.id,
             "human",
         )
-        return revision
+        return revision, previous, art.dir
 
-    def rollback(self, cid: str, revision: int) -> None:
-        self.prod.drop_artifact(cid, revision)
+    def rollback(self, cid: str, frozen) -> None:
+        """승인이 실패했을 때: 같은 판의 이전 산출물이 있었으면 되살리고, 이번에 만든 폴더는 지운다(S15 리뷰)."""
+        import shutil
+
+        revision, previous, new_dir = frozen
+        if previous is not None:
+            self.prod.add_artifact(
+                cid,
+                revision,
+                previous.manifest_id,
+                previous.dir,
+                previous.files_sha,
+                previous.approved_by or "human",
+            )
+        else:
+            self.prod.drop_artifact(cid, revision)
+        if previous is None or Path(previous.dir) != Path(new_dir):
+            shutil.rmtree(new_dir, ignore_errors=True)
 
 
 class ReviewActions:
@@ -137,20 +157,24 @@ class ReviewActions:
         if pick is not None:
             self._recheck_gate(c.created_at, pick.rechecked_at)
         # 사람이 본 미리보기 판을 굳힌 뒤에야 승인한다(S15). 승인이 실패하면 굳힌 것을 지운다
-        frozen: int | None = None
+        frozen = None
+        expected: int | None = None
         if self.gate is not None:
             manifest = self.gate.check(self.repo, c)
             frozen = self.gate.freeze(self.repo, c, manifest)
+            expected = (
+                manifest.revision
+            )  # 굳힌 판일 때만 승인(그 사이 그림이 바뀌면 거절, S15 리뷰)
         try:
             if pick is None:
                 try:
-                    self.repo.transition_content(cid, "approved", approved_by="human")
+                    self.repo.approve_human(cid, expected)
                 except InvalidTransitionError as e:
                     raise ActionError(409, str(e)) from e
                 self.repo.requeue_abandoned(cid)
                 return
             try:
-                self.picks.queue(cid, platforms)  # type: ignore[union-attr]
+                self.picks.queue(cid, platforms, expected)  # type: ignore[union-attr]
             except InvalidTransitionError as e:
                 raise ActionError(409, str(e)) from e
         except Exception:
