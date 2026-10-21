@@ -49,7 +49,9 @@ def save_material(
     image = suffix in IMAGE_SUFFIXES
     if image:
         if read_image is None:
-            raise MaterialError("이미지를 읽으려면 Claude API 키가 필요합니다(`nsm init`)")
+            raise MaterialError(
+                "이미지를 읽으려면 Claude 또는 OpenAI API 키가 필요합니다(설정 → AI 공급자·키)"
+            )
         if len(data) > MAX_IMAGE_BYTES:
             raise MaterialError("이미지는 5MB 이하만 올릴 수 있습니다(화면 캡처는 보통 1~3MB)")
         if media_type(data[:16]) is None:

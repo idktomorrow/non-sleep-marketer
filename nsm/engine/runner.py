@@ -57,6 +57,7 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
         raise KeyError(f"알 수 없는 잡: {name} (가능: {', '.join([*JOBS, *ARG_JOBS])})")
     else:
         fn = MANUAL_JOBS.get(name, JOBS[name]) if manual else JOBS[name]
+    ctx = ctx.snapshot()  # 이 실행은 지금 설정·어댑터 묶음을 끝까지 쓴다(S13)
     run_id = ctx.repo.start_run(name)
     try:
         result = fn(ctx)

@@ -35,9 +35,9 @@ RISK_NOTICE = """\
 """
 
 KEY_LABELS = {
-    "anthropic_api_key": "Claude API 키 (글 생성·답글, 필수)",
+    "anthropic_api_key": "Claude API 키 (글 생성·답글. OpenAI 키가 있으면 선택)",
     "gemini_api_key": "Gemini API 키 (자료·댓글 분류, 무료 구간. 없으면 Claude로 분류)",
-    "openai_api_key": "OpenAI API 키 (AI 배경 이미지, 선택)",
+    "openai_api_key": "OpenAI API 키 (글 생성·답글·그림. 이 키 하나로 전부 가능)",
 }
 
 

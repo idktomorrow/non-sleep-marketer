@@ -203,7 +203,7 @@ def test_interest_preset_fills_topics_and_enables_mode(env) -> None:
 
 
 def test_settings_form_round_trips_picks_fields(env) -> None:
-    from nsm.app.settings_form import apply_settings_form, form_values
+    from nsm.app.settings_form import SettingsError, apply_settings_form, form_values
 
     cfg = env["holder"]["cfg"]
     form = {
@@ -213,8 +213,13 @@ def test_settings_form_round_trips_picks_fields(env) -> None:
         "picks_aliases": "핸드드립: hand drip, ハンドドリップ",
     }
     new = apply_settings_form(cfg, form)
-    assert new.settings.picks.enabled and new.settings.picks.count == 2
-    assert new.settings.picks.aliases == {"핸드드립": ["hand drip", "ハンドドリップ"]}
+    # 추천 구성·별칭은 작업 공간(프리셋)별 설정이다(S13)
+    assert new.settings.picks.enabled and new.workspace.info_count == 2
+    assert new.workspace.aliases == {"핸드드립": ["hand drip", "ハンドドリップ"]}
     assert form_values(new)["picks_aliases"] == "핸드드립: hand drip, ハンドドリップ"
     old_form = {k: v for k, v in form_values(new).items() if not k.startswith("picks_")}
-    assert apply_settings_form(new, old_form).settings.picks.count == 2  # 옛 폼은 값을 지킨다
+    assert apply_settings_form(new, old_form).workspace.info_count == 2  # 옛 폼은 값을 지킨다
+    # 사용자가 일부러 비운 별칭은 빈 값으로 남는다(이전 값 복원 안 함)
+    assert apply_settings_form(new, {**form, "picks_aliases": ""}).workspace.aliases == {}
+    with pytest.raises(SettingsError):
+        apply_settings_form(new, {**form, "picks_count": "5", "meme_count": "3"})  # 합계 6 초과

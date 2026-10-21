@@ -40,6 +40,7 @@ from nsm.app.card_editor import (
     set_background,
     set_item_image,
 )
+from nsm.app.keys_routes import install_keys_routes, key_status
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
@@ -60,7 +61,9 @@ from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
     CHARACTER_NAMES,
+    IMAGE_QUALITY_NAMES,
     PERIODS,
+    TEXT_PROVIDER_NAMES,
     SettingsError,
     apply_settings_form,
     form_values,
@@ -69,6 +72,7 @@ from nsm.app.style_preview import _photo_fingerprint
 from nsm.config.presets import DEFAULT_PRESET, PresetError, PresetStore, check_name
 from nsm.config.presets import same as preset_same
 from nsm.config.schema import AppConfig
+from nsm.config.secrets import SecretStore
 from nsm.domain.interest_presets import PRESETS, apply_preset
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
@@ -76,7 +80,7 @@ from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
 from nsm.engine.watchdog import STALLS_KEY
-from nsm.ports import CardRenderer, Clock, PlatformAdapter
+from nsm.ports import CardRenderer, Clock, CostLedger, PlatformAdapter
 from nsm.render.character import character_art
 from nsm.store import queries
 from nsm.store.picks import PicksStore
@@ -150,6 +154,10 @@ class AppState:
     presets: PresetStore | None = None  # 없으면 기본 위치(<NSM_HOME>/presets)
     picks: PicksStore | None = None  # 오늘의 추천(S11). 없으면 추천 화면·동작이 없다
     picks_dir: Path | None = None  # 사진 후보 저장 폴더(media/picks)
+    # API 키 화면(S13): 등록 여부 표시·등록·삭제. 없으면 칸이 안 보인다. 등록 직후 어댑터 묶음을 새로 만든다
+    secrets: SecretStore | None = None
+    on_secrets_changed: Callable[[], None] | None = None
+    cost_ledger: CostLedger | None = None  # 전역 비용 원장(S13). 없으면 작업 공간 DB의 costs로 표시
 
 
 _ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
@@ -297,6 +305,10 @@ def create_app(state: AppState) -> FastAPI:
             key=lambda p: (p.next_attempt_at is None, p.next_attempt_at, p.id),
         )
         cap = state.get_config().settings.daily_cost_cap_usd
+        if state.cost_ledger is not None:
+            # 상한은 전역 원장 기준(작업 공간을 바꿔도 하루 한도는 하나, S13)
+            day_start, day_end = local_day_bounds(now, tz())
+            ov["cost_today"] = state.cost_ledger.spent_between(day_start, day_end)
         picks_today: list[dict[str, Any]] = []
         picks_saved = 0
         if state.picks is not None:
@@ -382,6 +394,13 @@ def create_app(state: AppState) -> FastAPI:
             # 캐릭터를 바꾸면 일러스트형 견본 주소도 바뀌게(브라우저 캐시 때문에 옛 견본이 남지 않게)
             "character_fp": character_art(b).fingerprint,
             "photo_fp": _photo_fingerprint(),  # 견본 사진이 바뀌면 사진 우선형 견본 주소도(S10)
+            # AI 공급자·키(S13): 등록 여부만. 값은 어디에도 내려보내지 않는다
+            "keys": key_status(state.secrets),
+            "can_keys": state.secrets is not None,
+            "key_msg": q.get("key_msg"),
+            "key_error": q.get("key_error"),
+            "text_providers": TEXT_PROVIDER_NAMES,
+            "image_qualities": IMAGE_QUALITY_NAMES,
         }
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -1130,6 +1149,7 @@ def create_app(state: AppState) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    install_keys_routes(app, state, check_csrf)
     install_picks_routes(
         app,
         state,

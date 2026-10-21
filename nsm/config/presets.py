@@ -4,7 +4,7 @@
 관심 주제 기준이라 섞이면 다른 프리셋이 자료를 못 받는다) 프리셋마다 DB 파일을 따로 둔다.
 
 폴더: <NSM_HOME>/presets/<slug>/
-  preset.yaml   페르소나(계정 핸들 제외) + 브랜드
+  preset.yaml   페르소나(계정 핸들 제외) + 브랜드 + 작업 공간 설정(workspace: 별칭·추천 구성·캐릭터, S13)
   brand/        프리셋에 딸린 캐릭터 그림 복사본
   data.duckdb   그 프리셋의 자료·원고·댓글·성과 (기본 프리셋은 기존 <NSM_HOME>/data.duckdb 그대로)
 
@@ -22,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from nsm.config import paths
-from nsm.config.schema import AppConfig, BrandSettings
+from nsm.config.schema import AppConfig, BrandSettings, WorkspaceSettings
 from nsm.domain.models import Persona
 
 DEFAULT_PRESET = "기본"
@@ -148,7 +148,17 @@ class PresetStore:
         brand = BrandSettings.model_validate(raw.get("brand") or {})
         stored = str(raw.get("name") or name)
         settings = cfg.settings.model_copy(update={"preset": stored})
-        return cfg.model_copy(update={"persona": persona, "brand": brand, "settings": settings})
+        # 작업 공간 설정(S13): 프리셋 파일에 없으면(예전 프리셋) 기본값으로 시작한다. 지금 설정을 끌고 가지 않는다
+        # (다른 프리셋의 별칭·추천 구성이 섞이지 않게)
+        workspace = WorkspaceSettings.model_validate(raw.get("workspace") or {})
+        return cfg.model_copy(
+            update={
+                "persona": persona,
+                "brand": brand,
+                "settings": settings,
+                "workspace": workspace,
+            }
+        )
 
     # ---------------------------------------------------------------- 쓰기
     def save(self, cfg: AppConfig, name: str, overwrite: bool = True) -> Path:
@@ -184,7 +194,8 @@ class PresetStore:
             brand[field] = str(dst)
         persona = cfg.persona.model_dump(mode="json", exclude_none=True)
         persona.pop("handle", None)  # 계정은 프리셋과 무관
-        data = {"name": name, "persona": persona, "brand": brand}
+        workspace = cfg.workspace.model_dump(mode="json")
+        data = {"name": name, "persona": persona, "brand": brand, "workspace": workspace}
         f = d / PRESET_FILE
         tmp = f.with_suffix(".yaml.tmp")
         tmp.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")

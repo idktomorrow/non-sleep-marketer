@@ -41,12 +41,16 @@ _RETRY_LATER = "__retry_later__"
 def network_error_text(e: Exception) -> str:
     """API·네트워크 장애를 사람이 알아들을 말로. 자료는 그대로 두고 다음에 다시 만든다."""
     name = type(e).__name__
+    if name == "ProviderUnavailable":  # OpenAI 키·크레딧(S13)
+        return f"OpenAI 키·크레딧 문제로 생성할 수 없습니다: {e}"
+    if name == "TransientError":
+        return f"OpenAI API가 바쁘거나 연결이 끊겼습니다. 잠시 뒤 다시 시도하세요: {e}"
     if "Timeout" in name or "Connection" in name:
-        return "Claude API 연결이 끊겼습니다(인터넷 연결이 잠깐 불안정했을 수 있음). 자료는 그대로이니 잠시 뒤 다시 시도하세요"
+        return "AI API 연결이 끊겼습니다(인터넷 연결이 잠깐 불안정했을 수 있음). 자료는 그대로이니 잠시 뒤 다시 시도하세요"
     if "RateLimit" in name or "Overloaded" in name or getattr(e, "status_code", None) in (429, 529):
-        return "Claude API가 바쁩니다(요청 한도·과부하). 잠시 뒤 다시 시도하세요"
+        return "AI API가 바쁩니다(요청 한도·과부하). 잠시 뒤 다시 시도하세요"
     if getattr(e, "status_code", None) in (401, 403):
-        return "Claude API 키가 맞지 않거나 권한이 없습니다(`nsm init`으로 키 확인)"
+        return "AI API 키가 맞지 않거나 권한이 없습니다(설정 → AI 공급자·키에서 확인)"
     return f"{name}: {e}"
 
 
@@ -98,9 +102,7 @@ def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -
         return gen
     # 이미지도 돈이 든다: 텍스트 생성 후 상한을 넘었으면 배경 없이 간다
     start, end = local_day_bounds(ctx.clock.now(), ctx.tz)
-    if not under_cost_cap(
-        ctx.repo.cost_between(start, end), ctx.config.settings.daily_cost_cap_usd
-    ):
+    if not under_cost_cap(ctx.spent_between(start, end), ctx.config.settings.daily_cost_cap_usd):
         result.errors.append("비용 상한에 도달해 배경 이미지를 건너뜀")
         return gen
     b = ctx.config.brand
@@ -136,9 +138,7 @@ def _check_rules(
         return gen, []
     log.info("페르소나 규칙 위반, 한 번 다시 생성: %s", violations)
     start, end = local_day_bounds(ctx.clock.now(), ctx.tz)
-    if not under_cost_cap(
-        ctx.repo.cost_between(start, end), ctx.config.settings.daily_cost_cap_usd
-    ):
+    if not under_cost_cap(ctx.spent_between(start, end), ctx.config.settings.daily_cost_cap_usd):
         return gen, violations  # 비용 상한: 다시 만들지 않고 검토로
     try:
         again = normalize_bullets(
@@ -163,7 +163,10 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
         return result
     s = ctx.config.settings
     if ctx.text_generator is None:
-        result.skipped = "Claude API 키가 없어 생성할 수 없음 (`nsm init`)"
+        result.skipped = (
+            ctx.text_generator_reason
+            or "AI 텍스트 공급자 API 키가 없어 생성할 수 없음(설정 → AI 공급자·키)"
+        )
         return result
     if s.picks.enabled and not manual:
         # 추천 모드(S11)에서는 일일 원고 대신 "오늘의 추천" 잡이 돈다(둘 다 돌면 하루 원고가 두 배)
@@ -180,7 +183,7 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
         if made_today >= target:
             result.skipped = "" if created else "오늘 생성 목표 달성"
             break
-        spent = ctx.repo.cost_between(start, end)
+        spent = ctx.spent_between(start, end)
         if not under_cost_cap(spent, s.daily_cost_cap_usd):
             msg = f"오늘 비용 ${spent:.2f}가 상한 ${s.daily_cost_cap_usd:.2f}에 도달해 생성을 멈춥니다"
             ctx.notifier.notify("비용 상한 도달", msg, "warn")

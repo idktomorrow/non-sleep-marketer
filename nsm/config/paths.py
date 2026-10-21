@@ -51,3 +51,8 @@ def backups_dir() -> Path:
 
 def logs_dir() -> Path:
     return nsm_home() / "logs"
+
+
+def costs_db_path() -> Path:
+    """전역 비용 원장(S13): 작업 공간(프리셋)을 바꿔도 하루 상한은 하나로 센다."""
+    return nsm_home() / "costs.duckdb"

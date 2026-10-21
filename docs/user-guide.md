@@ -86,6 +86,18 @@ uv run nsm init
 
 다른 위치를 쓰려면 환경 변수 `NSM_HOME`을 지정합니다.
 
+### API 키 등록 (제안, S13)
+
+키는 파일에 저장하지 않고 OS 자격 증명 저장소(keyring)에만 둡니다. 세 가지 방법 중 하나로 넣으면 **재시작 없이 다음 작업부터** 씁니다.
+
+1. 대시보드 **설정 → API 키**: 키마다 "등록됨/없음"만 보이고, 값을 넣어 저장하면 keyring에 들어갑니다. 저장한 값은 다시 보여 주지 않습니다.
+2. `uv run nsm init` 마법사(처음 설정할 때).
+3. 환경 변수 `NSM_OPENAI_API_KEY`(또는 `OPENAI_API_KEY`), `NSM_ANTHROPIC_API_KEY`, `NSM_GEMINI_API_KEY` — CI·임시 실행용. 환경 변수로 넣은 키는 화면에서 지울 수 없습니다.
+
+**OpenAI 키 하나면** 원고·캡션·답글과(제안) 스티커·만화 컷 그림까지 만듭니다. Claude 키는 선택입니다. 설정 **AI 공급자·모델**에서 글 공급자(자동/OpenAI만/Claude만)와 모델·이미지 품질을 고릅니다. 키를 등록했다고 유료 그림 생성이 켜지지는 않습니다(제작 모드는 "기획 먼저"가 기본).
+
+하루 비용 상한은 **모든 작업 공간(프리셋)을 합쳐** 셉니다. 응답을 못 받아 과금 여부가 불명확한 요청은 "미확인"으로 남아 예약액만큼 상한에 잡히며, 성과 화면에서 확인한 뒤 풀 수 있습니다(S15에서 화면 추가).
+
 ### 점검
 
 ```powershell
@@ -106,6 +118,10 @@ uv run nsm doctor
 | `protect_count` | `20` | 보호 모드: 사람이 승인해야 하는 첫 콘텐츠 수 |
 | `classifier` | `auto` | Gemini 키가 있으면 Gemini(무료 구간), 없으면 Claude, 둘 다 없으면 낱말 규칙. `gemini`·`claude`·`keyword`로 고정 가능. 고른 것이 실패하면 다음으로 넘어가며 알림(ADR 0048) |
 | `models.gemini` | `gemini-3.5-flash-lite` | 분류에 쓰는 Gemini 모델 |
+| `text_provider` | `auto` | 글·답글 공급자(제안, S13). `auto`: Claude 키가 있으면 Claude, 없으면 OpenAI. `openai`·`claude`로 고정하면 그 키가 없을 때 만들지 않고 이유를 보여 줌(조용히 다른 공급자로 바꾸지 않음) (ADR 0054) |
+| `models.openai_text` | `gpt-6.1-sol` | OpenAI 글 모델(입력 $2·출력 $10 /100만 토큰). 싸게 쓰려면 `gpt-6-luna`. `models.openai_text_effort`(`low`)는 추론량 |
+| `models.image_quality` | `medium` | 스티커·만화 컷 품질(제안). low 약 1~2센트, medium 약 5센트, high 약 20센트 /장 |
+| `workspace.*` | — | 작업 공간(프리셋)별 설정(제안, ADR 0053): `aliases` 검색 별칭, `info_count`(3)·`meme_count`(0) 하루 추천 구성, `allow_substitute`, `production_mode`(`plan_first`), 기본 캐릭터·디자인 옵션. 프리셋 파일에 함께 저장되고 전환하면 같이 바뀜 |
 | `image_generation` | `off` | AI 배경 이미지(유료). `off`: 만들지 않고 코드로 그린 배경만(사진은 검토 화면에서 직접 올림). `auto`: OpenAI 키가 있으면 만듦. `on`: 항상 만듦(키가 없으면 경고 후 코드 배경). `nsm init`에서 OpenAI 키를 새로 넣으면 켤지 물어봄 (ADR 0036) |
 | `brand.character` | `none` | 일러스트형 카드 표지·마지막 장 캐릭터(설정 화면 "일러스트형 캐릭터"). `none` 없음(기본), `custom` 직접 올린 그림(`brand.character_cover`·`brand.character_outro`), `drawn` 도형 캐릭터 (ADR 0046) |
 | `brand.character_ai_made` | `false` | 캐릭터가 있는 장에 "AI 생성 이미지" 표기. AI로 만든 그림이라도 실제처럼 보이지 않는 만화 캐릭터면 표기하지 않음. 사진처럼 실제 같은 그림을 AI로 만들어 올렸다면 켜세요 (ADR 0046) |

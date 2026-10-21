@@ -62,12 +62,16 @@ def run_picks(
         result.skipped = "추천 모드가 꺼져 있음(설정에서 켜거나 '지금 실행'으로)"
         return result
     if ctx.text_generator is None:
-        result.skipped = "Claude API 키가 없어 생성할 수 없음 (`nsm init`)"
+        result.skipped = (
+            ctx.text_generator_reason
+            or "AI 텍스트 공급자 API 키가 없어 생성할 수 없음(설정 → AI 공급자·키)"
+        )
         return result
     store = PicksStore(ctx.repo.db, ctx.clock)
     today = local(now, ctx.tz).date()
     already = store.count_for_date(today)
-    need = s.picks.count - already if not manual else s.picks.count
+    count = ctx.config.workspace.info_count  # 작업 공간별 추천 구성(S13). 밈 슬롯은 S14
+    need = count - already if not manual else count
     if need <= 0:
         result.skipped = f"오늘 추천 {already}건을 이미 만들었음"
         return result
@@ -84,13 +88,15 @@ def run_picks(
         for item, rel, topic in ctx.repo.unused_relevant_items(s.relevance_threshold)
         if topic and not excluded_word(item, words)
     ]
-    clusters = cluster_candidates(candidates, s.picks.aliases)
+    clusters = cluster_candidates(candidates, ctx.config.workspace.aliases)
     # 최근 원고 제목은 "대표 주제: 제목" 꼴이라 주제 낱말이 겹침을 부풀린다 → 제목 부분만 비교(S11 리뷰)
     recent = [
         t.split(": ", 1)[-1] for t in store.recent_topics_text(now - timedelta(days=RECENT_DAYS))
     ]
     exclude = recent + store.dismissed_fingerprints(now - timedelta(days=DISMISSED_DAYS))
-    ranked = rank_clusters(clusters, exclude, now, s.picks.fresh_hours, s.picks.aliases)
+    ranked = rank_clusters(
+        clusters, exclude, now, s.picks.fresh_hours, ctx.config.workspace.aliases
+    )
     result.counts["candidates"] = len(ranked)
 
     # 3) 서로 다른 사건을 위에서부터 완성 원고로
@@ -105,7 +111,7 @@ def run_picks(
             break
         if any(jaccard(cluster.tokens, t) >= SAME_EVENT_JACCARD for t in made_tokens):
             continue
-        spent = ctx.repo.cost_between(start, end)
+        spent = ctx.spent_between(start, end)
         if not under_cost_cap(spent, s.daily_cost_cap_usd):
             result.counts["cost_cap_hit"] = True
             result.counts["reason"] = f"비용 상한 ${s.daily_cost_cap_usd:.2f} 도달"
@@ -113,7 +119,7 @@ def run_picks(
         chosen = cluster.sorted_items()[:SOURCES_PER_CONTENT]
         d = build_draft(ctx, (cluster.topic, chosen), result, with_background=False)
         if d == _RETRY_LATER:
-            result.counts["reason"] = "Claude API 장애로 중단(다음 실행에 다시)"
+            result.counts["reason"] = "AI API 장애로 중단(다음 실행에 다시)"
             break
         if d == _SKIP_MATERIAL or isinstance(d, str):
             continue

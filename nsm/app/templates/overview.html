@@ -12,7 +12,7 @@
   <ol class="steps">
     <li><b>자료 모으기</b> <span class="muted">관심 주제로 네이버·구글 트렌드에서 자료를 모읍니다. 브랜드 자료가 있으면 {{ '아래 "자료 올리기"로 올리세요' if simple and can_upload else '자료 화면에서 올리거나 uploads 폴더에 넣어 두세요' }}.</span>
       <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/collect/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-primary">자료 모으기 실행</button></form></div></li>
-    <li><b>원고 만들기</b> <span class="muted">모은 자료로 카드뉴스와 글을 만듭니다. 원고 1건에 약 6센트(Claude)가 듭니다.</span>
+    <li><b>원고 만들기</b> <span class="muted">모은 자료로 카드뉴스와 글을 만듭니다. 원고 1건에 약 6센트가 듭니다.</span>
       <div class="actions" style="margin-top:6px"><form class="inline" method="post" action="/jobs/generate/run"><input type="hidden" name="csrf" value="{{ csrf }}"><button>원고 만들기 실행</button></form></div></li>
     <li><b>검토하고 승인하기</b> <span class="muted">처음 {{ cfg.settings.protect_count }}건은 보호 모드라 사람이 확인해야 올라갑니다. 검토 화면에서 카드와 글을 보고 승인하세요.</span></li>
     <li><b>자동 게시 켜기</b> <span class="muted">{{ cfg.settings.protect_count }}건을 승인하면 기준을 통과한 원고는 자동으로 올라갑니다. 아래 "자동 게시"를 켜세요.</span></li>
@@ -98,7 +98,7 @@
     <input type="text" name="keyword" maxlength="40" required placeholder="예: 치이카와 굿즈 신상" aria-label="키워드" style="flex:1;min-width:200px">
     <button class="btn-primary btn-sm">이 키워드로 원고 만들기</button>
   </form>
-  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾아, 쓸 만한 자료로 원고 1건을 만듭니다(1~2분, Claude 약 3~6센트). 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다(비용 없음). 관심 주제 목록은 바뀌지 않습니다.</p>
+  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾아, 쓸 만한 자료로 원고 1건을 만듭니다(1~2분, 약 3~6센트). 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다(비용 없음). 관심 주제 목록은 바뀌지 않습니다.</p>
 </div>
 {% endif %}
 

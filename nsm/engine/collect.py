@@ -53,7 +53,7 @@ def run_collect(ctx: JobContext) -> JobResult:
     s = ctx.config.settings
     # 검색에는 별칭(ちいかわ, Chiikawa)까지 쓰고, 분류 라벨은 대표 주제(persona.topics)만 쓴다(S11)
     base = ctx.config.persona.topics
-    topics = search_terms(base, s.picks.aliases)
+    topics = search_terms(base, ctx.config.workspace.aliases)
     # 소스는 상한을 검색어 수로 나누므로, 별칭을 더한 만큼 상한도 늘려 대표 주제당 건수를 지킨다(S11 리뷰)
     limit = int(s.collect.per_source_limit * len(topics) / max(1, len(base)))
     words = s.collect.exclude_words

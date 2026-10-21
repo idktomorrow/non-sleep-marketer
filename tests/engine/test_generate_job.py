@@ -118,7 +118,7 @@ def test_no_material_and_no_generator(ctx: JobContext, db, clock, app_config) ->
     db.execute("UPDATE source_items SET used_in_content_id = 'x'")
     assert run_generate(empty).skipped.startswith("쓸 자료 없음")
     empty.text_generator = None
-    assert "Claude API 키" in run_generate(empty).skipped
+    assert "키가 없어" in run_generate(empty).skipped  # 공급자 중립 문구(S13)
 
 
 def test_generator_failure_is_reported(ctx: JobContext) -> None:

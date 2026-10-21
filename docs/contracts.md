@@ -243,6 +243,23 @@ class CardRenderer(Protocol):  # [서브 구현]
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...  # 슬라이드 순서대로 PNG
 
 
+# S13 제안(합의 필요, ADR 0054): 범용 이미지 제작기와 전역 비용 원장. ImageGenerator·CostSink는 그대로.
+class ImageStudio(Protocol):
+    def make(
+        self, spec: ImageSpec
+    ) -> ImageResult: ...  # 참조 이미지·투명 배경·크기·품질. 글자는 넣지 않음
+
+
+class CostLedger(CostSink, Protocol):
+    def reserve(self, kind, provider, estimate_usd, ref="", model="") -> str: ...
+    def confirm(
+        self, reservation_id, usd, status="confirmed", detail=None, request_id=""
+    ) -> None: ...
+    def release(self, reservation_id) -> None: ...
+    def mark_unknown(self, reservation_id, request_id="") -> None: ...
+    def spent_between(self, start: datetime, end: datetime) -> float: ...
+
+
 class Notifier(Protocol):
     def notify(self, title: str, body: str, level: Literal["info", "warn", "error"]) -> None: ...
 

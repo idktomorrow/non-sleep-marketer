@@ -1,7 +1,7 @@
 """관심 분야 묶음(S11 제안, ADR 0051): 한 번 누르면 검색어·별칭·제외어가 채워진다.
 
 프리셋은 출발점일 뿐이다. 사용자는 설정 화면에서 관심 주제·제외어를 그대로 고칠 수 있다.
-별칭은 검색어 확장에만 쓰고(`settings.picks.aliases`), 분류 라벨과 추천 주제는 대표 주제 하나다.
+별칭은 검색어 확장에만 쓰고(`workspace.aliases`, 작업 공간별), 분류 라벨과 추천 주제는 대표 주제 하나다.
 """
 
 from __future__ import annotations
@@ -79,9 +79,9 @@ def apply_preset(cfg: Any, key: str) -> Any:
     if key not in PRESETS:
         raise KeyError(key)
     ps = PRESETS[key]
-    persona = cfg.persona.model_copy(
-        update={"topics": list(ps.topics), **({"tone": ps.tone} if ps.tone else {})}
-    )
+    # 말투는 전역 페르소나를 덮어쓰지 않는다(S13 피드백: 밈은 말투 옵션이 아니라 별도 경로, S14).
+    # 묶음의 tone은 밈 대본을 쓸 때 호출별로만 쓴다
+    persona = cfg.persona.model_copy(update={"topics": list(ps.topics)})
     collect = cfg.settings.collect.model_copy(
         update={
             "exclude_words": list(
@@ -89,11 +89,12 @@ def apply_preset(cfg: Any, key: str) -> Any:
             )
         }
     )
-    picks = cfg.settings.picks.model_copy(
-        update={"enabled": True, "aliases": {k: list(v) for k, v in ps.aliases.items()}}
-    )
+    picks = cfg.settings.picks.model_copy(update={"enabled": True})
     settings = cfg.settings.model_copy(update={"collect": collect, "picks": picks})
-    return cfg.model_copy(update={"persona": persona, "settings": settings})
+    workspace = cfg.workspace.model_copy(
+        update={"aliases": {k: list(v) for k, v in ps.aliases.items()}}
+    )
+    return cfg.model_copy(update={"persona": persona, "settings": settings, "workspace": workspace})
 
 
 def search_terms(topics: list[str], aliases: dict[str, list[str]]) -> list[str]:
