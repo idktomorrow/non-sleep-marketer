@@ -34,8 +34,8 @@
 
 <h2>모은 자료</h2>
 <div class="actions small" style="margin-bottom:8px">
-{% for key, label in [("all", "전체"), ("naver", "네이버"), ("upload", "올린 파일"), ("trends", "구글 트렌드")] %}
-<a class="btn btn-sm {{ 'btn-primary' if source == key else '' }}" href="/materials?source={{ key }}">{{ label }}{% set n = counts.get({"all": "", "naver": "naver", "upload": "upload", "trends": "google_trends"}[key]) %}{% if key == 'all' %} {{ counts.values()|sum }}{% elif n %} {{ n }}{% endif %}</a>
+{% for key, label in [("all", "전체"), ("naver", "네이버"), ("gnews", "구글 뉴스"), ("upload", "올린 파일"), ("trends", "구글 트렌드")] %}
+<a class="btn btn-sm {{ 'btn-primary' if source == key else '' }}" href="/materials?source={{ key }}">{{ label }}{% set n = counts.get({"all": "", "naver": "naver", "gnews": "google_news", "upload": "upload", "trends": "google_trends"}[key]) %}{% if key == 'all' %} {{ counts.values()|sum }}{% elif n %} {{ n }}{% endif %}</a>
 {% endfor %}
 </div>
 {% if items %}
