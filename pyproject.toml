@@ -1,6 +1,6 @@
 [project]
 name = "non-sleep-marketer"
-version = "0.4.4"
+version = "0.4.5"
 description = "로컬 단일 프로세스 AI 가상 인플루언서 마케터"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"

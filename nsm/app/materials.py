@@ -146,6 +146,7 @@ SOURCE_LABELS = {
     "naver": "네이버",
     "upload": "올린 파일",
     "google_trends": "구글 트렌드",
+    "google_news": "구글 뉴스",
     "community": "커뮤니티",
 }
 

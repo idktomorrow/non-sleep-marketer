@@ -33,12 +33,14 @@ class LogNotifier:
 def _web_sources(cfg: AppConfig, clock: SystemClock, stack: ExitStack) -> list:
     from nsm.adapters.drivers import DriverUnavailableError, make_driver
     from nsm.adapters.sources.common import Pacer
-    from nsm.adapters.sources.web import CommunitySource, NaverSearchSource
+    from nsm.adapters.sources.google_news import GoogleNewsSource
+    from nsm.adapters.sources.web import CommunitySource, NaverSearchSource, fetch_article
 
     s = cfg.settings
     c = s.collect
     if not (c.naver or c.community):
-        return []
+        # 브라우저 없이도 구글 뉴스는 된다(원문은 HTTP로 읽는다)
+        return [GoogleNewsSource(clock)] if c.google_news else []
     profile = (
         Path(s.collect_profile_dir)
         if s.collect_profile_dir
@@ -48,10 +50,15 @@ def _web_sources(cfg: AppConfig, clock: SystemClock, stack: ExitStack) -> list:
         driver = make_driver(s.browser_driver, profile, headless=s.headless_collect)
     except DriverUnavailableError as e:
         log.warning("웹 수집을 건너뜁니다: %s", e)
-        return []
+        return [GoogleNewsSource(clock)] if c.google_news else []
     stack.callback(driver.close)
     pacer = Pacer(c.min_delay_seconds, c.max_delay_seconds)
     out: list = []
+    if c.google_news:
+        # 원문은 네이버와 같은 브라우저 읽기로(기사 본문 추출기 공유, ADR 0022)
+        out.append(
+            GoogleNewsSource(clock, body_fetcher=lambda url: fetch_article(driver, pacer, url))
+        )
     if c.naver:
         out.append(NaverSearchSource(driver, clock, pacer, recent=c.recent_period))
     if c.community:
