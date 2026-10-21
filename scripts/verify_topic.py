@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 import tempfile
 from contextlib import ExitStack
@@ -94,6 +93,11 @@ def main() -> int:
         "--hero-ref", help="사용자가 고른 주인공 참조 이미지. 없으면 밈 그림을 그리지 않는다"
     )
     ap.add_argument("--hero-look", default="")
+    ap.add_argument(
+        "--hero-source",
+        default="",
+        help="참조 이미지의 출처 URL(기사 이미지 등). 밈 마지막 장 출처에 붙인다",
+    )
     a = ap.parse_args()
 
     from nsm.config.secrets import KeyringSecretStore
@@ -109,7 +113,6 @@ def main() -> int:
 
     from nsm.app.review_actions import ReviewActions
     from nsm.domain.meme_discovery import candidates
-    from nsm.domain.production import Cast, CharacterRef
     from nsm.engine.picks import run_picks
     from nsm.engine.production import enqueue_production, run_images
     from nsm.engine.publish import labeled_deck
@@ -120,6 +123,17 @@ def main() -> int:
     from nsm.store.slots import SlotStore
 
     cfg = _config(a)
+    if a.hero_ref:
+        # 실제 사용 흐름대로: 작업 공간 캐릭터 프로필을 만들고 기본 주인공으로 고른 뒤 추천을 돌린다
+        from nsm.engine.production import characters
+
+        ref = Path(a.hero_ref)
+        store_c = characters(cfg)
+        prof = store_c.create(a.hero_name or a.topic, a.hero_look)
+        store_c.add_reference(prof.id, ref.read_bytes(), ref.suffix.lower())
+        cfg = cfg.model_copy(
+            update={"workspace": cfg.workspace.model_copy(update={"hero_default": prof.id})}
+        )
     db = Database(home / "data.duckdb")
     summary: dict = {"topic": a.topic, "home": str(home)}
     with ExitStack() as stack:
@@ -215,20 +229,24 @@ def main() -> int:
                     entry["photo"]["applied"] = True
                 except Exception as e:  # noqa: BLE001
                     entry["photo"]["error"] = str(e)
-            # 밈: 사용자가 고른 참조가 있을 때만 그림
+            # 밈: 고른 주인공(기본 주인공 프로필)이 출연진에 있을 때만 그림
             if p.kind == "meme" and a.hero_ref:
-                ref = Path(a.hero_ref)
-                cast_dir = ctx.media_dir / "content" / p.content_id / "cast"
-                cast_dir.mkdir(parents=True, exist_ok=True)
-                ref_copy = cast_dir / f"hero{ref.suffix}"
-                shutil.copyfile(ref, ref_copy)
-                hero = CharacterRef(
-                    kind="content",
-                    name=a.hero_name or a.topic,
-                    appearance=a.hero_look,
-                    references=(str(ref_copy),),
-                )
-                prod.set_cast(p.content_id, Cast(hero=hero).to_json(), cfg.settings.preset)
+                if a.hero_source:  # 참조 그림 출처를 마지막 장에(기사 이미지는 출처 표기 조건)
+                    c0 = ctx.repo.get_content(p.content_id)
+                    deck = c0.generated.deck
+                    last = deck.slides[-1]
+                    if last.kind == "outro" and a.hero_source not in last.sources:
+                        new_last = last.model_copy(
+                            update={"sources": [*last.sources, a.hero_source]}
+                        )
+                        g = c0.generated.model_copy(
+                            update={
+                                "deck": deck.model_copy(
+                                    update={"slides": [*deck.slides[:-1], new_last]}
+                                )
+                            }
+                        )
+                        ctx.repo.update_generated(p.content_id, g)
                 enqueue_production(ctx, p.content_id)
                 for _ in range(4):
                     rr = run_images(ctx, max_jobs=2)
