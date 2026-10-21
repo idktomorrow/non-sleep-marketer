@@ -675,6 +675,7 @@ def create_app(state: AppState) -> FastAPI:
         "naver": "naver",
         "upload": "upload",
         "trends": "google_trends",
+        "gnews": "google_news",
     }
 
     @app.get("/materials", response_class=HTMLResponse)

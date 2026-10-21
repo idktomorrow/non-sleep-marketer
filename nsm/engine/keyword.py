@@ -52,11 +52,11 @@ def clean_keyword(raw: str) -> str:
 
 
 def keyword_sources(ctx: JobContext) -> list:
-    """검색어로 찾을 수 있는 소스만(구글 트렌드·올린 파일은 검색어를 받지 않는다)."""
+    """검색어로 찾을 수 있는 소스만(구글 트렌드·올린 파일은 검색어를 받지 않는다). 구글 뉴스는 된다(C30)."""
     out = []
     for s in ctx.sources:
         name = str(getattr(s, "name", ""))
-        if name == "naver" or name.startswith("community:"):
+        if name in ("naver", "google_news") or name.startswith("community:"):
             out.append(s)
     return out
 
@@ -80,7 +80,7 @@ def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
         return result
     sources = keyword_sources(ctx)
     if not sources:
-        result.skipped = "키워드로 찾을 소스가 없음(설정의 네이버 수집이 꺼져 있음)"
+        result.skipped = "키워드로 찾을 소스가 없음(설정의 네이버·구글 뉴스 수집이 꺼져 있음)"
         return result
 
     hashes = _search(ctx, sources, keyword, result)

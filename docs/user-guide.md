@@ -104,6 +104,7 @@ uv run nsm doctor
 | `quotas` | 인스타 1, 스레드 2 | 플랫폼별 하루 최대 게시 수 |
 | `daily_cost_cap_usd` | `3.0` | 하루 API 비용 상한(달러). 넘으면 생성을 멈추고 알림 |
 | `protect_count` | `20` | 보호 모드: 사람이 승인해야 하는 첫 콘텐츠 수 |
+| `collect.google_news` | `true` | 구글 뉴스 RSS로 관심 주제의 최신 기사를 모음(0원). 네이버가 안 잡는 매체를 보완. 마음에 안 들면 `false`(ADR 0050) |
 | `classifier` | `auto` | Gemini 키가 있으면 Gemini(무료 구간), 없으면 Claude, 둘 다 없으면 낱말 규칙. `gemini`·`claude`·`keyword`로 고정 가능. 고른 것이 실패하면 다음으로 넘어가며 알림(ADR 0048) |
 | `models.gemini` | `gemini-3.5-flash-lite` | 분류에 쓰는 Gemini 모델 |
 | `image_generation` | `off` | AI 배경 이미지(유료). `off`: 만들지 않고 코드로 그린 배경만(사진은 검토 화면에서 직접 올림). `auto`: OpenAI 키가 있으면 만듦. `on`: 항상 만듦(키가 없으면 경고 후 코드 배경). `nsm init`에서 OpenAI 키를 새로 넣으면 켤지 물어봄 (ADR 0036) |

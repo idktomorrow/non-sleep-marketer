@@ -57,6 +57,7 @@ CARD_LOOK_FIELDS = (
 class CollectSettings(_Model):
     naver: bool = True
     google_trends: bool = True
+    google_news: bool = True  # 구글 뉴스 RSS 검색(주제별 최신 기사, C30 ADR 0050). 끄면 롤백과 같다
     community: bool = False
     community_urls: list[str] = Field(default_factory=list)  # {query} 자리표시자 포함 검색 URL
     upload_dir: str | None = None  # 기본: <NSM_HOME>/uploads
