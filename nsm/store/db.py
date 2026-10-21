@@ -45,13 +45,16 @@ def from_db(dt: datetime | None) -> datetime | None:
 
 
 class Database:
-    def __init__(self, path: str | Path = ":memory:") -> None:
+    def __init__(self, path: str | Path = ":memory:", apply_schema: bool = True) -> None:
+        """apply_schema=False: 작업 공간 스키마(contents·publications…)를 만들지 않는 연결(전역 비용 원장처럼
+        자기 표만 두는 DB, S13). 그 DB는 switch()하지 않는다."""
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = duckdb.connect(self.path)
         self._lock = threading.RLock()
-        self._apply_schema()
+        if apply_schema:
+            self._apply_schema()
 
     def _apply_schema(self, conn: duckdb.DuckDBPyConnection | None = None) -> None:
         sql = resources.files("nsm.store").joinpath("schema.sql").read_text(encoding="utf-8")

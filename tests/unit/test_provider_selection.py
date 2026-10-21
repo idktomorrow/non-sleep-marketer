@@ -64,6 +64,25 @@ def test_image_studio_only_with_openai_key(app_config, tmp_path) -> None:
     assert studio is not None and studio.default_quality == "medium"
 
 
+def test_apply_adapters_closes_previous_resources(app_config, db, clock) -> None:
+    from contextlib import ExitStack
+
+    from nsm.store.repo import Repository
+
+    ctx = JobContext(
+        config=app_config, repo=Repository(db, clock), clock=clock, notifier=FakeNotifier()
+    )
+    closed: list[str] = []
+    first, second = ExitStack(), ExitStack()
+    first.callback(lambda: closed.append("first"))
+    second.callback(lambda: closed.append("second"))
+    ctx.apply_adapters(Adapters(resources=first))
+    ctx.apply_adapters(Adapters(resources=second))
+    assert closed == ["first"]  # 이전 묶음의 드라이버만 닫힌다
+    ctx.close_adapters()
+    assert closed == ["first", "second"]
+
+
 def test_snapshot_keeps_running_job_isolated_from_refresh(app_config, db, clock) -> None:
     from nsm.store.repo import Repository
 

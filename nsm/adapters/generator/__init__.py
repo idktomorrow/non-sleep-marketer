@@ -23,9 +23,7 @@ NO_KEY_HINT = "설정 → AI 공급자·키에서 등록하거나 `nsm init`"
 
 def choose_text_provider(cfg: AppConfig, secrets: SecretStore) -> tuple[str | None, str]:
     """(공급자 이름 | None, 이유). 공급자를 못 고르면 이유를 사람이 읽을 말로."""
-    pref = getattr(
-        getattr(cfg, "settings", None), "text_provider", "auto"
-    )  # 테스트는 빈 설정을 넘기기도 한다
+    pref = cfg.settings.text_provider
     has_claude = bool(secrets.get("anthropic_api_key"))
     has_openai = bool(secrets.get("openai_api_key"))
     if pref == "claude":

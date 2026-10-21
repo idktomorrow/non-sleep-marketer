@@ -93,6 +93,23 @@ def test_edits_with_references_is_multipart_and_capped(tmp_path: Path) -> None:
         studio.make(ImageSpec(prompt="x", references=tuple(refs * 9)))
 
 
+def test_missing_reference_does_not_leave_reservation(tmp_path: Path, clock) -> None:
+    ledger = CostLedger(Database(":memory:"), clock, workspace="기본")
+    studio, seen = _studio(lambda r: _ok(), tmp_path, ledger)
+    with pytest.raises(FileNotFoundError):
+        studio.make(ImageSpec(prompt="x", references=(tmp_path / "nope.png",)))
+    assert seen == [] and ledger.count() == 0  # 예약 전에 파일을 읽는다
+
+
+def test_quality_falls_back_to_studio_setting(tmp_path: Path) -> None:
+    import json
+
+    studio, seen = _studio(lambda r: _ok(), tmp_path, FakeCostSink())
+    studio.default_quality = "low"
+    studio.make(ImageSpec(prompt="x"))
+    assert json.loads(seen[0].content)["quality"] == "low"
+
+
 def test_size_rules() -> None:
     assert check_size(1080, 1350) == (1072, 1344)
     with pytest.raises(ValueError):

@@ -102,7 +102,9 @@ class ImageSpec:
     prompt: str
     width: int = 1024
     height: int = 1024
-    quality: Literal["low", "medium", "high"] = "medium"
+    quality: Literal["low", "medium", "high"] | None = (
+        None  # None이면 제작기의 설정값(models.image_quality)
+    )
     transparent: bool = False  # 투명 배경(스티커). png로 받는다
     references: tuple[Path, ...] = ()  # 참조 이미지(캐릭터 외형 유지용). 있으면 편집 엔드포인트
     negative: str = ""  # 제외할 요소(문장으로 프롬프트 끝에 붙는다)

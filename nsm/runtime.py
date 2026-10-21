@@ -93,9 +93,11 @@ def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
 
 
 def make_adapters(
-    cfg: AppConfig, secrets: SecretStore, repo: Repository, stack: ExitStack, cost_sink=None
+    cfg: AppConfig, secrets: SecretStore, repo: Repository, cost_sink=None
 ) -> Adapters:
-    """키·공급자·모델 설정으로 어댑터 묶음을 만든다(S13). 설정이나 키가 바뀌면 묶음을 통째로 새로 만든다."""
+    """키·공급자·모델 설정으로 어댑터 묶음을 만든다(S13). 설정이나 키가 바뀌면 묶음을 통째로 새로 만든다.
+    묶음이 연 자원(브라우저 드라이버)은 `bundle.resources`(ExitStack)가 쥐고, 다음 묶음을 적용할 때 닫힌다."""
+    stack = ExitStack()
     from nsm.adapters.classifier import make_classifiers
     from nsm.adapters.generator import (
         make_image_generator,
@@ -135,6 +137,7 @@ def make_adapters(
         image_studio=make_image_studio(cfg, secrets, sink, paths.media_dir()),
         platforms=make_platform_adapters(cfg, clock),
         read_image=read_image,
+        resources=stack,
     )
     return bundle, classifiers  # type: ignore[return-value]
 
@@ -155,9 +158,10 @@ def _adapter_settings(cfg: AppConfig) -> tuple:
     )
 
 
-def refresh_adapters(ctx: JobContext, secrets: SecretStore, stack: ExitStack) -> None:
-    """키나 공급자 설정이 바뀐 뒤: 새 묶음을 만들어 한 번에 바꾼다. 진행 중인 잡은 영향 없고 다음 잡부터."""
-    bundle, classifiers = make_adapters(ctx.config, secrets, ctx.repo, stack, ctx.cost_ledger)
+def refresh_adapters(ctx: JobContext, secrets: SecretStore) -> None:
+    """키나 공급자 설정이 바뀐 뒤: 새 묶음을 만들어 한 번에 바꾼다. 진행 중인 잡은 영향 없고 다음 잡부터.
+    이전 묶음의 브라우저 드라이버는 apply_adapters가 닫는다."""
+    bundle, classifiers = make_adapters(ctx.config, secrets, ctx.repo, ctx.cost_ledger)
     classifiers.set_on_switch(
         lambda a, b, e: ctx.notifier.notify(
             "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
@@ -174,18 +178,19 @@ def refresh_adapters(ctx: JobContext, secrets: SecretStore, stack: ExitStack) ->
     )
 
 
-def make_cost_ledger(repo: Repository, cfg: AppConfig) -> CostLedger:
-    """전역 비용 원장(S13): <NSM_HOME>/costs.duckdb. 비어 있으면 지금 작업 공간 DB의 costs를 한 번 옮긴다."""
-    ledger_db = Database(paths.costs_db_path())
+def make_cost_ledger(repo: Repository, workspace: str = "기본") -> CostLedger:
+    """전역 비용 원장(S13): <NSM_HOME>/costs.duckdb(원장 표만, 작업 공간 스키마는 적용하지 않음).
+    비어 있으면 지금 작업 공간 DB의 costs를 한 번 옮긴다. 작업 공간 이름은 build_context가 ctx에 묶어 준다."""
+    ledger_db = Database(paths.costs_db_path(), apply_schema=False)
     ledger = CostLedger(
         ledger_db,
         repo.clock,
-        workspace=lambda: cfg.settings.preset,
+        workspace=workspace,
         mirror=repo.record_cost,  # 작업 공간 DB의 costs 표에도 사본(그 공간의 지출 표시용)
     )
     if ledger.count() == 0:
         rows = repo.db.execute("SELECT kind, provider, usd, occurred_at, ref FROM costs")
-        n = ledger.import_legacy([tuple(r) for r in rows], cfg.settings.preset)
+        n = ledger.import_legacy([tuple(r) for r in rows], workspace)
         if n:
             log.info("비용 원장에 예전 기록 %d건을 옮김", n)
     return ledger
@@ -202,8 +207,8 @@ def build_context(
     secrets = secrets or KeyringSecretStore()
     clock = SystemClock()
     repo = Repository(db, clock)
-    ledger = cost_ledger or make_cost_ledger(repo, cfg)
-    bundle, classifiers = make_adapters(cfg, secrets, repo, stack, ledger)
+    ledger = cost_ledger or make_cost_ledger(repo, cfg.settings.preset)
+    bundle, classifiers = make_adapters(cfg, secrets, repo, ledger)
     from nsm.render import get_renderer
 
     ctx = JobContext(
@@ -218,6 +223,11 @@ def build_context(
         backups_dir=paths.backups_dir(),
     )
     ctx.apply_adapters(bundle)
+    stack.callback(ctx.close_adapters)  # 호출자의 스택을 닫으면 지금 묶음의 드라이버도 닫힌다
+    if cost_ledger is None:
+        ledger.set_workspace(
+            lambda: ctx.config.settings.preset
+        )  # 프리셋 전환 뒤에도 지금 작업 공간으로 기록
     # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
     classifiers.set_on_switch(
         lambda a, b, e: ctx.notifier.notify(
@@ -365,7 +375,7 @@ def run_forever() -> None:
 
         def refresh() -> None:
             # 어댑터 묶음은 작업 스레드에서 새로 만든다(브라우저 드라이버·네트워크 자원은 거기서만)
-            scheduler.submit(lambda: refresh_adapters(ctx, secrets, drivers))
+            scheduler.submit(lambda: refresh_adapters(ctx, secrets))
 
         def set_config(new: AppConfig) -> None:
             save_config(new)

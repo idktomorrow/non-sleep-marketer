@@ -201,7 +201,10 @@ class OpenAIImageReader(ClaudeImageReader):
         try:
             out = self.client.post_json("responses", body, timeout=60.0)
         except OpenAIError as e:
-            raise AdapterError(str(e)) from None
+            if e.permanent:  # 키·정책·요청 형식: 이 파일은 다시 보내도 같다(.err로 남긴다)
+                raise AdapterError(str(e)) from None
+            # 한도·과부하·연결·응답 없음: 다음 수집 때 다시 읽는다(.err로 남기지 않음, Claude 경로와 같은 규칙)
+            raise RuntimeError(str(e)) from None
         usage = out.get("usage") or {}
         if self.cost_sink and usage:
             self.cost_sink.record_cost(

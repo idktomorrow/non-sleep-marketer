@@ -80,6 +80,11 @@ def install_keys_routes(
         if name not in KEYS:
             raise HTTPException(status_code=400, detail="알 수 없는 키 이름")
         state.secrets.delete(name)
+        if state.secrets.get(name):
+            # keyring에서는 지웠지만 환경 변수로 들어온 키가 남아 있다: 지웠다고 말하지 않는다(S13 리뷰)
+            return _redirect(
+                error="환경 변수로 넣은 키는 여기서 지울 수 없습니다(환경 변수를 지우고 다시 켜세요)"
+            )
         if state.on_secrets_changed:
             state.on_secrets_changed()
         log.info("API 키 삭제: %s", name)

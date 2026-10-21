@@ -59,6 +59,27 @@ def test_register_then_delete(env) -> None:
     assert env["changed"] == [1, 1]
 
 
+def test_env_key_cannot_be_deleted(env, monkeypatch) -> None:
+    class EnvBacked:
+        """keyring에는 없지만 환경 변수로 들어온 키처럼 동작"""
+
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def get(self, k):
+            return KEY if k == "openai_api_key" else None
+
+        def set(self, k, v):
+            pass
+
+        def delete(self, k):
+            self.deleted.append(k)
+
+    env["state"].secrets = EnvBacked()
+    r = _post(env, "/settings/keys/openai_api_key/delete")
+    assert "key_error" in r.headers["location"] and env["changed"] == []
+
+
 def test_rejects_bad_input_and_unknown_key(env) -> None:
     r = _post(env, "/settings/keys/openai_api_key", value="short")
     assert "key_error" in r.headers["location"] and env["secrets"].get("openai_api_key") is None

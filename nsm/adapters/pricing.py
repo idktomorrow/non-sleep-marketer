@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # 모델 → (입력 $/1M 토큰, 출력 $/1M 토큰)
@@ -63,14 +64,13 @@ def claude_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     return (input_tokens * pin + output_tokens * pout) / 1_000_000
 
 
+_SNAPSHOT = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
 def _base_model(model: str) -> str:
-    """스냅샷 이름(gpt-6.1-sol-2026-09-08)을 가격표 키로 맞춘다."""
-    if model in OPENAI_TEXT_PRICES or model in IMAGE_TOKEN_RATES:
-        return model
-    for key in sorted([*OPENAI_TEXT_PRICES, *IMAGE_TOKEN_RATES], key=len, reverse=True):
-        if model.startswith(key):
-            return key
-    return model
+    """스냅샷 이름(gpt-6.1-sol-2026-09-08)의 날짜 꼬리만 떼어 가격표 키로 맞춘다.
+    앞글자만 같은 모르는 모델(gpt-5.7, gpt-image-2-pro)은 그대로 두어 가장 비싼 값으로 잡힌다."""
+    return _SNAPSHOT.sub("", model)
 
 
 def openai_text_cost(model: str, input_tokens: int, output_tokens: int) -> float:

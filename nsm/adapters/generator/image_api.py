@@ -161,12 +161,13 @@ class OpenAIImageStudio:
         }
         if spec.transparent:
             fields["background"] = "transparent"
+        # 참조 파일은 예약 전에 읽는다: 없는 파일로 예약만 남아 상한을 잡아먹지 않게(S13 리뷰)
+        files = [("image[]", (p.name, p.read_bytes(), _mime(p))) for p in spec.references]
         ledger = self.cost_sink if isinstance(self.cost_sink, CostLedger) else None
         estimate = IMAGE_PRICE_ESTIMATE.get(quality, IMAGE_PRICE_ESTIMATE["medium"])
         rid = ledger.reserve("image", "openai", estimate, spec.ref, self.model) if ledger else ""
         try:
-            if spec.references:
-                files = [("image[]", (p.name, p.read_bytes(), _mime(p))) for p in spec.references]
+            if files:
                 out = self.client.post_multipart(
                     "images/edits",
                     {k: str(v) for k, v in fields.items()},

@@ -108,7 +108,10 @@ def test_photo_use_sets_cover_and_outro_background_and_resets_render_check(env) 
     r = _post(env, "/picks/pk1/photo/use")
     assert r.status_code == 303
     deck = repo.get_content("pk1").generated.deck
-    assert deck.slides[0].background and deck.slides[0].background == deck.slides[-1].background
+    # 표지·마지막 장은 같은 사진을 **다른 파일**로 받는다(한 장의 배경을 지워도 다른 장이 깨지지 않게, S13 리뷰)
+    cover_bg, outro_bg = deck.slides[0].background, deck.slides[-1].background
+    assert cover_bg and outro_bg and cover_bg != outro_bg
+    assert Path(cover_bg).read_bytes() == Path(outro_bg).read_bytes()
     assert Path(deck.slides[0].background).is_file() and not deck.labels.ai_generated_image
     assert store.get("pk1").photo_status == "applied" and store.get("pk1").render_checked_at is None
     assert _post(env, "/picks/pk1/photo/use").status_code == 409  # 후보는 한 번만

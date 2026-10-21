@@ -48,6 +48,25 @@ def test_unknown_keeps_reservation_until_released(clock) -> None:
     assert ledger.spent_between(*_day(clock)) == 0
 
 
+def test_unknown_model_prices_conservatively() -> None:
+    from nsm.adapters.pricing import image_cost_from_usage, openai_text_cost
+
+    assert openai_text_cost("gpt-6.1-sol-2026-09-08", 1_000_000, 0) == 2.0  # 스냅샷 꼬리만 뗀다
+    assert openai_text_cost("gpt-5.7", 1_000_000, 0) == 10.0  # 모르는 모델은 가장 비싼 값
+    usage = {
+        "input_tokens_details": {"image_tokens": 0, "text_tokens": 0},
+        "output_tokens": 1_000_000,
+    }
+    assert image_cost_from_usage("gpt-image-2-pro", usage, "medium")[0] == 32.0
+
+
+def test_workspace_getter_can_change(clock) -> None:
+    ledger = CostLedger(Database(":memory:"), clock, workspace="기본")
+    ledger.set_workspace(lambda: "치이카와")
+    ledger.record_cost("llm", "openai", 0.1)
+    assert ledger.db.execute("SELECT workspace FROM cost_ledger")[0][0] == "치이카와"
+
+
 def test_mirror_and_legacy_import(db, clock) -> None:
     repo = Repository(db, clock)
     repo.record_cost("llm", "anthropic", 0.3, "old")

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -48,6 +49,7 @@ class Adapters:
     image_studio: ImageStudio | None = None
     platforms: dict[Platform, PlatformAdapter] = field(default_factory=dict)
     read_image: Any = None  # 올린 이미지 → 글(없으면 None)
+    resources: Any = None  # 이 묶음이 연 자원(브라우저 드라이버 등)을 닫는 ExitStack. 묶음을 바꿀 때 이전 것을 닫는다
 
 
 @dataclass
@@ -83,8 +85,11 @@ class JobContext:
 
     # ------------------------------------------------------------ 어댑터 묶음(S13)
     def apply_adapters(self, bundle: Adapters) -> None:
-        """새 묶음으로 교체한다. 진행 중인 잡은 자기 스냅샷을 그대로 쓰고, 다음 잡부터 새 묶음을 본다."""
+        """새 묶음으로 교체한다. 진행 중인 잡은 자기 스냅샷을 그대로 쓰고, 다음 잡부터 새 묶음을 본다.
+        이전 묶음이 연 자원(브라우저 드라이버)은 여기서 닫는다(갱신할 때마다 브라우저가 늘지 않게)."""
         with self.lock:
+            old = getattr(self, "_resources", None)
+            self._resources = bundle.resources
             self.sources = list(bundle.sources)
             self.relevance_classifier = bundle.relevance_classifier
             self.topic_classifier = bundle.topic_classifier
@@ -95,6 +100,18 @@ class JobContext:
             self.image_generator = bundle.image_generator
             self.image_studio = bundle.image_studio
             self.adapters = dict(bundle.platforms)
+        if old is not None and old is not bundle.resources:
+            try:
+                old.close()
+            except Exception:  # noqa: BLE001  닫기 실패가 새 묶음 적용을 막지 않게
+                logging.getLogger(__name__).exception("이전 어댑터 자원 닫기 실패")
+
+    def close_adapters(self) -> None:
+        """지금 묶음의 자원을 닫는다(종료 때, 작업 스레드에서)."""
+        with self.lock:
+            res, self._resources = getattr(self, "_resources", None), None
+        if res is not None:
+            res.close()
 
     def snapshot(self) -> JobContext:
         """잡 하나가 끝까지 쓸 고정 컨텍스트: 지금 설정과 어댑터 묶음의 얕은 복사. repo·clock·renderer는 공유."""

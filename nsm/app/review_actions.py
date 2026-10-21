@@ -160,11 +160,15 @@ class ReviewActions:
             raise ActionError(409, "쓸 수 있는 사진 후보가 없습니다")
         out = upload_dir(media_dir, cid)
         out.mkdir(parents=True, exist_ok=True)
+        # 표지와 마지막 장에 **각각 다른 파일**로 복사한다: 한 장의 배경을 지우면 올린 파일을 지우므로(drop_old_upload),
+        # 같은 파일을 두 장이 가리키면 다른 장의 배경이 사라진다(S13 리뷰)
         dest = out / f"slide-01-{secrets.token_hex(4)}{src.suffix}"
         shutil.copyfile(src, dest)
         g = set_background(c.generated, 0, str(dest), media_dir)
         last = len(g.deck.slides) - 1
-        g = set_background(g, last, str(dest), media_dir)
+        dest_last = out / f"slide-{last + 1:02d}-{secrets.token_hex(4)}{src.suffix}"
+        shutil.copyfile(src, dest_last)
+        g = set_background(g, last, str(dest_last), media_dir)
         try:
             self.repo.update_generated(cid, g)
         except InvalidTransitionError as e:

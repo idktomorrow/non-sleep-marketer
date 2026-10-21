@@ -62,6 +62,10 @@ class CostLedger:
     def workspace(self) -> str:
         return self._workspace() if callable(self._workspace) else self._workspace
 
+    def set_workspace(self, getter: Callable[[], str] | str) -> None:
+        """작업 공간 이름을 매번 읽을 함수로 바꾼다(프리셋 전환 뒤에도 지금 공간으로 기록)."""
+        self._workspace = getter
+
     def _now(self) -> datetime:
         return to_db(self.clock.now())  # type: ignore[return-value]
 
