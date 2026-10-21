@@ -277,6 +277,39 @@ class FakeScenarioWriter:
         return script
 
 
+class FakeImageStudio:
+    """ImageStudio 가짜(S15). fail={target: 예외} 로 대상별 실패, on_make(spec)로 호출 중 상태 바꾸기."""
+
+    def __init__(self, out_dir: Path, fail: dict | None = None, on_make=None) -> None:
+        self.out_dir = out_dir
+        self.fail = dict(fail or {})
+        self.on_make = on_make
+        self.specs: list = []
+
+    def make(self, spec):
+        from nsm.ports import ImageResult
+
+        self.specs.append(spec)
+        for r in spec.references:
+            Path(r).read_bytes()  # 없는 참조는 실제 제작기처럼 FileNotFoundError
+        target = spec.ref.split(":", 1)[-1]
+        if self.on_make:
+            self.on_make(spec)
+        err = self.fail.pop(target, None)
+        if err is not None:
+            raise err
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        path = self.out_dir / f"gen-{len(self.specs)}.png"
+        path.write_bytes(_ONE_PX_PNG + str(len(self.specs)).encode())
+        return ImageResult(
+            path=path,
+            model="fake-image",
+            usd=0.05,
+            cost_status="estimated",
+            request_id=f"req{len(self.specs)}",
+        )
+
+
 class NullImageGenerator:
     def generate_background(self, prompt: str, width: int, height: int) -> Path | None:
         return None

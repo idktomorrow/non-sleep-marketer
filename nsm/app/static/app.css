@@ -251,3 +251,19 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
   .field-row { grid-template-columns: 1fr; }
   .style-options { grid-template-columns: 1fr; }
 }
+
+/* 그림 제작·캐릭터(S15) */
+.prod-row { display: flex; gap: 14px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line, #e5e7eb); }
+.prod-thumb { width: 132px; flex-shrink: 0; }
+.prod-thumb img { width: 132px; height: 88px; object-fit: cover; border-radius: 8px; background: #f3f4f6; }
+.prod-others { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.thumb-btn { padding: 0; border: 1px solid var(--line, #e5e7eb); border-radius: 6px; background: none; cursor: pointer; }
+.thumb-btn img { width: 56px; height: 40px; object-fit: cover; border-radius: 6px; display: block; }
+.scene-form { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.scene-form textarea { flex: 1; min-width: 0; }
+.cast-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+@media (max-width: 640px) {
+  .prod-row { flex-direction: column; }
+  .prod-thumb, .prod-thumb img { width: 100%; height: auto; }
+  .scene-form { flex-direction: column; }
+}

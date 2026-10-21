@@ -251,12 +251,24 @@ def build_context(
 
 
 def recover_stale_slots(ctx: JobContext) -> None:
-    """재시작 복구(S14): 쓰는 중·제작 중에서 오래 멈춘 추천 슬롯을 다음 단계 시작점으로 되돌린다."""
+    """재시작 복구(S14·S15): 멈춘 추천 슬롯과 그림 작업, 예전 승인 원고의 산출물."""
+    from nsm.engine.artifacts import migrate_approved
+    from nsm.engine.production import recover_image_jobs
     from nsm.store.slots import SlotStore
 
     n = SlotStore(ctx.repo.db, ctx.clock).recover_stale(ctx.clock.now())
     if n:
         log.info("중단된 추천 슬롯 %d개를 되돌림", n)
+    queued, unknown = recover_image_jobs(ctx)
+    if queued or unknown:
+        log.info("그림 작업 복구: 다시 대기 %d, 응답 불명 %d", queued, unknown)
+    if unknown:
+        ctx.notifier.notify(
+            "그림 응답 불명",
+            f"보낸 뒤 결과를 못 받은 그림 요청 {unknown}건이 있습니다. 검토 화면에서 다시 요청하거나 정리하세요",
+            "warn",
+        )
+    migrate_approved(ctx)
 
 
 def _current_read_image(ctx: JobContext):

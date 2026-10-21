@@ -127,7 +127,11 @@ def test_photo_drop_then_queue_creates_publications_in_one_step(env) -> None:
     store, repo = env["store"], env["repo"]
     assert _post(env, "/picks/pk1/photo/drop").status_code == 303
     assert store.get("pk1").photo_status == "dropped"
+    # 미리보기를 안 봤으면 승인하지 않고 새로 그려 보여 준다(S15: 승인 = 본 판을 굳히기)
     r = _post(env, "/picks/pk1/queue")
+    assert r.status_code == 303 and "approve_blocked" in r.headers["location"]
+    assert repo.get_content("pk1").status == "pending_review"
+    r = _post(env, "/picks/pk1/queue")  # 방금 그린 미리보기를 보고 다시 누름
     assert r.status_code == 303 and r.headers["location"] == "/queue"
     assert repo.get_content("pk1").status == "approved"
     assert {p.platform for p in repo.publications_for_content("pk1")} == {"instagram", "threads"}
@@ -140,6 +144,7 @@ def test_photo_drop_then_queue_creates_publications_in_one_step(env) -> None:
 
 def test_review_approve_route_also_creates_publications_for_picks(env) -> None:
     repo, store = env["repo"], env["store"]
+    assert _post(env, "/review/pk1/preview").status_code == 303  # 미리보기를 보고
     assert _post(env, "/review/pk1/approve").status_code == 303
     assert repo.get_content("pk1").status == "approved"
     assert len(repo.publications_for_content("pk1")) == 2 and store.get("pk1").state == "queued"

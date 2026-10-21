@@ -23,6 +23,7 @@ from nsm.domain.policy import (
     should_post,
 )
 from nsm.domain.quality import card_sources, sources_line
+from nsm.engine.artifacts import ArtifactMissing
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
 from nsm.store.repo import InvalidTransitionError
@@ -34,10 +35,26 @@ PLATFORM_NAMES = {"instagram": "인스타그램", "threads": "스레드", "naver
 PAUSED_KEY = "paused_platforms"  # health 잡이 로그인 만료 플랫폼을 적는다
 
 
+def ai_slides_from_assets(deck) -> list[int]:
+    """장별 AI 표기(S14·S15): 그 장의 그림 자산(스티커·만화 컷)의 출처로 정한다. 장 순서가 바뀌어도 자산 기준."""
+    out = []
+    for i, s in enumerate(deck.slides):
+        assets = [getattr(s, "sticker", None)]
+        if s.kind == "comic":
+            assets += [p.image for p in s.panels]
+        if any(a is not None and a.ai for a in assets):
+            out.append(i)
+    return out
+
+
 def labeled_deck(content: Content):
-    """렌더용 덱: 표기를 채우고, 마무리 장 출처는 긴 주소 대신 사이트 이름으로 보인다."""
+    """렌더용 덱: 표기를 채우고, 마무리 장 출처는 긴 주소 대신 사이트 이름으로 보인다.
+    ai_slides가 있는(새) 덱은 장별 AI 표기를 자산에서 다시 계산한다(None이면 레거시 규칙 그대로)."""
     deck = content.generated.deck
-    labels = deck.labels.model_copy(update={"virtual_person": True, "ad": content.is_ad})
+    update = {"virtual_person": True, "ad": content.is_ad}
+    if deck.labels.ai_slides is not None:
+        update["ai_slides"] = ai_slides_from_assets(deck)
+    labels = deck.labels.model_copy(update=update)
     slides = [
         s.model_copy(update={"sources": card_sources(list(s.sources))}) if s.kind == "outro" else s
         for s in deck.slides
@@ -50,6 +67,22 @@ class CardOverflowError(Exception):
 
 
 def render_images(ctx: JobContext, content: Content) -> list[Path]:
+    """게시할 카드(S15): 승인 산출물이 있으면 그것만 쓴다(다시 그리지 않음). 판이 다르거나 깨졌으면 ArtifactMissing.
+    산출물이 없으면(정책 자동 승인·예전 원고) 한 번 그린 뒤 그 판의 산출물로 굳혀 플랫폼·재시도가 같은 PNG를 쓴다."""
+    from nsm.engine.artifacts import artifact_pngs, files_sha, freeze
+    from nsm.store.production import ProductionStore
+
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    revision = ctx.repo.content_revision(content.id)
+    frozen = artifact_pngs(prod, content, revision)
+    if frozen is not None:
+        return frozen
+    paths = _render_cached(ctx, content)
+    freeze(prod, ctx.media_dir, content, revision, paths, files_sha(paths), None, "policy")
+    return artifact_pngs(prod, content, revision) or paths
+
+
+def _render_cached(ctx: JobContext, content: Content) -> list[Path]:
     """콘텐츠당 한 번만 렌더하고 플랫폼끼리 같은 PNG를 쓴다."""
     out = ctx.media_dir / "cards" / content.id
     deck = labeled_deck(content)
@@ -99,9 +132,13 @@ def _sources_tail(content: Content) -> str:
     return f"\n\n{line}" if line else ""
 
 
-def build_post(content: Content, platform: Platform, images: list[Path]) -> RenderedPost:
+def build_post(
+    content: Content, platform: Platform, images: list[Path], frozen: dict | None = None
+) -> RenderedPost:
     g = content.generated
-    body = getattr(g, _TEXT_FIELD[platform])
+    key = {"instagram": "instagram", "threads": "threads", "naver_blog": "blog_markdown"}[platform]
+    # 승인 산출물에 굳힌 캡션이 있으면 그것(검토한 판 = 게시하는 판, S15)
+    body = frozen[key] if frozen and key in frozen else getattr(g, _TEXT_FIELD[platform])
     return RenderedPost(
         content_id=content.id,
         platform=platform,
@@ -220,6 +257,14 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     attempts = pub.attempts + 1
     try:
         images = render_images(ctx, content)
+    except ArtifactMissing as e:
+        # 승인한 판과 다르거나 파일이 사라졌다: 다시 그려 올리지 않고 사람에게(S15)
+        msg = f"{e}. 검토 화면에서 미리보기를 확인하고 다시 승인해 주세요"
+        result.errors.append(f"{pub.platform}: {msg}")
+        ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
+        _back_to_review(ctx, content.id, msg)
+        ctx.notifier.notify("승인 산출물 없음", msg, "warn")
+        return "failed"
     except CardOverflowError as e:
         # 재시도해도 같은 결과다: 바로 사람에게(문구를 줄여 고친 뒤 다시 승인)
         msg = f"{e}. 검토 화면에서 문구를 줄여 주세요"
@@ -238,7 +283,11 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
         return "failed"
     try:
-        res = adapter.publish(build_post(content, pub.platform, images))
+        from nsm.engine.artifacts import captions
+        from nsm.store.production import ProductionStore
+
+        frozen = captions(ProductionStore(ctx.repo.db, ctx.clock), content.id)
+        res = adapter.publish(build_post(content, pub.platform, images, frozen))
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")

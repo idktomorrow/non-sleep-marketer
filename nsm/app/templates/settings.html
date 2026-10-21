@@ -164,6 +164,40 @@
 <div class="actionbar settings-bar"><span class="muted small grow">시간 형식: 09:00-12:00, 18:00-23:00 (쉼표로 여러 구간)</span><button class="btn-primary">저장</button></div>
 </form>
 
+<h2 id="characters">캐릭터 <span class="hint">이 작업 공간의 캐릭터: 외형 설명과 참조 이미지로 만화 컷·보조 스티커를 같은 모습으로 그립니다. 상품 사진과 따로 보관</span></h2>
+<div class="panel">
+  {% if char_msg %}<div class="notice info">{{ char_msg }}</div>{% endif %}
+  {% if char_error %}<div class="notice bad">{{ char_error }}</div>{% endif %}
+  {% for p in char_profiles %}
+  <div class="prod-row">
+    <div class="prod-thumb">{% if p.references %}<img src="/characters/{{ p.id }}/refs/{{ p.references[0].split('/')[-1].split('\\')[-1] }}" alt="{{ p.name }}">{% else %}<span class="muted small">참조 없음</span>{% endif %}</div>
+    <div class="grow"><b>{{ p.name }}</b>{% if p.id == cfg.workspace.hero_default %} <span class="badge on">기본 주인공</span>{% endif %}{% if p.id == cfg.workspace.sidekick_default %} <span class="badge on">기본 보조</span>{% endif %} <span class="muted small">참조 {{ p.references|length }}장 · 판 {{ p.revision }}{% if p.ai_made %} · AI로 만든 참조 포함{% endif %}</span>
+      <p class="small" style="margin:4px 0">{{ p.appearance or '외형 설명 없음' }}</p>
+      <div class="actions small">
+        {% for r in p.references %}{% set fn = r.split('/')[-1].split('\\')[-1] %}<form class="inline" method="post" action="/settings/characters/{{ p.id }}/refs/{{ fn }}/delete"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="thumb-btn" title="이 참조 지우기"><img src="/characters/{{ p.id }}/refs/{{ fn }}" alt="참조"></button></form>{% endfor %}
+        <form class="inline" method="post" action="/settings/characters/{{ p.id }}/refs" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required><button class="btn-sm">참조 올리기</button></form>
+        <form class="inline" method="post" action="/settings/characters/{{ p.id }}/generate-ref" onsubmit="return confirm('외형 설명으로 참조 그림 한 장을 만들까요? 약 5센트')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">참조 그림 만들기(AI)</button></form>
+        <form class="inline" method="post" action="/settings/characters/{{ p.id }}/delete" onsubmit="return confirm('{{ p.name }} 캐릭터를 지울까요? 이미 만든 원고는 그대로입니다')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost btn-danger">지우기</button></form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <form method="post" action="/settings/characters" class="field-row"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>이름<input type="text" name="name" maxlength="30" required></label>
+    <label>외형(색·비율·옷·특징)<input type="text" name="appearance" maxlength="500" placeholder="하얀 동그란 몸, 분홍 볼, 짧은 팔"></label>
+    <label>성격·말버릇<input type="text" name="personality" maxlength="300"></label>
+    <button class="btn-sm">캐릭터 추가</button>
+  </form>
+  {% if char_profiles %}
+  <form method="post" action="/settings/characters/defaults" class="field-row"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>기본 주인공(만화)<select name="hero"><option value="">설정의 캐릭터 그림 사용</option>{% for p in char_profiles %}<option value="{{ p.id }}" {% if p.id == cfg.workspace.hero_default %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></label>
+    <label>기본 보조 캐릭터(정보 카드 스티커)<select name="sidekick"><option value="">없음</option>{% for p in char_profiles %}<option value="{{ p.id }}" {% if p.id == cfg.workspace.sidekick_default %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></label>
+    <button class="btn-sm">기본 출연진 저장</button>
+  </form>
+  {% endif %}
+  <p class="muted small" style="margin-bottom:0">원고마다 검토 화면에서 출연진을 바꿀 수 있습니다(저장된 다른 캐릭터·이 콘텐츠의 캐릭터·이번만 쓸 참조 업로드). 참조가 없는 캐릭터로는 그림을 만들지 않고 이유를 보여 줍니다.</p>
+</div>
+
 {% if can_keys %}
 <h2 id="ai-keys">API 키 <span class="hint">OS 자격 증명 저장소(keyring)에만 저장. 값은 다시 보여 주지 않습니다</span></h2>
 <div class="panel">

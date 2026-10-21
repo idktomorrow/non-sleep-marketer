@@ -45,6 +45,8 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
         "picks": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
         # 실패한 추천 슬롯 재시도(S14): sleep 대신 재예약 시각(next_attempt_at)을 보고 15분마다
         "slots_retry": IntervalTrigger(minutes=15, jitter=120, timezone=tz),
+        # 그림 제작(S15): 대기 작업을 1분마다 몇 장씩. 작업이 없으면 바로 끝난다
+        "images": IntervalTrigger(minutes=1, jitter=10, timezone=tz),
         "publish": IntervalTrigger(minutes=30, jitter=600, timezone=tz),
         "reply": IntervalTrigger(
             minutes=cfg.settings.reply_interval_minutes, jitter=60, timezone=tz

@@ -31,11 +31,69 @@ class ActionError(Exception):
         self.detail = detail
 
 
+class PreviewNeeded(ActionError):
+    """지금 원고와 같은 미리보기가 없어 승인할 수 없다(S15). 라우트는 새 미리보기를 그리고 다시 승인받는다."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(409, detail)
+
+
+class ApprovalGate:
+    """사람 승인 = 사용자가 본 미리보기 판을 그대로 굳히기(S15, ADR 0059). 렌더러가 있을 때만 쓴다."""
+
+    def __init__(self, prod, media_dir: Path, renderer_version) -> None:
+        self.prod = prod
+        self.media_dir = media_dir
+        self._version = renderer_version  # 렌더러 판(템플릿·스타일·캐릭터)을 돌려주는 함수
+
+    def check(self, repo: Repository, content):
+        from nsm.engine.artifacts import PreviewRequired, current_preview
+        from nsm.engine.publish import labeled_deck
+
+        try:
+            return current_preview(
+                self.prod,
+                content,
+                repo.content_revision(content.id),
+                labeled_deck(content),
+                self._version(),
+            )
+        except PreviewRequired as e:
+            raise PreviewNeeded(f"{e}. 새 미리보기를 확인한 뒤 다시 승인해 주세요") from e
+
+    def freeze(self, repo: Repository, content, manifest) -> int:
+        from nsm.engine.artifacts import freeze
+
+        revision = manifest.revision
+        pngs = sorted(Path(manifest.dir).glob("slide-*.png"))
+        freeze(
+            self.prod,
+            self.media_dir,
+            content,
+            revision,
+            pngs,
+            manifest.files_sha,
+            manifest.id,
+            "human",
+        )
+        return revision
+
+    def rollback(self, cid: str, revision: int) -> None:
+        self.prod.drop_artifact(cid, revision)
+
+
 class ReviewActions:
-    def __init__(self, repo: Repository, picks: PicksStore | None, clock: Clock) -> None:
+    def __init__(
+        self,
+        repo: Repository,
+        picks: PicksStore | None,
+        clock: Clock,
+        gate: ApprovalGate | None = None,
+    ) -> None:
         self.repo = repo
         self.picks = picks
         self.clock = clock
+        self.gate = gate
 
     def _content(self, cid: str):
         c = self.repo.get_content(cid)
@@ -76,18 +134,29 @@ class ReviewActions:
             )
         self._production_gate(cid)
         pick = self._pick(cid)
-        if pick is None:
+        if pick is not None:
+            self._recheck_gate(c.created_at, pick.rechecked_at)
+        # 사람이 본 미리보기 판을 굳힌 뒤에야 승인한다(S15). 승인이 실패하면 굳힌 것을 지운다
+        frozen: int | None = None
+        if self.gate is not None:
+            manifest = self.gate.check(self.repo, c)
+            frozen = self.gate.freeze(self.repo, c, manifest)
+        try:
+            if pick is None:
+                try:
+                    self.repo.transition_content(cid, "approved", approved_by="human")
+                except InvalidTransitionError as e:
+                    raise ActionError(409, str(e)) from e
+                self.repo.requeue_abandoned(cid)
+                return
             try:
-                self.repo.transition_content(cid, "approved", approved_by="human")
+                self.picks.queue(cid, platforms)  # type: ignore[union-attr]
             except InvalidTransitionError as e:
                 raise ActionError(409, str(e)) from e
-            self.repo.requeue_abandoned(cid)
-            return
-        self._recheck_gate(c.created_at, pick.rechecked_at)
-        try:
-            self.picks.queue(cid, platforms)  # type: ignore[union-attr]
-        except InvalidTransitionError as e:
-            raise ActionError(409, str(e)) from e
+        except Exception:
+            if frozen is not None and self.gate is not None:
+                self.gate.rollback(cid, frozen)
+            raise
 
     def _recheck_gate(self, created_at, rechecked_at) -> None:
         if not self.needs_recheck(created_at, rechecked_at, self.clock.now()):

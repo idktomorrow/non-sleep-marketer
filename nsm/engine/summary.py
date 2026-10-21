@@ -156,10 +156,20 @@ def _picks(c: dict[str, Any]) -> list[str]:
     return parts
 
 
+def _images(c: dict[str, Any]) -> list[str]:
+    parts = [f"그림 {_n(c, 'made')}장 만듦" if c.get("made") else "그린 그림 없음"]
+    if c.get("failed"):
+        parts.append(f"실패 {_n(c, 'failed')}")
+    if c.get("reason"):
+        parts.append(str(c["reason"]))
+    return parts
+
+
 _JOBS = {
     "collect": _collect,
     "picks": _picks,
     "slots_retry": _picks,
+    "images": _images,
     "generate": _generate,
     "keyword": _keyword,
     "publish": _publish,

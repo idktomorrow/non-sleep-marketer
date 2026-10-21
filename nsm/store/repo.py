@@ -408,13 +408,20 @@ class Repository:
         """
         changed = self._count(
             self.db.execute(
-                "UPDATE contents SET generated = ?, updated_at = ? "
+                "UPDATE contents SET generated = ?, updated_at = ?, revision = coalesce(revision, 0) + 1 "
                 "WHERE id = ? AND status = 'pending_review'",
                 [generated.model_dump_json(), self._now(), content_id],
             )
         )
         if not changed:
             raise InvalidTransitionError("검토 대기 중인 콘텐츠만 고칠 수 있습니다")
+
+    def content_revision(self, content_id: str) -> int:
+        """원고 판 번호(S15). 고칠 때마다 +1: 미리보기·승인 산출물이 같은 판인지 비교한다."""
+        rows = self.db.execute(
+            "SELECT coalesce(revision, 0) FROM contents WHERE id = ?", [content_id]
+        )
+        return int(rows[0][0]) if rows else -1
 
     def count_contents_between(self, start: datetime, end: datetime) -> int:
         """오늘 만든 원고 수(일일 생성 목표용). 오늘의 추천(picks)으로 만든 원고는 세지 않는다(S11)."""

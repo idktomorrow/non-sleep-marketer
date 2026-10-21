@@ -107,7 +107,7 @@ def test_migration_from_v4_moves_existing_picks_into_slots(tmp_path, clock) -> N
     )
     con.close()
     db = Database(path)
-    assert db.schema_version == 6
+    assert db.schema_version == 7
     s = SlotStore(db, clock)
     rows = s.list_for_date(date(2026, 10, 10))
     assert len(rows) == 1 and rows[0].content_id == "c1" and rows[0].stage == "ready"

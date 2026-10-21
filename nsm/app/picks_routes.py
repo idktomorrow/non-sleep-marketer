@@ -89,6 +89,7 @@ def install_picks_routes(
     act: Callable[[Callable[[], Any]], Any],
     actions: ReviewActions,
     thumbs: Callable[[list], dict[str, str]],
+    approve_or_preview: Callable[[str, str], RedirectResponse],
 ) -> None:
     def tz() -> str:
         return state.get_config().settings.timezone
@@ -193,13 +194,8 @@ def install_picks_routes(
 
     @app.post("/picks/{cid}/queue", dependencies=[Depends(check_csrf)])
     def queue_pick(cid: str) -> RedirectResponse:
-        cfg = state.get_config()
-        _run(
-            lambda: actions.approve(
-                cid, persona=cfg.persona, platforms=list(cfg.settings.enabled_platforms)
-            )
-        )
-        return back("/queue")
+        # 승인 = 본 미리보기 판을 굳히기(S15). 미리보기가 없거나 낡았으면 새로 그려 상세 화면으로
+        return approve_or_preview(cid, "/queue")
 
     @app.post("/picks/{cid}/dismiss", dependencies=[Depends(check_csrf)])
     def dismiss_pick(cid: str) -> RedirectResponse:

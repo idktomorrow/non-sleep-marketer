@@ -172,14 +172,37 @@ def test_restart_recovery_sends_interrupted_to_review(ctx: JobContext) -> None:
 
 
 def test_edited_deck_is_rerendered(ctx: JobContext, db) -> None:
+    """내부 렌더 캐시(_render_cached)는 덱이 바뀌면 다시 그린다."""
+    from nsm.engine.publish import _render_cached
+
+    c = ctx.repo.list_contents()[-1]
+    first = _render_cached(ctx, c)
+    assert _render_cached(ctx, c) == first and len(ctx.renderer.rendered) == 1  # 캐시
+    db.execute("UPDATE contents SET is_ad = TRUE WHERE id = ?", [c.id])
+    _render_cached(ctx, ctx.repo.get_content(c.id))
+    assert len(ctx.renderer.rendered) == 2 and ctx.renderer.rendered[-1].labels.ad is True
+
+
+def test_published_cards_are_frozen_at_first_render_and_revision_checked(
+    ctx: JobContext, db
+) -> None:
+    """S15: 게시 카드는 굳힌 산출물만. 승인 뒤 템플릿·설정이 바뀌어도 같은 PNG, 원고 판이 바뀌면 게시하지 않는다."""
+    from nsm.engine.artifacts import ArtifactMissing
     from nsm.engine.publish import render_images
 
     c = ctx.repo.list_contents()[-1]
+    ctx.renderer.version = "v1"
     first = render_images(ctx, c)
-    assert render_images(ctx, c) == first and len(ctx.renderer.rendered) == 1  # 캐시
-    db.execute("UPDATE contents SET is_ad = TRUE WHERE id = ?", [c.id])
-    render_images(ctx, ctx.repo.get_content(c.id))
-    assert len(ctx.renderer.rendered) == 2 and ctx.renderer.rendered[-1].labels.ad is True
+    assert "approved" in str(first[0]) and (first[0].parent / "captions.json").is_file()
+    ctx.renderer.version = "v2"  # 전역 템플릿이 바뀌어도
+    assert render_images(ctx, c) == first and len(ctx.renderer.rendered) == 1  # 다시 그리지 않는다
+    db.execute("UPDATE contents SET revision = revision + 1 WHERE id = ?", [c.id])
+    with pytest.raises(ArtifactMissing):
+        render_images(ctx, c)
+    db.execute("UPDATE contents SET revision = revision - 1 WHERE id = ?", [c.id])
+    first[0].unlink()  # 산출물이 사라지면 다시 그리지 않고 멈춘다
+    with pytest.raises(ArtifactMissing):
+        render_images(ctx, c)
 
 
 def test_reapproval_requeues_abandoned(ctx: JobContext) -> None:
@@ -245,16 +268,16 @@ def test_overflowing_card_goes_to_review_not_published(ctx: JobContext) -> None:
 
 
 def test_template_change_invalidates_render_cache(ctx: JobContext) -> None:
-    """템플릿(표기 배지 위치 등)이 바뀌면 옛 PNG를 재사용하지 않는다."""
-    from nsm.engine.publish import render_images
+    """내부 렌더 캐시: 템플릿(표기 배지 위치 등)이 바뀌면 옛 PNG를 재사용하지 않는다(굳히기 전 단계)."""
+    from nsm.engine.publish import _render_cached
 
     c = ctx.repo.list_contents()[-1]
     ctx.renderer.version = "v1"
-    render_images(ctx, c)
-    render_images(ctx, c)
+    _render_cached(ctx, c)
+    _render_cached(ctx, c)
     assert len(ctx.renderer.rendered) == 1  # 같은 버전이면 캐시
     ctx.renderer.version = "v2"
-    render_images(ctx, c)
+    _render_cached(ctx, c)
     assert len(ctx.renderer.rendered) == 2
 
 

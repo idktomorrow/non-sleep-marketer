@@ -1,0 +1,546 @@
+"""그림 제작(S15 제안, ADR 0058): 출연진 → 슬롯별 spec → 영속 이미지 작업 → 결과 반영.
+
+- 작업은 호출 **전에** DB에 있다. 한 번 실행에 몇 장만 처리해 작업 스레드(게시·답글)를 오래 막지 않는다.
+- 유효성은 슬롯별 spec 지문: 결과가 왔을 때 그 슬롯의 지금 spec과 같으면 덱에 적용, 다르면(장면·캐릭터가 바뀜) 후보로만.
+- 2번째 컷은 1번째 컷 결과가 확정된 뒤에 그 파일 지문을 참조로 넣어 만든다.
+- 실패는 대체하지 않는다: 참조 없음·키 없음·정책 차단·한도·응답 불명을 그대로 기록하고, 미완성 만화는 게시 준비가 아니다.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+
+from nsm.config.characters import CharacterError, CharacterStore
+from nsm.config.presets import PresetStore
+from nsm.domain.clock import new_id
+from nsm.domain.models import GeneratedContent, ImageAsset
+from nsm.domain.policy import local_day_bounds, under_cost_cap
+from nsm.domain.production import (
+    Cast,
+    CharacterRef,
+    MissingReference,
+    SlotPlan,
+    build_spec,
+    file_sha,
+    image_slots,
+)
+from nsm.engine.context import JobContext, JobResult
+from nsm.ports import AdapterError, ImageRefused, ImageSpec, ImageUnknown
+from nsm.store.production import IN_FLIGHT, ImageJob, ProductionStore
+from nsm.store.slots import SlotStore
+
+log = logging.getLogger(__name__)
+
+MAX_ATTEMPTS = 3
+JOBS_PER_RUN = 3  # 한 번 실행에 그릴 장 수(작업 스레드를 오래 잡지 않게)
+RETRY_IN = timedelta(minutes=10)
+
+
+def characters(cfg) -> CharacterStore:
+    """작업 공간(프리셋)의 캐릭터 폴더."""
+    return CharacterStore(PresetStore().dir(cfg.settings.preset) / "characters")
+
+
+def content_dir(media_dir: Path, cid: str) -> Path:
+    return media_dir / "content" / cid
+
+
+def ref_from_profile(
+    store: CharacterStore, profile_id: str, kind: str, cast_dir: Path
+) -> CharacterRef:
+    """프로필 → 출연 캐릭터. 참조 파일은 원고 폴더로 **복사**한다(프로필을 고쳐도 이 원고는 그대로)."""
+    p = store.get(profile_id)
+    cast_dir.mkdir(parents=True, exist_ok=True)
+    copies = []
+    for r in p.references:
+        dst = cast_dir / f"{profile_id}-{Path(r).name}"
+        if not dst.is_file():
+            shutil.copyfile(r, dst)
+        copies.append(str(dst))
+    return CharacterRef(
+        kind=kind,  # type: ignore[arg-type]
+        use="generate",
+        name=p.name,
+        appearance=p.appearance,
+        profile_id=p.id,
+        profile_revision=p.revision,
+        references=tuple(copies),
+    )
+
+
+def default_cast(ctx: JobContext, cid: str) -> Cast:
+    """작업 공간 기본값: 주인공(hero_default), 보조(sidekick_default, 없으면 보조 없음).
+    주인공 기본값이 없으면 설정의 캐릭터 그림(직접 올린 것)을 계정 캐릭터 참조로 쓴다."""
+    w = ctx.config.workspace
+    store = characters(ctx.config)
+    cast_dir = content_dir(ctx.media_dir, cid) / "cast"
+    hero = sidekick = None
+    try:
+        if w.hero_default:
+            hero = ref_from_profile(store, w.hero_default, "account", cast_dir)
+        if w.sidekick_default:
+            sidekick = ref_from_profile(store, w.sidekick_default, "account", cast_dir)
+    except CharacterError as e:
+        log.warning("기본 캐릭터를 불러오지 못함: %s", e)
+    if hero is None:
+        b = ctx.config.brand
+        imgs = [p for p in (b.character_cover, b.character_outro) if p and Path(p).is_file()]
+        cast_dir.mkdir(parents=True, exist_ok=True)
+        copies = []
+        for p in dict.fromkeys(imgs):
+            dst = cast_dir / f"account-{Path(p).name}"
+            if not dst.is_file():
+                shutil.copyfile(p, dst)
+            copies.append(str(dst))
+        hero = CharacterRef(
+            kind="account",
+            name=ctx.config.persona.name,
+            appearance=ctx.config.persona.character,
+            references=tuple(copies),
+        )
+    return Cast(hero=hero, sidekick=sidekick)
+
+
+def ensure_cast(ctx: JobContext, prod: ProductionStore, cid: str) -> Cast:
+    raw, _ = prod.get_production(cid)
+    if raw:
+        return Cast.from_json(raw)
+    cast = default_cast(ctx, cid)
+    prod.set_cast(cid, cast.to_json(), ctx.config.settings.preset)
+    return cast
+
+
+def current_slots(
+    ctx: JobContext, prod: ProductionStore, cid: str
+) -> tuple[GeneratedContent, Cast, list[SlotPlan]]:
+    c = ctx.repo.get_content(cid)
+    if c is None:
+        raise AdapterError("원고가 없습니다")
+    cast = ensure_cast(ctx, prod, cid)
+    _raw, scenes = prod.get_production(cid)
+    return c.generated, cast, image_slots(c.generated.deck, cast, scenes)
+
+
+def spec_for(ctx: JobContext, prod: ProductionStore, cid: str, slot: SlotPlan, cast: Cast):
+    chain = None
+    if slot.chain_from:
+        first = prod.active(cid, slot.chain_from)
+        if first is None:
+            raise MissingReference("1번째 컷이 아직 없습니다")
+        chain = first.path
+    return build_spec(slot, cast, ctx.config.settings.models.image_quality, chain)
+
+
+@dataclass
+class EnqueueResult:
+    queued: list[str]
+    waiting: list[str]  # 1번째 컷을 기다리는 2번째 컷
+    problems: dict[str, str]
+
+
+def enqueue_production(
+    ctx: JobContext, cid: str, targets: list[str] | None = None, force: bool = False
+) -> EnqueueResult:
+    """그림이 필요한 슬롯의 작업을 만든다. targets를 주면 그 슬롯만(이 컷만 다시 만들기), force면 활성 그림이 있어도."""
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    _gen, cast, slots = current_slots(ctx, prod, cid)
+    latest = prod.latest_jobs(cid)
+    res = EnqueueResult([], [], {})
+    for slot in slots:
+        if targets is not None and slot.target not in targets:
+            continue
+        if not force and prod.active(cid, slot.target) is not None:
+            continue
+        if slot.chain_from:
+            first_job = latest.get(slot.chain_from)
+            pending_first = first_job is not None and first_job.status in IN_FLIGHT
+            if pending_first or prod.active(cid, slot.chain_from) is None:
+                res.waiting.append(slot.target)  # 1번째 컷 결과가 확정되면 그때 만든다
+                continue
+        try:
+            spec = spec_for(ctx, prod, cid, slot, cast)
+        except MissingReference as e:
+            res.problems[slot.target] = str(e)
+            continue
+        job = prod.enqueue(
+            cid, slot.target, slot.role, spec.hash, _spec_json(spec), ctx.config.settings.preset
+        )
+        if job is not None:
+            res.queued.append(slot.target)
+    _sync_slot_stage(ctx, prod, cid, res.problems)
+    return res
+
+
+def _spec_json(spec) -> dict:
+    return {
+        **spec.detail,
+        "prompt": spec.prompt,
+        "references": list(spec.references),
+        "negative": spec.negative,
+        "width": spec.width,
+        "height": spec.height,
+    }
+
+
+# ------------------------------------------------------------------ 실행
+
+
+def run_images(ctx: JobContext, max_jobs: int = JOBS_PER_RUN) -> JobResult:
+    """대기 중인 그림 작업을 몇 장 처리한다(images 잡, 1분마다 + 제작 버튼 직후)."""
+    result = JobResult("images")
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    preset = ctx.config.settings.preset
+    if prod.next_due(ctx.clock.now(), preset) is None:
+        result.skipped = "그릴 그림 작업이 없음"
+        return result
+    studio = ctx.image_studio
+    if studio is None:
+        # 키가 없으면 대체하지 않고 작업마다 이유를 남긴다(도형 캐릭터로 바꾸지 않는다)
+        n = 0
+        while (job := prod.next_due(ctx.clock.now(), preset)) is not None and n < 50:
+            prod.finish(
+                job.id,
+                "failed",
+                error="OpenAI API 키가 없어 그림을 만들 수 없습니다(설정 → API 키)",
+            )
+            if job.content_id:
+                _sync_slot_stage(ctx, prod, job.content_id)
+            n += 1
+        result.counts["failed"] = n
+        result.counts["reason"] = "그림 공급자 키 없음"
+        return result
+    run_id = new_id()
+    done = failed = 0
+    start, end = local_day_bounds(ctx.clock.now(), ctx.tz)
+    for _ in range(max_jobs):
+        job = prod.next_due(ctx.clock.now(), preset)
+        if job is None:
+            break
+        if not under_cost_cap(
+            ctx.spent_between(start, end), ctx.config.settings.daily_cost_cap_usd
+        ):
+            result.counts["cost_cap_hit"] = True
+            result.counts["reason"] = "비용 상한에 닿아 그림 제작을 멈춤(남은 작업은 그대로 대기)"
+            break
+        if not prod.claim(job.id, run_id):
+            continue
+        ok = _run_one(ctx, prod, job, studio, result)
+        done += ok
+        failed += not ok
+    result.counts["made"] = done
+    if failed:
+        result.counts["failed"] = failed
+    return result
+
+
+def _run_one(
+    ctx: JobContext, prod: ProductionStore, job: ImageJob, studio, result: JobResult
+) -> bool:
+    cid = job.content_id
+    # 보내기 직전에 spec을 다시 본다: 그 사이 장면이 바뀌었으면 돈을 쓰지 않고 취소
+    if cid and job.role in ("panel", "sticker"):
+        try:
+            _gen, cast, slots = current_slots(ctx, prod, cid)
+            slot = next((s for s in slots if s.target == job.target), None)
+            now_hash = spec_for(ctx, prod, cid, slot, cast).hash if slot else None
+        except (MissingReference, AdapterError) as e:
+            prod.finish(job.id, "failed", error=str(e))
+            _sync_slot_stage(ctx, prod, cid)
+            return False
+        if now_hash != job.spec_hash:
+            prod.finish(
+                job.id, "cancelled", error="보내기 전에 장면·캐릭터가 바뀌어 취소(비용 없음)"
+            )
+            return False
+    s = job.spec
+    refs = tuple(Path(r) for r in s.get("references") or [])
+    spec = ImageSpec(
+        prompt=s["prompt"],
+        width=int(s["width"]),
+        height=int(s["height"]),
+        quality=s.get("quality"),
+        transparent=bool(s.get("transparent")),
+        references=refs,
+        negative=s.get("negative", ""),
+        ref=f"{job.role}:{job.target}",
+    )
+    prod.mark_sent(job.id)
+    attempts = job.attempts + 1
+    try:
+        out = studio.make(spec)
+    except ImageUnknown as e:
+        prod.finish(
+            job.id,
+            "unknown",
+            error=f"응답을 받지 못해 생성·과금 여부를 알 수 없습니다: {e}",
+            cost_status="unknown",
+        )
+        result.errors.append(f"{job.target}: 응답 불명")
+        _after(ctx, prod, job)
+        return False
+    except ImageRefused as e:
+        cats = ", ".join(e.categories) or "정책"
+        prod.finish(
+            job.id,
+            "failed",
+            error=f"그림 요청이 차단됐습니다({cats}). 장면 지시를 바꿔 다시 요청하세요",
+        )
+        _after(ctx, prod, job)
+        return False
+    except FileNotFoundError as e:
+        prod.finish(
+            job.id,
+            "failed",
+            error=f"참조 이미지 파일이 없습니다: {Path(str(e.filename or e)).name}",
+        )
+        _after(ctx, prod, job)
+        return False
+    except Exception as e:  # noqa: BLE001  한도·과부하(재예약), 키·크레딧(영구), 형식 오류
+        name = type(e).__name__
+        if name == "ImageTransient" and attempts < MAX_ATTEMPTS:
+            wait = getattr(e, "retry_after", None)
+            prod.finish(
+                job.id,
+                "queued",
+                error=f"잠깐 실패, 다시 예약: {e}",
+                next_attempt_at=ctx.clock.now() + (timedelta(seconds=wait) if wait else RETRY_IN),
+            )
+            return False
+        if name == "ImageUnavailable":
+            ctx.notifier.notify("그림 제작 불가", str(e)[:200], "warn")
+        prod.finish(job.id, "failed", error=f"{name}: {str(e)[:200]}")
+        _after(ctx, prod, job)
+        return False
+    _apply_result(ctx, prod, job, out)
+    _after(ctx, prod, job)
+    return True
+
+
+def _apply_result(ctx: JobContext, prod: ProductionStore, job: ImageJob, out) -> None:
+    """결과 반영(한 트랜잭션): 그림 이력 추가 + spec이 지금과 같으면 덱에 적용·활성화, 다르면 후보로."""
+    if job.content_id is None:
+        _apply_reference(ctx, job, out)
+        prod.finish(job.id, "succeeded", request_id=out.request_id, cost_status=out.cost_status)
+        return
+    cid = job.content_id
+    dst_dir = content_dir(ctx.media_dir, cid) / "images"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / f"{job.target}-{job.id[-8:]}{out.path.suffix}"
+    shutil.move(str(out.path), dst)
+    sha = file_sha(dst)
+    c = ctx.repo.get_content(cid)
+    try:
+        _gen, cast, slots = current_slots(ctx, prod, cid)
+        slot = next((s for s in slots if s.target == job.target), None)
+        current = spec_for(ctx, prod, cid, slot, cast).hash if slot else None
+    except (MissingReference, AdapterError):
+        current = None
+    apply = c is not None and c.status == "pending_review" and current == job.spec_hash
+    gen = _with_asset(c.generated, slot, str(dst), ai=True) if apply and slot else None
+    with ctx.repo.db.transaction() as cur:
+        iid = prod.add_image(
+            cur,
+            cid=cid,
+            target=job.target,
+            role=job.role,
+            source="ai",
+            path=str(dst),
+            sha=sha,
+            state="candidate",
+            provider="openai",
+            model=out.model,
+            prompt=job.spec.get("prompt"),
+            references=job.spec.get("references"),
+            spec_hash=job.spec_hash,
+            job_id=job.id,
+            cost_usd=out.usd,
+            cost_status=out.cost_status,
+        )
+        status = "succeeded_stale"
+        if gen is not None:
+            cur.execute(
+                "UPDATE contents SET generated = ?, updated_at = ?, revision = coalesce(revision, 0) + 1 "
+                "WHERE id = ? AND status = 'pending_review' RETURNING id",
+                [gen.model_dump_json(), prod._now(), cid],
+            )
+            if cur.fetchall():
+                prod.activate(cur, cid, job.target, iid)
+                status = "succeeded"
+        cur.execute(
+            "UPDATE image_jobs SET status = ?, result_image_id = ?, request_id = ?, cost_status = ?, "
+            "error = ?, updated_at = ? WHERE id = ?",
+            [
+                status,
+                iid,
+                out.request_id or None,
+                out.cost_status,
+                None
+                if status == "succeeded"
+                else "장면·캐릭터가 바뀐 뒤(또는 승인 뒤) 도착: 후보로 보관",
+                prod._now(),
+                job.id,
+            ],
+        )
+    if status == "succeeded" and job.target.endswith(".panel0"):
+        # 1번째 컷이 확정됐다: 그 결과를 참조로 2번째 컷을 만든다(아직 2번째가 없으면)
+        enqueue_production(ctx, cid, targets=[job.target[: -len("panel0")] + "panel1"])
+
+
+def _apply_reference(ctx: JobContext, job: ImageJob, out) -> None:
+    store = characters(ctx.config)
+    cid = job.target.split(":", 1)[1]
+    store.add_reference(cid, out.path.read_bytes(), out.path.suffix or ".png", ai_made=True)
+    out.path.unlink(missing_ok=True)
+
+
+def _with_asset(
+    gen: GeneratedContent, slot: SlotPlan | None, path: str, ai: bool
+) -> GeneratedContent:
+    if slot is None:
+        return gen
+    slides = list(gen.deck.slides)
+    s = slides[slot.slide]
+    asset = ImageAsset(path=path, ai=ai)
+    if slot.role == "panel":
+        panels = list(s.panels)
+        panels[slot.panel] = panels[slot.panel].model_copy(update={"image": asset})
+        slides[slot.slide] = s.model_copy(update={"panels": panels})
+    else:
+        slides[slot.slide] = s.model_copy(update={"sticker": asset})
+    deck = gen.deck
+    labels = deck.labels
+    if labels.ai_slides is None:
+        labels = labels.model_copy(
+            update={"ai_slides": []}
+        )  # 자산별 표기로(레거시 플래그에 기대지 않음)
+    return gen.model_copy(
+        update={"deck": deck.model_copy(update={"slides": slides, "labels": labels})}
+    )
+
+
+def _after(ctx: JobContext, prod: ProductionStore, job: ImageJob) -> None:
+    if job.content_id:
+        if job.target.endswith(".panel0"):
+            j = prod.job(job.id)
+            if j and j.status in ("failed", "unknown"):
+                prod.cancel_dependents(job.id, "1번째 컷이 실패해 기다리는 중")
+        _sync_slot_stage(ctx, prod, job.content_id)
+
+
+# ------------------------------------------------------------------ 사람이 고르는 것
+
+
+def use_image(ctx: JobContext, cid: str, image_id: str) -> None:
+    """이전 결과·후보를 이 슬롯 그림으로(재사용). 검토 대기 중에만."""
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    img = prod.image(image_id)
+    if img is None or img.content_id != cid:
+        raise AdapterError("그림이 없습니다")
+    c = ctx.repo.get_content(cid)
+    if c is None or c.status != "pending_review":
+        raise AdapterError("검토 대기 중인 원고만 고칠 수 있습니다")
+    _gen, cast, slots = current_slots(ctx, prod, cid)
+    slot = next((s for s in slots if s.target == img.target), None)
+    if slot is None:
+        raise AdapterError("이 원고에 그 자리가 없습니다")
+    gen = _with_asset(c.generated, slot, img.path, ai=img.source == "ai")
+    with ctx.repo.db.transaction() as cur:
+        cur.execute(
+            "UPDATE contents SET generated = ?, updated_at = ?, revision = coalesce(revision, 0) + 1 "
+            "WHERE id = ? AND status = 'pending_review' RETURNING id",
+            [gen.model_dump_json(), prod._now(), cid],
+        )
+        if not cur.fetchall():
+            raise AdapterError("검토 대기 중인 원고만 고칠 수 있습니다")
+        prod.activate(cur, cid, img.target, image_id)
+    _sync_slot_stage(ctx, prod, cid)
+
+
+def upload_image(ctx: JobContext, cid: str, target: str, src: Path, source: str = "upload") -> None:
+    """직접 올린 그림(실제 자료·직접 그린 그림)을 이 슬롯에. AI 표기 대상이 아니다."""
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    c = ctx.repo.get_content(cid)
+    if c is None or c.status != "pending_review":
+        raise AdapterError("검토 대기 중인 원고만 고칠 수 있습니다")
+    _gen, cast, slots = current_slots(ctx, prod, cid)
+    slot = next((s for s in slots if s.target == target), None)
+    if slot is None:
+        raise AdapterError("이 원고에 그 자리가 없습니다")
+    dst_dir = content_dir(ctx.media_dir, cid) / "images"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / f"{target}-up-{new_id()[-8:]}{src.suffix}"
+    shutil.copyfile(src, dst)
+    gen = _with_asset(c.generated, slot, str(dst), ai=False)
+    with ctx.repo.db.transaction() as cur:
+        cur.execute(
+            "UPDATE contents SET generated = ?, updated_at = ?, revision = coalesce(revision, 0) + 1 "
+            "WHERE id = ? AND status = 'pending_review' RETURNING id",
+            [gen.model_dump_json(), prod._now(), cid],
+        )
+        if not cur.fetchall():
+            raise AdapterError("검토 대기 중인 원고만 고칠 수 있습니다")
+        prod.add_image(
+            cur,
+            cid=cid,
+            target=target,
+            role=slot.role,
+            source=source,
+            path=str(dst),
+            sha=file_sha(dst),
+            state="active",
+        )
+    _sync_slot_stage(ctx, prod, cid)
+
+
+# ------------------------------------------------------------------ 슬롯 단계(추천)
+
+
+def production_status(prod: ProductionStore, cid: str, slots: list[SlotPlan]) -> str:
+    """ready | producing | unknown_image | failed_image | images_pending — 그림 자리 전체로 정한다."""
+    if not slots:
+        return "ready"
+    latest = prod.latest_jobs(cid)
+    if all(prod.active(cid, s.target) is not None for s in slots):
+        return "ready"
+    jobs = [latest[s.target] for s in slots if s.target in latest]
+    if any(j.status in IN_FLIGHT for j in jobs):
+        return "producing"
+    if any(j.status == "unknown" for j in jobs):
+        return "unknown_image"
+    if any(j.status == "failed" for j in jobs):
+        return "failed_image"
+    return "images_pending"
+
+
+def _sync_slot_stage(
+    ctx: JobContext, prod: ProductionStore, cid: str, problems: dict[str, str] | None = None
+) -> None:
+    slots_store = SlotStore(ctx.repo.db, ctx.clock)
+    sl = slots_store.by_content(cid)
+    if sl is None:
+        return
+    try:
+        _gen, _cast, slots = current_slots(ctx, prod, cid)
+    except AdapterError:
+        return
+    stage = production_status(prod, cid, slots)
+    if problems and stage == "images_pending":
+        stage, err = "failed_image", "; ".join(f"{k}: {v}" for k, v in problems.items())
+    else:
+        latest = prod.latest_jobs(cid)
+        errs = [
+            latest[s.target].error for s in slots if s.target in latest and latest[s.target].error
+        ]
+        err = "; ".join(e for e in errs if e)[:300] or None
+    if sl.stage != stage or (err or None) != sl.last_error:
+        slots_store.set_stage(sl, stage, error=err if stage != "ready" else None)
+
+
+def recover_image_jobs(ctx: JobContext) -> tuple[int, int]:
+    """재시작 복구: 안 보낸 작업은 다시 대기, 보냈는데 결과를 모르는 작업은 응답 불명(자동 재시도 금지)."""
+    prod = ProductionStore(ctx.repo.db, ctx.clock)
+    return prod.recover()
