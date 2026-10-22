@@ -48,12 +48,19 @@ def ctx(db, clock, app_config) -> JobContext:
 
 def test_collect_stores_classifies_and_isolates_failures(ctx: JobContext) -> None:
     r = run_collect(ctx)
-    assert r.counts == {"new": 4, "duplicate": 0, "classified": 4, "relevant": 3, "bodies": 0}
+    assert r.counts == {
+        "new": 4,
+        "duplicate": 0,
+        "classified": 4,
+        "relevant": 3,
+        "bodies": 0,
+        "facts_judged": 0,
+    }
     assert any("broken" in e for e in r.errors)
     assert r.ok
     usable = ctx.repo.unused_relevant_items(0.8)
     assert len(usable) == 3
-    assert all(topic == "핸드드립" for _, _, topic in usable)
+    assert all(topic == "핸드드립" for _, _, topic, _ in usable)
     assert all("코스피" not in item.title for item, _, _ in usable)
 
 

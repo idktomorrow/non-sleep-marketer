@@ -12,7 +12,14 @@ from nsm.engine.context import JobContext, JobResult
 log = logging.getLogger(__name__)
 
 RELEVANCE_LABELS = ["relevant", "irrelevant"]
-MAX_BODIES_PER_RUN = 6  # 한 번에 원문을 여는 글 수(사이트 부담·시간 상한)
+MAX_BODIES_PER_RUN = (
+    6  # 키워드 원고가 한 번에 원문을 여는 글 수. 자동 수집은 settings.max_bodies_per_run(C31)
+)
+FACTS_LABELS = ["has_facts", "no_facts"]
+FACTS_INSTRUCTION = (
+    "이 글에 SNS 정보 카드에 쓸 수 있는 구체적 사실(날짜, 가격, 수량, 장소·판매처 이름, 상품·행사 이름, "
+    "순위·관객 수 같은 숫자)이 있으면 has_facts, 일반적인 설명·감상·'검색해 보세요' 수준의 안내뿐이면 no_facts로 답하라."
+)
 
 
 def excluded_word(item: SourceItem, words: list[str]) -> str | None:
@@ -75,6 +82,7 @@ def run_collect(ctx: JobContext) -> JobResult:
     relevant, classified = _classify_pending(ctx, result)
     result.counts.update(classified=classified, relevant=relevant)
     result.counts["bodies"] = _fetch_bodies(ctx, result)
+    result.counts["facts_judged"] = _judge_facts(ctx, result)
     result.ok = not result.errors or new > 0 or classified > 0
     return result
 
@@ -182,7 +190,9 @@ def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | 
     fetched = 0
     threshold = ctx.config.settings.relevance_threshold
     if items is None:
-        todo = ctx.repo.relevant_items_without_body(threshold, MAX_BODIES_PER_RUN)
+        todo = ctx.repo.relevant_items_without_body(
+            threshold, ctx.config.settings.max_bodies_per_run
+        )
     else:
         todo = [i for i in items if not ctx.repo.body_done(i.id)]
     for item in todo:
@@ -212,3 +222,46 @@ def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | 
             "collect",
         )
     return fetched
+
+
+def _judge_facts(ctx: JobContext, result: JobResult) -> int:
+    """원문 읽기가 끝난 관련 자료에 구체 사실이 있는지 판정해 둔다(C31). 없는 자료는 원고 재료로 안 쓴다.
+    판정 실패는 'has'로 두지 않고 다음 실행에 다시 묻는다(비어 있으면 재료 선택에서 통과)."""
+    if ctx.relevance_classifier is None:
+        return 0
+    threshold = ctx.config.settings.relevance_threshold
+    # 원문을 아직 읽을 수 있는 자료(소스에 읽기 기능이 있고 재시도가 남음)는 본문을 받은 뒤에 판정한다
+    by_name = {getattr(s, "name", ""): s for s in ctx.sources}
+    pending = {
+        i.id
+        for i in ctx.repo.relevant_items_without_body(threshold, 1000)
+        if callable(getattr(by_name.get(i.source), "fetch_body", None))
+    }
+    todo = [i for i in ctx.repo.relevant_items_without_facts(threshold) if i.id not in pending]
+    if not todo:
+        return 0
+    texts = [f"{i.title}\n{i.text[:1500]}" for i in todo]
+    try:
+        labels = list(
+            ctx.relevance_classifier.classify_many(texts, FACTS_LABELS, FACTS_INSTRUCTION)
+        )
+    except Exception as e:  # noqa: BLE001  다음 실행에 다시
+        log.warning("구체 사실 판정 실패(다음에 다시): %s", e)
+        result.errors.append(f"구체 사실 판정 실패: {e}")
+        return 0
+    n = 0
+    for item, c in zip(todo, labels, strict=True):
+        label = "none" if c.label == "no_facts" else "has"
+        ctx.repo.set_source_facts(item.id, label)
+        ctx.repo.record_classification(
+            "source_item",
+            item.id,
+            "facts",
+            c.label,
+            c.confidence,
+            _who(ctx, ctx.relevance_classifier),
+        )
+        n += 1
+        if label == "none":
+            result.counts["no_facts"] = result.counts.get("no_facts", 0) + 1
+    return n

@@ -118,6 +118,81 @@ STIFF_PHRASES = (
 )
 
 
+# 자료가 빈약할 때 모델이 칸을 채우는 일반론(2026-10-22 "달력 어디서 살까요 → 검색해 보세요" 원고, C31)
+FILLER_PHRASES = (
+    "검색해 보세요",
+    "검색해보세요",
+    "검색하세요",
+    "검색해 비교",
+    "확인해 보세요",
+    "확인해보세요",
+    "판매자마다 달라",
+    "판매처마다 달라",
+    "참고하세요",
+    "알아보세요",
+    "찾아보세요",
+)
+
+# 구체 사실로 세는 것: 숫자(수량·가격·순위·날짜), 날짜 표현, 장소·판매처·작품 이름 꼬리
+_FACT_NUMBER = re.compile(
+    r"\d[\d,.]*\s*(?:만|천|억|원|엔|달러|%|개|명|일|월|년|시|분|장|호|관|종|권|회|위|주|배|cm|mm|kg|g|ml|l|dx)?",
+    re.I,
+)
+_FACT_PLACE = re.compile(
+    r"[가-힣A-Za-z0-9]+(?:스토어|샵|숍|몰|백화점|센터|극장|영화관|편의점|마켓|마트|팝업|스퀘어|타워|플라자|점|관|역|공항|호텔|카페)\b"
+)
+_FACT_NAME = re.compile(r"[「『'\"]([^「」『』'\"]{2,30})[」』'\"]")
+_FACT_BRAND = re.compile(
+    r"\b(?:CGV|롯데시네마|메가박스|다이소|올리브영|무신사|쿠팡|네이버쇼핑|29CM|카카오|라인|미니소|GS25|CU|세븐일레븐|이마트|홈플러스|코엑스|더현대|롯데월드|에버랜드|ANA|JAL)\b",
+    re.I,
+)
+
+
+def fact_count(gen: GeneratedContent) -> int:
+    """원고(사실 주장 + 카드 글)에 든 서로 다른 구체 사실의 수. 숫자·날짜·장소·이름을 센다(C31)."""
+    texts = [c.text for c in gen.claims] + list(sns_texts(gen).values())
+    found: set[str] = set()
+    for t in texts:
+        for rx in (_FACT_NUMBER, _FACT_PLACE, _FACT_NAME, _FACT_BRAND):
+            for m in rx.finditer(t):
+                token = " ".join(m.group(0).split()).lower()
+                if token.strip("0123456789.,") == "" and len(token) < 2:
+                    continue  # 한 자리 숫자만(예: "1") 있는 건 사실로 안 센다
+                found.add(token)
+    return len(found)
+
+
+_TITLE_TOKEN = re.compile(r"[가-힣a-zA-Z0-9]{2,}")
+_TITLE_STOP = {
+    "치이카와",
+    "먼작귀",
+    "소식",
+    "정보",
+    "정리",
+    "총정리",
+    "안내",
+    "관련",
+    "이야기",
+    "그리고",
+    "에서",
+    "으로",
+}
+
+
+def title_tokens(text: str) -> set[str]:
+    """제목·주장의 낱말 집합(같은 사건 판정용). 주제 낱말·흔한 낱말은 뺀다."""
+    return {t.lower() for t in _TITLE_TOKEN.findall(text) if t.lower() not in _TITLE_STOP}
+
+
+def same_event(a: set[str], b: set[str], threshold: float = 0.5) -> bool:
+    """두 낱말 집합이 같은 사건을 가리키나(자카드 겹침). 낱말이 적으면 완전 포함일 때만."""
+    if not a or not b:
+        return False
+    if min(len(a), len(b)) < 3:
+        return a == b  # 낱말이 한두 개면 포함 관계로는 못 믿는다("원두" ⊂ 아무 원두 글)
+    return len(a & b) / len(a | b) >= threshold
+
+
 def sns_texts(gen: GeneratedContent) -> dict[str, str]:
     """사람에게 보이는 SNS 글: 캡션, 스레드, 카드 글(장마다). 블로그는 MVP 게시 대상이 아니다(ADR 0016)."""
     out = {"인스타그램 캡션": gen.instagram_caption, "스레드 글": gen.threads_text}
@@ -168,6 +243,10 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
     hit = next((p for p in CTA_AWKWARD if p in outro_cta(gen)), None)
     if hit:
         out.append(f'마무리 문구에 카드에서 할 수 없는 말 "{hit}"')
+    for name, text in texts.items():
+        hit = next((p for p in FILLER_PHRASES if p in text), None)
+        if hit:
+            out.append(f'{name}에 자료 없이 채운 일반론 "{hit}"')
     for name, text in texts.items():
         hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
         if hit:

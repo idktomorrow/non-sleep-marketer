@@ -173,7 +173,7 @@ def test_genre_rule_skips_classifier_and_body_fetch_only_for_relevant(
     # 후기 글은 분류기에 가지 않았다
     assert not any("내돈내산" in x for x in rel.seen)
     assert src.fetched == ["https://blog.naver.com/a/1"]  # 관련 자료만 원문을 연다
-    got = {i.id: i for i, _, _ in ctx.repo.unused_relevant_items(0.8)}
+    got = {i.id: i for i, _, _, _ in ctx.repo.unused_relevant_items(0.8)}
     assert got["s1"].text.startswith("원문 본문입니다.")
     # 두 번째 실행에서는 다시 열지 않는다
     run_collect(ctx)
@@ -192,7 +192,7 @@ def test_body_fetch_failure_keeps_snippet(db, clock, app_config) -> None:
     )
     r = run_collect(ctx)
     assert r.counts["bodies"] == 0
-    ((item, _, _),) = ctx.repo.unused_relevant_items(0.8)
+    ((item, _, _, _),) = ctx.repo.unused_relevant_items(0.8)
     assert item.text == "핸드드립 물 온도 기준 정리 요약문"
 
 

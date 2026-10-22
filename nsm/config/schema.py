@@ -100,6 +100,17 @@ class Settings(_Model):
     relevance_threshold: float = 0.8
     reply_daily_limit_per_author: int = 3
     topic_cooldown_days: int = 14
+    # 원고 품질 하한(C31, ADR 0051)
+    min_source_chars: int = Field(
+        default=800, ge=0
+    )  # 본문이 이보다 짧은 자료(요약문만)는 원고 재료로 안 씀
+    min_facts: int = Field(
+        default=2, ge=0
+    )  # 원고의 구체 사실(날짜·수량·가격·장소) 수가 이보다 적으면 검토로
+    topic_weekly_limit: int = Field(
+        default=2, ge=0
+    )  # 주제(소재 묶음)마다 최근 7일 원고 수 상한. 0이면 없음
+    max_bodies_per_run: int = Field(default=24, ge=1, le=100)  # 수집 한 번에 원문을 읽는 자료 수
     comment_lookback_days: int = 14
     # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
     reply_interval_minutes: int = Field(default=5, ge=3, le=60)
