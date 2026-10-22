@@ -266,7 +266,9 @@ def create_app(state: AppState) -> FastAPI:
     def home(request: Request) -> HTMLResponse:
         now = state.clock.now()
         start, end = local_day_bounds(now, tz())
-        ov = queries.overview(state.repo.db, start, end)
+        ov = queries.overview(
+            state.repo.db, start, end, state.get_config().settings.min_source_chars
+        )
         next_pubs = (
             next_publishes(state.repo, state.get_config(), now, state.adapters)
             if ov["approved_waiting"]

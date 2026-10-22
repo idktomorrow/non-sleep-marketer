@@ -48,14 +48,17 @@ def ctx(db, clock, app_config) -> JobContext:
 
 def test_collect_stores_classifies_and_isolates_failures(ctx: JobContext) -> None:
     r = run_collect(ctx)
-    assert r.counts == {
-        "new": 4,
-        "duplicate": 0,
-        "classified": 4,
-        "relevant": 3,
-        "bodies": 0,
-        "facts_judged": 3,  # 소스에 원문 읽기가 없으면 요약문으로 바로 판정(C31)
-    }
+    assert (
+        r.counts
+        == {
+            "new": 4,
+            "duplicate": 0,
+            "classified": 4,
+            "relevant": 3,
+            "bodies": 0,
+            "facts_judged": 2,  # 원문 읽기 없는 소스는 요약문으로 판정, 이번 실행에 없는 소스(trends)는 보류(C31)
+        }
+    )
     assert any("broken" in e for e in r.errors)
     assert r.ok
     usable = ctx.repo.unused_relevant_items(0.8)

@@ -3,8 +3,8 @@
 순서
 1. 관련 자료 중 본문이 `min_source_chars`보다 짧거나(요약문만 남은 것) 구체 사실이 없다고 판정된 것은 뺀다.
 2. 최근 `topic_cooldown_days` 동안 만든 원고의 제목·사실 주장과 **같은 사건**으로 보이는 자료는 뺀다.
-   1차는 코드(제목 낱말 겹침), 2차는 분류기(0원)에게 "같은 소식인가"를 묻는다. 같은 소식이면 두 번 묻지 않게
-   `used_in_content_id = duplicate_event`로 표시한다.
+   1차는 코드(제목 낱말 겹침, 페르소나 주제 낱말은 제외), 2차는 분류기(0원)에게 "같은 소식인가"를 한 묶음으로
+   묻는다. 판정은 기록해 같은 자료를 다시 묻지 않고, 같은 소식이면 `used_in_content_id = duplicate_event`.
 3. 주제(소재 묶음)마다 최근 7일 원고 수가 `topic_weekly_limit` 이상이면 뒤로 미룬다. 가장 오래 안 쓴 주제부터.
 """
 
@@ -16,14 +16,16 @@ from datetime import datetime, timedelta
 
 from nsm.domain.models import SourceItem
 from nsm.domain.quality import same_event, title_tokens
-from nsm.engine.collect import excluded_word
+from nsm.engine.collect import _who, excluded_word
 from nsm.engine.context import JobContext
 
 log = logging.getLogger(__name__)
 
 DUPLICATE_EVENT = "duplicate_event"  # source_items.used_in_content_id 표시값: 이미 올린 소식
 SAME_NEWS_LABELS = ["same_news", "new_news"]
+SAME_NEWS_KIND = "same_news"
 RECENT_TITLES_MAX = 20
+MODEL_BATCH = 10  # 한 주제에서 분류기에 한 번에 묻는 후보 수
 
 
 def same_news_instruction(recent_titles: list[str]) -> str:
@@ -36,30 +38,53 @@ def same_news_instruction(recent_titles: list[str]) -> str:
     )
 
 
-def _recent_texts(ctx: JobContext, since: datetime) -> tuple[list[str], list[set[str]]]:
-    """최근 원고의 제목 목록과, 제목+사실 주장 낱말 집합 목록."""
-    titles = sorted(ctx.repo.recent_topics(since))
+def _topic_stop(ctx: JobContext) -> set[str]:
+    """페르소나 주제 낱말(어느 글에나 들어가 겹침을 부풀린다)은 제목 비교에서 뺀다."""
+    return {t for topic in ctx.config.persona.topics for t in title_tokens(topic)}
+
+
+def _recent_texts(
+    ctx: JobContext, since: datetime, stop: set[str]
+) -> tuple[list[str], list[set[str]]]:
+    """최근 원고 제목(최신순)과, 제목+사실 주장의 낱말 집합 목록."""
+    titles = ctx.repo.recent_titles(since, RECENT_TITLES_MAX)
     claims = ctx.repo.recent_claims(since)
-    token_sets = [title_tokens(t) for t in titles] + [title_tokens(c) for c in claims]
+    token_sets = [title_tokens(t, stop) for t in titles] + [title_tokens(c, stop) for c in claims]
     return titles, [s for s in token_sets if s]
 
 
-def _is_duplicate_by_code(item: SourceItem, recent: list[set[str]]) -> bool:
-    toks = title_tokens(item.title)
-    return any(same_event(toks, r) for r in recent)
-
-
-def _is_duplicate_by_model(ctx: JobContext, item: SourceItem, titles: list[str]) -> bool:
-    if not titles or ctx.relevance_classifier is None:
-        return False
+def _model_duplicates(ctx: JobContext, candidates: list[SourceItem], titles: list[str]) -> set[str]:
+    """분류기에게 후보들을 한 묶음으로 묻고 같은 소식인 자료 id를 돌려준다. 이미 판정한 자료는 묻지 않는다."""
+    if not titles or ctx.relevance_classifier is None or not candidates:
+        return set()
+    dups: set[str] = set()
+    ask: list[SourceItem] = []
+    for item in candidates:
+        prev = ctx.repo.latest_classification(item.id, SAME_NEWS_KIND)
+        if prev == "same_news":
+            dups.add(item.id)
+        elif prev is None:
+            ask.append(item)
+    if not ask:
+        return dups
+    texts = [f"{i.title}\n{i.text[:1500]}" for i in ask]
     try:
-        c = ctx.relevance_classifier.classify(
-            f"{item.title}\n{item.text[:1500]}", SAME_NEWS_LABELS, same_news_instruction(titles)
+        labels = list(
+            ctx.relevance_classifier.classify_many(
+                texts, SAME_NEWS_LABELS, same_news_instruction(titles)
+            )
         )
     except Exception as e:  # noqa: BLE001  판정 실패는 "새 소식"으로 보고 진행(원고가 멈추지 않게)
         log.warning("같은 소식 판정 실패(새 소식으로 간주): %s", e)
-        return False
-    return c.label == "same_news"
+        return dups
+    who = _who(ctx, ctx.relevance_classifier)
+    for item, c in zip(ask, labels, strict=True):
+        ctx.repo.record_classification(
+            "source_item", item.id, SAME_NEWS_KIND, c.label, c.confidence, who
+        )
+        if c.label == "same_news":
+            dups.add(item.id)
+    return dups
 
 
 def pick_material(
@@ -85,13 +110,15 @@ def pick_material(
         return None
 
     # 2. 이미 올린 소식 거르기(1차 코드)
+    stop = _topic_stop(ctx)
     since = now - timedelta(days=s.topic_cooldown_days)
-    titles, recent_tokens = _recent_texts(ctx, since)
+    titles, recent_tokens = _recent_texts(ctx, since, stop)
     dup_ids: list[str] = []
     for topic in list(groups):
         kept = []
         for item, rel in groups[topic]:
-            if _is_duplicate_by_code(item, recent_tokens):
+            toks = title_tokens(item.title, stop)
+            if any(same_event(toks, r) for r in recent_tokens):
                 dup_ids.append(item.id)
             else:
                 kept.append((item, rel))
@@ -121,19 +148,13 @@ def pick_material(
                 topic,
                 weekly[topic],
             )
-        chosen: list[tuple[SourceItem, float]] = []
-        model_dups: list[str] = []
-        for item, rel in sorted(groups[topic], key=lambda x: -x[1]):
-            # 2차: 제목이 달라도 같은 소식이면(분류기) 뺀다. 묶음이 찰 때까지만 묻는다
-            if _is_duplicate_by_model(ctx, item, titles):
-                model_dups.append(item.id)
-                continue
-            chosen.append((item, rel))
-            if len(chosen) >= per_content:
-                break
-        if model_dups:
-            ctx.repo.mark_items_used(model_dups, DUPLICATE_EVENT)
-            log.info("최근 게시물과 같은 소식(분류기)으로 자료 %d건 제외", len(model_dups))
+        ranked = sorted(groups[topic], key=lambda x: -x[1])
+        # 2차: 제목이 달라도 같은 소식이면(분류기, 상위 후보를 한 묶음으로) 뺀다
+        dups = _model_duplicates(ctx, [i for i, _ in ranked[:MODEL_BATCH]], titles)
+        if dups:
+            ctx.repo.mark_items_used(list(dups), DUPLICATE_EVENT)
+            log.info("최근 게시물과 같은 소식(분류기)으로 자료 %d건 제외", len(dups))
+        chosen = [(i, r) for i, r in ranked if i.id not in dups][:per_content]
         if chosen:
             return topic, chosen
     return None

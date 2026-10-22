@@ -170,17 +170,31 @@ class Repository:
         )
         return [self._row_to_item(r) for r in rows]
 
-    def set_source_facts(self, item_id: str, label: str) -> None:
-        """구체 사실 유무('has'|'none', C31)."""
+    def set_source_facts(self, item_id: str, label: str | None) -> None:
+        """구체 사실 유무('has'|'none', C31). None이면 다시 판정하게 비운다(본문을 나중에 받았을 때)."""
         self.db.execute("UPDATE source_items SET facts = ? WHERE id = ?", [label, item_id])
 
-    def relevant_items_without_facts(self, threshold: float, limit: int = 100) -> list[SourceItem]:
-        """구체 사실 판정이 아직 없는 관련 자료(C31). 원문 읽기가 아직 남은 것은 호출부(collect)가 거른다."""
+    def latest_classification(self, target_id: str, kind: str) -> str | None:
+        """그 대상의 가장 최근 판정 라벨(없으면 None)."""
         rows = self.db.execute(
-            f"SELECT {self._ITEM_COLS} FROM source_items "
+            "SELECT label FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
+            "AND kind = ? ORDER BY created_at DESC LIMIT 1",
+            [target_id, kind],
+        )
+        return rows[0][0] if rows else None
+
+    def relevant_items_without_facts(self, threshold: float, limit: int = 100) -> list[SourceItem]:
+        """원문 읽기가 끝났는데(가져옴·건너뜀·실패 소진) 구체 사실 판정이 아직 없는 관련 자료(C31).
+        원문을 받기 전 요약문으로 판정해 굳히지 않게, 본문 결론이 난 것만 돌려준다."""
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items s "
             "WHERE relevance >= ? AND used_in_content_id IS NULL AND facts IS NULL "
+            "AND (EXISTS (SELECT 1 FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label IN ('fetched', 'skipped')) "
+            " OR (SELECT count(*) FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label = 'failed') >= ?) "
             "ORDER BY collected_at DESC LIMIT ?",
-            [threshold, limit],
+            [threshold, self.BODY_RETRIES, limit],
         )
         return [self._row_to_item(r) for r in rows]
 
@@ -475,6 +489,15 @@ class Repository:
             [to_db(since)],
         )
         return {r[0]: int(r[1]) for r in rows}
+
+    def recent_titles(self, since: datetime, limit: int = 20) -> list[str]:
+        """최근 원고 제목(topic 열), 최신순. 같은 소식 판정의 비교 대상(C31)."""
+        rows = self.db.execute(
+            "SELECT topic FROM contents WHERE created_at >= ? AND status != 'discarded' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            [to_db(since), limit],
+        )
+        return [r[0] for r in rows]
 
     def recent_topics(self, since: datetime) -> set[str]:
         rows = self.db.execute(

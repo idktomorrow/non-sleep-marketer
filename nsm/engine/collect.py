@@ -12,9 +12,6 @@ from nsm.engine.context import JobContext, JobResult
 log = logging.getLogger(__name__)
 
 RELEVANCE_LABELS = ["relevant", "irrelevant"]
-MAX_BODIES_PER_RUN = (
-    6  # 키워드 원고가 한 번에 원문을 여는 글 수. 자동 수집은 settings.max_bodies_per_run(C31)
-)
 FACTS_LABELS = ["has_facts", "no_facts"]
 FACTS_INSTRUCTION = (
     "이 글에 SNS 정보 카드에 쓸 수 있는 구체적 사실(날짜, 가격, 수량, 장소·판매처 이름, 상품·행사 이름, "
@@ -202,9 +199,16 @@ def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | 
                 "source_item", item.id, "body", "skipped", 0.0, "collect"
             )
             continue
-        fetch = getattr(by_name.get(item.source), "fetch_body", None)
-        if not callable(fetch):
+        source = by_name.get(item.source)
+        if source is None:
             continue  # 이번 실행에 그 소스(브라우저)가 없음: 기록하지 않고 다음 실행에 다시
+        fetch = getattr(source, "fetch_body", None)
+        if not callable(fetch):
+            # 이 소스는 원문 읽기가 아예 없다(요약문이 전부): 결론을 내 두어야 구체 사실 판정이 진행된다(C31)
+            ctx.repo.record_classification(
+                "source_item", item.id, "body", "skipped", 0.0, "collect"
+            )
+            continue
         try:
             body = fetch(item.url)
         except Exception as e:  # noqa: BLE001  본문 실패는 요약문으로 대신한다
@@ -212,6 +216,9 @@ def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | 
             body = None
         if body:
             ctx.repo.set_source_text(item.id, body)
+            ctx.repo.set_source_facts(
+                item.id, None
+            )  # 요약문으로 판정한 게 있으면 본문으로 다시(C31)
             fetched += 1
         ctx.repo.record_classification(
             "source_item",
@@ -226,31 +233,35 @@ def _fetch_bodies(ctx: JobContext, result: JobResult, items: list[SourceItem] | 
 
 def _judge_facts(ctx: JobContext, result: JobResult) -> int:
     """원문 읽기가 끝난 관련 자료에 구체 사실이 있는지 판정해 둔다(C31). 없는 자료는 원고 재료로 안 쓴다.
-    판정 실패는 'has'로 두지 않고 다음 실행에 다시 묻는다(비어 있으면 재료 선택에서 통과)."""
-    if ctx.relevance_classifier is None:
+
+    - 낱말 대체 분류기(키가 없거나 대체 중)는 이 판정을 못 하므로 비워 둔다(비어 있으면 재료 선택에서 통과).
+    - 일괄 판정이 실패하면 한 건씩 다시 묻는다(수집 분류와 같은 방식). 그래도 실패한 건 다음 실행에.
+    """
+    if ctx.relevance_classifier is None or _who(ctx, ctx.relevance_classifier) == "keyword":
         return 0
-    threshold = ctx.config.settings.relevance_threshold
-    # 원문을 아직 읽을 수 있는 자료(소스에 읽기 기능이 있고 재시도가 남음)는 본문을 받은 뒤에 판정한다
-    by_name = {getattr(s, "name", ""): s for s in ctx.sources}
-    pending = {
-        i.id
-        for i in ctx.repo.relevant_items_without_body(threshold, 1000)
-        if callable(getattr(by_name.get(i.source), "fetch_body", None))
-    }
-    todo = [i for i in ctx.repo.relevant_items_without_facts(threshold) if i.id not in pending]
+    todo = ctx.repo.relevant_items_without_facts(ctx.config.settings.relevance_threshold)
     if not todo:
         return 0
     texts = [f"{i.title}\n{i.text[:1500]}" for i in todo]
     try:
-        labels = list(
+        labels: list[Classification | None] = list(
             ctx.relevance_classifier.classify_many(texts, FACTS_LABELS, FACTS_INSTRUCTION)
         )
-    except Exception as e:  # noqa: BLE001  다음 실행에 다시
-        log.warning("구체 사실 판정 실패(다음에 다시): %s", e)
-        result.errors.append(f"구체 사실 판정 실패: {e}")
-        return 0
+    except Exception as e:  # noqa: BLE001  일괄 실패 → 한 건씩
+        log.warning("구체 사실 일괄 판정 실패, 한 건씩 재시도: %s", e)
+        labels = []
+        for text in texts:
+            try:
+                labels.append(
+                    ctx.relevance_classifier.classify(text, FACTS_LABELS, FACTS_INSTRUCTION)
+                )
+            except Exception as e2:  # noqa: BLE001  다음 실행에
+                log.info("구체 사실 판정 실패(다음에 다시): %s", e2)
+                labels.append(None)
     n = 0
     for item, c in zip(todo, labels, strict=True):
+        if c is None:
+            continue
         label = "none" if c.label == "no_facts" else "has"
         ctx.repo.set_source_facts(item.id, label)
         ctx.repo.record_classification(

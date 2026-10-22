@@ -222,3 +222,109 @@ def test_max_bodies_per_run_setting_limits_fetching(db, clock, app_config) -> No
     ctx.sources = [src]
     r = run_collect(ctx)
     assert r.counts["bodies"] == 2 and len(src.fetched) == 2
+
+
+def test_fact_regexes_handle_particles_dates_and_list_markers(app_config) -> None:
+    # 리뷰: 한글 뒤 조사("다이소에서", "팝업스토어에"), 날짜 하나는 사실 하나, 글머리 "1."은 안 센다
+    g = _gen(app_config, "다이소에서 팝업스토어에 2026-10-25 공개. 1. 먼저 2. 다음")
+    assert fact_count(g) >= 3  # 다이소, 팝업스토어, 2026-10-25
+    only_marker = _gen(app_config, "순위는 1. 끝")
+    base = _gen(app_config, "끝")
+    assert fact_count(only_marker) == fact_count(base)
+
+
+def test_keyword_classifier_does_not_judge_facts(db, clock, app_config) -> None:
+    from nsm.adapters.classifier.keyword import KeywordClassifier
+
+    # 낱말 규칙의 관련성 점수는 0.7이라 기준을 낮춘다
+    cfg = _settings(app_config, protect_count=0, relevance_threshold=0.6)
+    ctx = _ctx(db, clock, cfg, [_item("s1", "소식")])
+    ctx.relevance_classifier = KeywordClassifier({"relevant": ["소식"]}, default_label="irrelevant")
+    ctx.classifier_name = "keyword"
+    r = run_collect(ctx)
+    assert r.counts["facts_judged"] == 0
+    assert ctx.repo.db.execute("SELECT facts FROM source_items WHERE id = 's1'") == [(None,)]
+    assert run_generate(ctx).counts["created"] == 1  # 비어 있으면 통과
+
+
+def test_facts_are_rejudged_when_body_arrives_later(db, clock, app_config) -> None:
+    class LateBody(FakeSource):
+        def __init__(self, items):
+            super().__init__("naver", items)
+            self.ready = False
+
+        def fetch_body(self, url: str) -> str | None:
+            return LONG if self.ready else None
+
+    cfg = _settings(app_config, protect_count=0)
+    src = LateBody([_item("s1", "소식", text="짧은 요약")])
+    judged: list[str] = []
+
+    def by_text_judge(text: str) -> Classification:
+        judged.append(text)
+        return Classification(
+            label="no_facts" if "짧은 요약" in text else "has_facts", confidence=0.9
+        )
+
+    ctx = _ctx(db, clock, cfg, [])
+    ctx.sources = [src]
+    ctx.relevance_classifier = type(
+        "C",
+        (),
+        {
+            "classify": lambda self, t, labels, inst: (
+                Classification(label="relevant", confidence=0.9)
+                if "has_facts" not in labels
+                else by_text_judge(t)
+            ),
+            "classify_many": lambda self, ts, labels, inst: [
+                self.classify(t, labels, inst) for t in ts
+            ],
+        },
+    )()
+    # 첫 실행: 본문 실패(재시도 남음) → 판정 보류
+    assert run_collect(ctx).counts["facts_judged"] == 0
+    # 재시도 소진 → 요약문으로 판정 → none
+    for _ in range(3):
+        run_collect(ctx)
+    assert ctx.repo.db.execute("SELECT facts FROM source_items WHERE id = 's1'") == [("none",)]
+    # 본문이 나중에 오면 다시 판정 → has
+    src.ready = True
+    ctx.repo.db.execute("DELETE FROM classifications WHERE kind = 'body'")
+    run_collect(ctx)
+    assert ctx.repo.db.execute("SELECT facts FROM source_items WHERE id = 's1'") == [("has",)]
+
+
+def test_same_news_is_asked_in_one_batch_and_remembered(db, clock, app_config) -> None:
+    cfg = _settings(app_config, protect_count=0)
+    ctx = _ctx(db, clock, cfg, [_item("s0", "극장판 치이카와 200만 돌파 4DX 상영 확정")])
+    run_collect(ctx)
+    assert run_generate(ctx).counts["created"] == 1
+    items = [_item(f"n{i}", f"전혀 다른 제목 {i} 번째 기사") for i in range(4)]
+    ctx2 = _ctx(
+        db,
+        clock,
+        cfg,
+        items,
+        by_instruction={"최근에 올린 게시물": Classification(label="same_news", confidence=0.9)},
+    )
+    run_collect(ctx2)
+    before = len(ctx2.relevance_classifier.calls)
+    assert run_generate(ctx2).counts.get("created", 0) == 0
+    asked = [c for c in ctx2.relevance_classifier.calls[before:] if "최근에 올린" in c[2]]
+    assert len(asked) == 4  # classify_many 한 번(가짜는 건마다 classify를 부른다) — 같은 지시
+    rows = ctx2.repo.db.execute("SELECT count(*) FROM classifications WHERE kind = 'same_news'")
+    assert rows == [(4,)]
+    # 두 번째 실행은 기록을 보고 다시 묻지 않는다
+    before2 = len(ctx2.relevance_classifier.calls)
+    run_generate(ctx2)
+    assert not [c for c in ctx2.relevance_classifier.calls[before2:] if "최근에 올린" in c[2]]
+
+
+def test_recent_titles_are_newest_first(db, clock, app_config) -> None:
+    ctx = _ctx(db, clock, app_config, [])
+    now = clock.now()
+    for i, name in enumerate(["ㄱ 오래된 글", "ㅎ 최근 글", "ㄴ 중간 글"]):
+        _seed_content(ctx, f"t{i}", "핸드드립", "info", now - timedelta(days=[3, 1, 2][i]))
+        ctx.repo.db.execute("UPDATE contents SET topic = ? WHERE id = ?", [name, f"t{i}"])
+    assert ctx.repo.recent_titles(now - timedelta(days=14), 2) == ["ㅎ 최근 글", "ㄴ 중간 글"]

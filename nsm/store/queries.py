@@ -15,7 +15,15 @@ def _rows(db: Database, sql: str, params: list | None = None) -> list[dict[str, 
     return [dict(zip(cols, r, strict=True)) for r in rows]
 
 
-def overview(db: Database, day_start: datetime, day_end: datetime) -> dict[str, Any]:
+USABLE_SOURCE = (  # 원고 재료가 될 수 있는 자료(material.pick_material과 같은 조건, C31)
+    "used_in_content_id IS NULL AND relevance >= ? AND length(text) >= ? "
+    "AND coalesce(facts, '') != 'none'"
+)
+
+
+def overview(
+    db: Database, day_start: datetime, day_end: datetime, min_source_chars: int = 0
+) -> dict[str, Any]:
     one = lambda sql, p=None: db.execute(sql, p or [])[0][0]  # noqa: E731
     published_today = _rows(
         db,
@@ -35,7 +43,7 @@ def overview(db: Database, day_start: datetime, day_end: datetime) -> dict[str, 
             )
         ),
         "sources_unused": one(
-            "SELECT count(*) FROM source_items WHERE used_in_content_id IS NULL AND relevance >= 0.8"
+            f"SELECT count(*) FROM source_items WHERE {USABLE_SOURCE}", [0.8, min_source_chars]
         ),
     }
 
@@ -149,11 +157,13 @@ def cost_by_kind(db: Database, start: datetime, end: datetime) -> dict[str, floa
     return {r[0]: float(r[1]) for r in rows}
 
 
-def unused_counts_by_topic(db: Database, threshold: float) -> dict[str, int]:
-    """아직 콘텐츠에 쓰지 않은 관련 자료 수(주제별, 상한 없이 전부)."""
+def unused_counts_by_topic(
+    db: Database, threshold: float, min_source_chars: int = 0
+) -> dict[str, int]:
+    """원고 재료가 될 수 있는 자료 수(주제별, 상한 없이 전부). material.pick_material과 같은 조건(C31)."""
     rows = db.execute(
-        "SELECT topic, count(*) FROM source_items WHERE used_in_content_id IS NULL "
-        "AND relevance >= ? AND topic IS NOT NULL GROUP BY topic",
-        [threshold],
+        f"SELECT topic, count(*) FROM source_items WHERE {USABLE_SOURCE} "
+        "AND topic IS NOT NULL GROUP BY topic",
+        [threshold, min_source_chars],
     )
     return {r[0]: int(r[1]) for r in rows}
