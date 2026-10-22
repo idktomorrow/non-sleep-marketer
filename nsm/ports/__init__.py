@@ -297,6 +297,19 @@ class MemeFormatPlanner(Protocol):
 
 
 @runtime_checkable
+class PhotoPlacer(Protocol):
+    """실제 사진과 카드 장 짝짓기(S18 제안, ADR 0062). 그림을 볼 수 있는 공급자만 구현한다.
+
+    cover_text: 표지 글, slides: (장 번호, 장 요약) 목록, photos: (로컬 경로, 출처 URL, 설명) 목록.
+    돌려주는 값: {"cover": 사진 번호 또는 -1, "slides": [{"slide": 장 번호, "photo": 번호 또는 -1}],
+    "photos": [{"photo": 번호, "shows": 무엇이 보이는지}]}. 검증은 호출자가 한다."""
+
+    def place_photos(
+        self, cover_text: str, slides: list[tuple[int, str]], photos: list[tuple[str, str, str]]
+    ) -> dict: ...
+
+
+@runtime_checkable
 class CardRenderer(Protocol):
     def render(self, deck: CardDeck, out_dir: Path) -> list[Path]: ...
 

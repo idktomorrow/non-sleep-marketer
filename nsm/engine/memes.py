@@ -455,11 +455,30 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
         "topic": topic,
         # 형식 재해석은 사례 탐색 분류(A~D)와 다른 축이라 category를 두지 않고 시기만 남긴다(S17 리뷰)
         "era": cand.era,
-        "category_label": {
-            "recent": "최근 확산 밈",
-            "classic": "유명 형식 밈",
-            "local": "국내 유행 밈",
-        }.get(cand.era, "밈"),
+        "category_label": ERA_LABELS.get(cand.era, "밈"),
+        "source_kind": plan.source_kind,
+        "mechanism": plan.mechanism,
+        "form": plan.form,
+        "pages": len(plan.pages) or 1,
+        # 팬 사례 후보는 다시 만들 때 같은 글을 가리키도록 계획에 저장한다(재검색하면 순서가 바뀐다, S18 리뷰)
+        "fan_candidates": [
+            {
+                k: getattr(c, k)
+                for k in (
+                    "key",
+                    "title",
+                    "url",
+                    "era",
+                    "evidence",
+                    "about",
+                    "site",
+                    "checked_at",
+                    "latest_evidence",
+                )
+            }
+            for c in candidates
+            if c.era == "fan"
+        ],
         "format": {
             "key": cand.key,
             "title": cand.title,
@@ -627,7 +646,7 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
     fd = discover_formats(ctx)
     old = sl.plan or {}
     topic = old.get("topic") or (ctx.config.persona.topics or [""])[0]
-    found = discover_for(ctx, topic).found if key.startswith("fan-") else []
+    found: list = []  # 팬 사례는 다시 검색하지 않고 계획에 저장된 그대로 쓴다(S18 리뷰)
     prod = ProductionStore(ctx.repo.db, ctx.clock)
     cast = ensure_cast(ctx, prod, cid)
     plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
@@ -638,7 +657,14 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
         hook_sources=hook_sources,
         found=found,
     )
-    cands = with_fan_and_original(fd.candidates, mc)
+    from nsm.ports import MemeFormatCandidate
+
+    stored_fans = [MemeFormatCandidate(**f) for f in old.get("fan_candidates") or []]
+    cands = [
+        *fd.candidates,
+        *stored_fans,
+        *[c for c in with_fan_and_original([], mc) if c.era == "original"],
+    ]
     if key not in {x.key for x in cands}:
         raise AdapterError("그 밈 후보를 오늘 탐색 결과에서 찾지 못했습니다")
     req = format_request(ctx, topic, cast.hero, cands, plans, mc, force_key=key)

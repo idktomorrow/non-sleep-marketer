@@ -272,6 +272,9 @@ class FakeScenarioWriter:
             ),
             caption="오늘도 괜찮아요. #밈",
             threads_text="괜찮아요",
+            mechanism=f"{key}: 태연함과 위기의 대비",
+            source_kind="팬덤의 반복 행동",
+            form="한 장 반응짤",
             ranking=tuple(
                 MemeRank(c.key, 9.0 - i, "근거·적합성") for i, c in enumerate(req.candidates)
             ),

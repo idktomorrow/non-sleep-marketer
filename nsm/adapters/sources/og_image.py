@@ -195,9 +195,13 @@ def fetch_photo_candidate(
 BODY_MIN_SIDE = 480  # 본문 이미지는 대표 이미지보다 작아도 쓸 만하다(상품 컷)
 _IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _ATTR = re.compile(r"""(src|data-src|data-lazy-src|alt)\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+# 장식·광고 그림: 경로의 한 마디(구분자 사이)가 이 낱말일 때만. "upload_", "lead-image"처럼 낱말 안에 든 것은 거르지 않는다
 _SKIP = re.compile(
-    r"(logo|icon|banner|btn|button|sprite|emoji|profile|avatar|ad[_-]|/ads?/|blank|spacer)", re.I
+    r"(?:^|[/_.-])(logo|icon|banner|btn|button|sprite|emoji|profile|avatar|ad|ads|advert|blank|spacer)"
+    r"(?=[/_.-]|\d|$)",
+    re.I,
 )
+_DIM = re.compile(r"""\b(width|height)\s*=\s*["']?(\d+)""", re.I)
 _FIGCAPTION = re.compile(r"<figcaption[^>]*>(.*?)</figcaption>", re.IGNORECASE | re.DOTALL)
 _TAGS = re.compile(r"<[^>]+>")
 
@@ -224,6 +228,8 @@ def _ahash(data: bytes) -> int:
 
 def article_images(html: str, base_url: str) -> list[tuple[str, str]]:
     """(이미지 URL, 설명) 목록: 대표 이미지(og:image) 먼저, 그다음 본문 이미지 순서."""
+    import html as _html
+
     out: list[tuple[str, str]] = []
     og = extract_og_image(html, base_url)
     if og:
@@ -232,21 +238,23 @@ def article_images(html: str, base_url: str) -> list[tuple[str, str]]:
     for m in _IMG_TAG.finditer(region):
         attrs = {k.lower(): v for k, v in _ATTR.findall(m.group(0))}
         src = attrs.get("data-src") or attrs.get("data-lazy-src") or attrs.get("src") or ""
-        if (
-            not src
-            or src.startswith("data:")
-            or _SKIP.search(src)
-            or src.lower().endswith((".svg", ".gif"))
-        ):
+        if not src or src.startswith("data:"):
             continue
-        cap = _FIGCAPTION.search(region, m.end(), m.end() + 1500)
+        path = urlsplit(urljoin(base_url, src)).path
+        if _SKIP.search(path) or path.lower().endswith((".svg", ".gif")):
+            continue
+        dims = {k.lower(): int(v) for k, v in _DIM.findall(m.group(0))}
+        if dims and max(dims.values()) < BODY_MIN_SIDE:
+            continue  # 태그에 적힌 크기가 작으면 받지 않는다(썸네일, S18 리뷰)
+        # 캡션은 같은 그림의 것만: 다음 <img>보다 먼저 나오는 figcaption(뒤 그림의 캡션을 가져오지 않게, S18 리뷰)
+        nxt = _IMG_TAG.search(region, m.end())
+        cap = _FIGCAPTION.search(
+            region, m.end(), min(m.end() + 1500, nxt.start() if nxt else len(region))
+        )
         desc = " ".join(
             filter(None, [attrs.get("alt", ""), _TAGS.sub(" ", cap.group(1)) if cap else ""])
         )
-        import html as _html
-
-        desc = _html.unescape(desc).replace("\xa0", " ")
-        desc = re.sub(r"^image\s+", "", " ".join(desc.split()))
+        desc = re.sub(r"^image\s+", "", " ".join(_html.unescape(desc).replace("\xa0", " ").split()))
         out.append((urljoin(base_url, _html.unescape(src)), desc[:200]))
     seen: set[str] = set()
     uniq = []
@@ -283,7 +291,8 @@ def fetch_article_images(
         for idx, (url, desc) in enumerate(
             article_images(html_bytes.decode("utf-8", errors="replace"), final_url)
         ):
-            if len(out) >= max_images:
+            # 받을 장수의 3배까지만 시도(작은 그림이 많은 포털 기사에서 작업 스레드를 오래 잡지 않게, S18 리뷰)
+            if len(out) >= max_images or idx >= max_images * 3:
                 break
             try:
                 _, data, _ = _get(client, url, MAX_IMAGE_BYTES, resolver)

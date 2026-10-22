@@ -284,6 +284,14 @@ class ReviewActions:
         out = upload_dir(media_dir, cid)
         out.mkdir(parents=True, exist_ok=True)
 
+        def usable(k) -> bool:
+            # 배치가 가리키는 후보 파일이 사라졌으면 그 자리는 건너뛴다(500 대신, S18 리뷰)
+            try:
+                k = int(k)
+            except (TypeError, ValueError):
+                return False
+            return 0 <= k < len(cands) and Path(cands[k]["path"]).is_file()
+
         def copy(k: int, tag: str) -> tuple[Path, dict]:
             cand = cands[k]
             p = Path(cand["path"])
@@ -295,18 +303,14 @@ class ReviewActions:
         g = c.generated
         cover_dest = None
         cover_k = placement.get("cover")
-        if cover_k is not None and 0 <= int(cover_k) < len(cands):
+        if cover_k is not None and usable(cover_k):
             cover_dest, _ = copy(int(cover_k), "slide-01")
             g = set_background(g, 0, str(cover_dest), media_dir)
         slides = list(g.deck.slides)
         notes = placement.get("notes") or {}
         for key, k in (placement.get("slides") or {}).items():
             i, k = int(key), int(k)
-            if (
-                not (0 < i < len(slides))
-                or not (0 <= k < len(cands))
-                or not hasattr(slides[i], "photo")
-            ):
+            if not (0 < i < len(slides)) or not usable(k) or not hasattr(slides[i], "photo"):
                 continue
             dest, cand = copy(k, f"slide-{i + 1:02d}")
             slides[i] = slides[i].model_copy(

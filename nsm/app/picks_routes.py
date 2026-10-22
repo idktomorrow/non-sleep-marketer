@@ -55,7 +55,9 @@ def _has_real_photo(content) -> bool:
     )
 
 
-def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[str, Any]:
+def pick_view(
+    p: Pick, content, now, tz: str, slot: Slot | None = None, photos_expected: bool = False
+) -> dict[str, Any]:
     """카드 한 장에 보일 값. 상태 배지는 슬롯 제작 단계·사진 준비·렌더 확인·재확인 여부를 함께 본다(S14)."""
     age = now - content.created_at
     needs_recheck = ReviewActions.needs_recheck(content.created_at, p.rechecked_at, now)
@@ -66,7 +68,7 @@ def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[
         readiness = ("ok", "게시 준비 완료")
     elif p.photo_status == "candidate":
         readiness = ("warn", "사진 확인 대기")
-    elif (p.kind or "info") == "info" and not _has_real_photo(content):
+    elif (p.kind or "info") == "info" and photos_expected and not _has_real_photo(content):
         # 소재 사진이 없는 정보 원고를 조용히 완성으로 보이지 않게(S18): 직접 올리거나 다른 자료로
         readiness = ("warn", "소재 사진 없음 · 직접 올리기 필요")
     else:
@@ -127,10 +129,15 @@ def install_picks_routes(
         }
         items = state.repo.get_source_items(sorted({i for ids in src_ids.values() for i in ids}))
         zone = tz()
+        cfg = state.get_config()
+        # 사진 우선형이고 사진 후보를 모으는 설정일 때만 "소재 사진 없음"을 띄운다(다른 스타일은 원래 사진이 없다, S18 리뷰)
+        photos_expected = (
+            cfg.brand.card_style == "editorial" and cfg.settings.picks.photo_candidates
+        )
         for p in picks:
             c = contents[p.content_id]
             if c is not None:
-                v = pick_view(p, c, now, zone, by_key.get(p.slot_key or ""))
+                v = pick_view(p, c, now, zone, by_key.get(p.slot_key or ""), photos_expected)
                 v["topic"] = topics.get(c.id) or v["plan"].get("topic") or ""
                 v["sources"] = [items[i] for i in src_ids[c.id] if i in items][:4]
                 out.append(v)

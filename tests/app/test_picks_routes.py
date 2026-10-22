@@ -335,7 +335,37 @@ def test_photo_use_places_photos_by_content_not_order(env) -> None:
     assert all(getattr(s, "photo", None) is None for s in others)
 
 
-def test_info_pick_without_real_photo_is_flagged(env) -> None:
-    """소재 사진이 없는 정보 원고는 조용히 완성으로 보이지 않는다(S18)."""
+def test_info_pick_without_real_photo_is_flagged_only_for_photo_style(env) -> None:
+    """사진 우선형에서 소재 사진이 없는 정보 원고는 조용히 완성으로 보이지 않는다. 다른 스타일은 원래 사진이 없다(S18 리뷰)."""
     assert _post(env, "/picks/pk1/photo/drop").status_code == 303
+    assert "소재 사진 없음" not in env["client"].get("/picks").text  # 기본(clean) 스타일
+    cfg = env["holder"]["cfg"]
+    env["holder"]["cfg"] = cfg.model_copy(
+        update={"brand": cfg.brand.model_copy(update={"card_style": "editorial"})}
+    )
     assert "소재 사진 없음" in env["client"].get("/picks").text
+
+
+def test_photo_use_skips_missing_candidate_files(env) -> None:
+    """배치가 가리키는 후보 파일이 사라졌으면 그 장은 건너뛰고 나머지는 넣는다(500 대신, S18 리뷰)."""
+    import json
+
+    pick = env["store"].get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    deck = env["repo"].get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo"))
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {"path": pick.photo_candidate_path},
+                    {"path": str(folder / "gone.png")},
+                ],
+                "placement": {"cover": 0, "slides": {str(body): 1}},
+            }
+        ),  # fmt: skip
+        encoding="utf-8",
+    )
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    d = env["repo"].get_content("pk1").generated.deck
+    assert d.slides[0].background and d.slides[body].photo is None

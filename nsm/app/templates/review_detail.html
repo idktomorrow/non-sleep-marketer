@@ -89,6 +89,11 @@
     <p class="muted small">카드 마지막 장과 SNS 글 끝 "출처:" 줄에 나갑니다. 아래 "사실 주장과 출처"의 근거 자료는 바뀌지 않으니, 주장의 근거를 지우지 않았는지 확인하세요.</p>{% endif %}
     </fieldset>
     {% endfor %}
+    {% if not (g.deck.slides | selectattr('kind', 'equalto', 'outro') | list) and g.deck.template == 'editorial' %}
+    <fieldset><legend>출처</legend>
+    <label>출처(한 줄에 하나, 웹 주소 또는 "브랜드 제공 자료" 같은 이름 · 1~5개)<textarea name="deck_sources" rows="3">{{ g.deck.sources|join('\n') }}</textarea></label>
+    <p class="muted small">마무리 장이 없는 원고라 마지막 장 아래 작은 글씨와 SNS 글 끝 "출처:" 줄에 나갑니다.</p>
+    </fieldset>{% endif %}
     <h2>올릴 글</h2>
     <label>인스타그램 캡션<textarea name="instagram_caption" rows="8">{{ g.instagram_caption }}</textarea></label>
     <label>스레드 글<textarea name="threads_text" rows="5">{{ g.threads_text }}</textarea></label>

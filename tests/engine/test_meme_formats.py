@@ -306,3 +306,45 @@ def test_format_source_is_off_without_web_collection(app_config, tmp_path, monke
             }
         )
         assert _meme_formats(on, None, st) is not None
+
+
+def test_mechanism_is_saved_and_fed_back_to_avoid_repeats(fctx) -> None:
+    """웃음 방식이 계획에 저장되고 다음 기획에 '최근 웃음 방식'으로 넘어간다(S18 리뷰: 저장이 빠져 늘 비어 있었다)."""
+    from nsm.engine.memes import format_request
+
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    plan = _meme(fctx)[2].plan
+    assert plan["mechanism"].startswith("this-is-fine") and plan["form"] == "한 장 반응짤"
+    plans = SlotStore(fctx.repo.db, fctx.clock).recent_meme_plans(
+        fctx.clock.now().replace(year=2000)
+    )
+    req = format_request(fctx, "치이카와", None, fctx.meme_formats.cands, plans, None)
+    assert req.recent_mechanisms == (plan["mechanism"],)
+
+
+def test_remake_with_fan_candidate_uses_stored_post_not_new_search(fctx, monkeypatch) -> None:
+    """팬 사례로 다시 만들 때 다시 검색하지 않고 계획에 저장된 같은 글을 쓴다(S18 리뷰)."""
+    import nsm.engine.memes as memes
+    from nsm.engine.memes import remake_with_format
+
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    _pick, c, sl = _meme(fctx)
+    fan = {
+        "key": "fan-0", "title": "치이카와 울면서 버티기 짤", "url": "https://blog.naver.com/u1/1", "era": "fan",
+        "evidence": "네이버 블로그 게시 2026-10-20, 반응 수치 미확인", "about": "울면서 버티기", "site": "네이버 블로그",
+        "checked_at": "2026-10-21T09:00:00+09:00", "latest_evidence": "2026-10-20",
+    }  # fmt: skip
+    SlotStore(fctx.repo.db, fctx.clock).set_stage(
+        sl, sl.stage, plan={**sl.plan, "fan_candidates": [fan]}
+    )
+    monkeypatch.setattr(
+        memes, "discover_for", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재검색"))
+    )
+    assert remake_with_format(fctx, c.id, "fan-0") == fan["title"]
+    plan = _meme(fctx)[2].plan
+    assert (
+        plan["format"]["url"] == fan["url"]
+        and plan["category_label"] == "팬 커뮤니티 사례(근거 부족)"
+    )

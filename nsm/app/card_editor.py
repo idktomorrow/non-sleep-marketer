@@ -127,7 +127,11 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
             first = e.errors()[0]
             where = ".".join(str(x) for x in first.get("loc", ()))
             raise EditError(f"{i + 1}장 {where}: {first.get('msg', '형식 오류')}") from e
-    return deck.model_copy(update={"slides": slides})
+    update: dict[str, Any] = {"slides": slides}
+    # 마무리 장이 없는 소식형(S18)은 덱 출처를 고친다(같은 검사, 캡션 출처 줄·마지막 장 작은 표기에 나간다)
+    if "deck_sources" in form:
+        update["sources"] = parse_sources(form["deck_sources"])
+    return deck.model_copy(update=update)
 
 
 def drop_old_upload(media_dir: Path, cid: str, old: str | None) -> None:

@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,9 +16,6 @@ from nsm.domain.models import CardDeck
 from nsm.domain.quality import slide_texts
 
 log = logging.getLogger(__name__)
-
-THUMB = 512
-ESTIMATE_USD = 0.02
 
 
 @dataclass
@@ -43,83 +38,15 @@ def _slide_brief(deck: CardDeck) -> list[tuple[int, str]]:
     return out
 
 
-def _thumb_data_url(path: str) -> str:
-    from PIL import Image
-
-    with Image.open(path) as im:
-        im = im.convert("RGB")
-        im.thumbnail((THUMB, THUMB))
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=80)
-    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "photos": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"photo": {"type": "integer"}, "shows": {"type": "string"}},
-                "required": ["photo", "shows"],
-                "additionalProperties": False,
-            },
-        },
-        "cover": {"type": "integer"},
-        "slides": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {"slide": {"type": "integer"}, "photo": {"type": "integer"}},
-                "required": ["slide", "photo"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["photos", "cover", "slides"],
-    "additionalProperties": False,
-}
-
-_SYSTEM = (
-    "You place real news photos onto Korean card-news slides. First describe what each photo actually shows "
-    "(product, poster, event scene, people, text in image). Then assign a photo to a slide ONLY when the photo "
-    "shows what that slide talks about (the same product, the same event, the poster of that film, etc.). "
-    "Never put a photo of a different product or event on a slide. Each photo may be used at most once. "
-    "Order: FIRST assign body slides (a photo that shows exactly what one slide describes belongs to that slide), "
-    "THEN choose the cover from the photos left over. "
-    "cover: the photo that best represents the whole story's subject (the work, character, product or event the "
-    "story is about — an official poster or key visual is ideal). The cover only needs to match the overall subject, "
-    "not a specific detail; use -1 only when no photo shows that subject at all. "
-    "Slides without a fitting photo get photo -1. It is fine to leave most slides without photos."
-)
-
-
-def _vision(gen, deck: CardDeck, cands: list[dict]) -> Placement | None:
-    """OpenAI 생성기의 호출 경로(비용 원장·오류 분류)를 그대로 쓴다. 실패하면 None."""
+def _vision(placer, deck: CardDeck, cands: list[dict]) -> Placement | None:
+    """그림을 볼 수 있는 공급자(포트 PhotoPlacer)에 묻고, 돌아온 번호를 검증한다. 실패하면 None."""
     brief = _slide_brief(deck)
-    content: list[dict] = [
-        {
-            "type": "input_text",
-            "text": "표지: "
-            + " / ".join(slide_texts(deck.slides[0]))[:200]
-            + "\n장 목록:\n"
-            + "\n".join(t for _, t in brief)
-            + "\n\n사진 목록(번호 순서대로 이미지가 이어진다):\n"
-            + "\n".join(
-                f"[{k}] 출처 {c.get('source_url', '')[:80]} · 설명 {c.get('alt') or '없음'}"
-                for k, c in enumerate(cands)
-            ),
-        }
-    ]
-    for c in cands:
-        content.append(
-            {"type": "input_image", "image_url": _thumb_data_url(c["path"]), "detail": "low"}
-        )
-    body = gen._body(_SYSTEM, "", _SCHEMA, "photo_placement", 3000)
-    body["input"] = [{"role": "user", "content": content}]
     try:
-        out = gen._parse(gen._text(gen._call("photo:match", body, ESTIMATE_USD)))
+        out = placer.place_photos(
+            " / ".join(slide_texts(deck.slides[0])),
+            brief,
+            [(c["path"], c.get("source_url", ""), c.get("alt", "")) for c in cands],
+        )
     except Exception as e:  # noqa: BLE001  배치는 있으면 좋고 없으면 비워 둔다
         log.info("사진 짝짓기 실패(비워 둠): %s", e)
         return None
@@ -173,10 +100,10 @@ def match_photos(ctx, deck: CardDeck, cands: list[dict]) -> Placement:
     if not keep:
         return Placement()
     sub = [cands[k] for k in keep]
-    from nsm.adapters.generator.openai_text import OpenAITextGenerator
+    from nsm.ports import PhotoPlacer
 
     gen = ctx.text_generator
-    p = _vision(gen, deck, sub) if isinstance(gen, OpenAITextGenerator) else None
+    p = _vision(gen, deck, sub) if isinstance(gen, PhotoPlacer) else None
     if p is None:
         p = _text_match(deck, sub)
     return Placement(

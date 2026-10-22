@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from nsm.adapters.sources.og_image import PhotoCandidate, fetch_photo_candidate
+from nsm.adapters.sources.og_image import PhotoCandidate
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content
 from nsm.domain.picks_policy import (
@@ -45,7 +45,14 @@ log = logging.getLogger(__name__)
 RECENT_DAYS = 14  # 최근 이 기간에 다룬 사건은 다시 추천하지 않는다
 DISMISSED_DAYS = 30  # '관심 없음'으로 버린 사건을 기억하는 기간
 MAX_CANDIDATES = 10  # 생성까지 시도할 사건 수 상한(비용)
-PhotoFetcher = Callable[[str, Path], PhotoCandidate | None]
+# 사진 수집기: 원문 URL → 후보 한 장(예전 형태) 또는 여러 장(S18 기본: 대표·본문 이미지)
+PhotoFetcher = Callable[[str, Path], "PhotoCandidate | list[PhotoCandidate] | None"]
+
+
+def fetch_photo_candidates(url: str, dest: Path) -> list[PhotoCandidate]:
+    from nsm.adapters.sources.og_image import fetch_article_images
+
+    return fetch_article_images(url, dest, max_images=3)
 
 
 def picks_dir(ctx: JobContext) -> Path:
@@ -193,7 +200,7 @@ def _fill_info_slot(
 def run_picks(
     ctx: JobContext,
     manual: bool = False,
-    fetch_photo: PhotoFetcher = fetch_photo_candidate,
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
     retry_only: bool = False,
 ) -> JobResult:
     """오늘의 추천(S14: 슬롯 기반). retry_only=True면 계획·수집 없이 재시도 시각이 된 슬롯만 채운다."""
@@ -432,25 +439,22 @@ def _attach_photo(
     내용으로 짝지은 배치를 candidates.json에 둔다. 사진이 하나도 없으면 검토 사유에 남긴다(조용히 완성 처리 안 함)."""
     import json
 
-    from nsm.adapters.sources.og_image import fetch_article_images
-
     if isinstance(urls, str):
         urls = [urls]
     urls = [u for u in urls if u and not u.startswith("file:")][:3]
     dest = picks_dir(ctx) / cid
     cands = []
-    for u in urls:
+    for k, u in enumerate(urls):
         try:
-            if fetch_photo is fetch_photo_candidate:
-                cands += fetch_article_images(u, dest, max_images=3, start_index=len(cands))
-            else:
-                one = fetch_photo(u, dest)
-                if one is not None:
-                    cands.append(one)
+            # 수집기는 한 장(예전 형태) 또는 여러 장(S18 기본)을 돌려준다. 자료마다 폴더를 나눠 파일 이름이 겹치지 않게
+            got = fetch_photo(u, dest if k == 0 else dest / f"src{k}")
+            cands += [c for c in (got if isinstance(got, list) else [got]) if c is not None]
         except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
             log.info("사진 후보 수집 실패(%s): %s", u, e)
         if len(cands) >= 5:
             break
+    for extra in cands[5:]:  # 쓰지 않을 후보 파일은 남기지 않는다(S18 리뷰)
+        Path(extra.path).unlink(missing_ok=True)
     if not cands:
         if urls:
             c = ctx.repo.get_content(cid)

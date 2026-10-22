@@ -154,3 +154,59 @@ def test_fan_and_original_candidates_are_added() -> None:
     out = with_fan_and_original([], mc)
     assert [c.era for c in out] == ["fan", "original"]
     assert "반응 수치 미확인" in out[0].evidence and out[0].latest_evidence == "2026-10-22"
+
+
+def test_article_images_skip_only_real_ad_segments_and_scope_captions() -> None:
+    from nsm.adapters.sources.og_image import article_images
+
+    html = (
+        '<article><img src="/news/upload_2026/photo.jpg" alt="굿즈 사진">'
+        '<img src="/img/logo.png"><img src="/thumbs/a.jpg" width="140" height="88">'
+        '<img src="/lead-image.jpg"><figure><img src="/p2.jpg"><figcaption>팝콘통 굿즈</figcaption></figure></article>'
+    )
+    got = article_images(html, "https://news.example.com/a/1")
+    urls = [u for u, _ in got]
+    assert (
+        "https://news.example.com/news/upload_2026/photo.jpg" in urls
+    )  # 'upload_'는 광고가 아니다
+    assert not any("logo" in u or "thumbs" in u for u in urls)  # 로고·작은 썸네일은 거른다
+    desc = dict(got)
+    assert desc["https://news.example.com/lead-image.jpg"] == ""  # 다음 그림의 캡션을 빌리지 않는다
+    assert desc["https://news.example.com/p2.jpg"] == "팝콘통 굿즈"
+
+
+def test_photo_placement_goes_through_port_and_is_validated() -> None:
+    from types import SimpleNamespace
+
+    from nsm.engine.photo_match import match_photos
+
+    class Placer:
+        def place_photos(self, cover_text, slides, photos):
+            assert [i for i, _ in slides] == [1, 2]  # 표지는 본문 장 목록에 넣지 않는다
+            return {"cover": 1, "slides": [{"slide": 1, "photo": 0}, {"slide": 2, "photo": 1}, {"slide": 9, "photo": 0}],
+                    "photos": [{"photo": 0, "shows": "팝콘통"}]}  # fmt: skip
+
+    import tempfile
+    from pathlib import Path
+
+    d = Path(tempfile.mkdtemp())
+    for n in ("a.jpg", "b.jpg"):
+        (d / n).write_bytes(b"x")
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[
+            CoverSlide(title="t"),
+            BodySlide(heading="h", body="b"),
+            BodySlide(heading="h2", body="b2"),
+        ],
+    )
+    cands = [
+        {"path": str(d / "a.jpg")},
+        {"path": str(d / "missing.jpg")},
+        {"path": str(d / "b.jpg")},
+    ]
+    p = match_photos(SimpleNamespace(text_generator=Placer()), deck, cands)
+    # 없는 파일은 빼고 맞춘 뒤 원래 번호로: 표지=b(원래 2), 1장=a(0). 같은 사진 두 번·없는 장은 버린다
+    assert p.method == "vision" and p.cover == 2 and p.slides == {1: 0} and p.notes == {0: "팝콘통"}
