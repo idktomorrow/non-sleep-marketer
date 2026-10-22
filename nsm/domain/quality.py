@@ -118,6 +118,90 @@ STIFF_PHRASES = (
 )
 
 
+# 자료가 빈약할 때 모델이 칸을 채우는 일반론(2026-10-22 "달력 어디서 살까요 → 검색해 보세요" 원고, C31).
+# "확인해 보세요"·"참고하세요"는 정상 마무리 문구에도 흔해 넣지 않는다(리뷰).
+FILLER_PHRASES = (
+    "검색해 보세요",
+    "검색해보세요",
+    "검색하세요",
+    "검색해 비교",
+    "판매자마다 달라",
+    "판매처마다 달라",
+    "찾아보세요",
+)
+
+# 구체 사실로 세는 것: 날짜, 숫자(수량·가격·순위), 장소·판매처 꼬리, 따옴표 이름, 유명 브랜드.
+# 한글 뒤에는 조사가 붙으므로(다이소에서, 팝업스토어에) 낱말 경계(\b)를 쓰지 않는다.
+_FACT_DATE = re.compile(r"\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}월\s*\d{1,2}일|\d{4}년")
+_FACT_NUMBER = re.compile(
+    r"\d[\d,.]*\s*(?:만|천|억|원|엔|달러|%|개|명|일|월|시|분|장|호|관|종|권|회|위|주|배|cm|mm|kg|g|ml|l|dx)?",
+    re.I,
+)
+_FACT_PLACE = re.compile(
+    r"[가-힣A-Za-z0-9]+(?:스토어|샵|숍|몰|백화점|센터|극장|영화관|편의점|마켓|마트|팝업|스퀘어|타워|플라자|공항|호텔|카페)"
+)
+_FACT_NAME = re.compile(r"[「『'\"]([^「」『』'\"]{2,30})[」』'\"]")
+_FACT_BRAND = re.compile(
+    r"(?<![A-Za-z0-9])(?:CGV|롯데시네마|메가박스|다이소|올리브영|무신사|쿠팡|네이버쇼핑|29CM|카카오|미니소|GS25|CU|세븐일레븐|이마트|홈플러스|코엑스|더현대|롯데월드|에버랜드|ANA|JAL)(?![A-Za-z0-9])",
+    re.I,
+)
+
+
+def fact_count(gen: GeneratedContent) -> int:
+    """원고(사실 주장 + 카드 글)에 든 서로 다른 구체 사실의 수(C31).
+    날짜 하나는 사실 하나(2026-10-25가 셋으로 안 세게 먼저 떼어 낸다). 한 자리 숫자(글머리 "1.")는 안 센다."""
+    texts = [c.text for c in gen.claims] + list(sns_texts(gen).values())
+    found: set[str] = set()
+    for t in texts:
+        for m in _FACT_DATE.finditer(t):
+            found.add("date:" + " ".join(m.group(0).split()))
+        rest = _FACT_DATE.sub(" ", t)
+        for m in _FACT_NUMBER.finditer(rest):
+            token = " ".join(m.group(0).split()).lower()
+            digits = sum(ch.isdigit() for ch in token)
+            unit = token.rstrip("0123456789.,").strip()
+            if digits < 2 and not unit:
+                continue  # "1." 같은 글머리·한 자리 숫자
+            found.add("num:" + token)
+        for rx in (_FACT_PLACE, _FACT_NAME, _FACT_BRAND):
+            for m in rx.finditer(rest):
+                found.add(" ".join(m.group(0).split()).lower())
+    return len(found)
+
+
+_TITLE_TOKEN = re.compile(r"[가-힣a-zA-Z0-9]{2,}")
+# 어느 페르소나에나 흔한 낱말. 페르소나의 관심 주제 낱말은 호출부가 stop으로 더 넘긴다(material.py)
+TITLE_STOP = {
+    "소식",
+    "정보",
+    "정리",
+    "총정리",
+    "안내",
+    "관련",
+    "이야기",
+    "그리고",
+    "에서",
+    "으로",
+    "추천",
+    "방법",
+}
+
+
+def title_tokens(text: str, stop: set[str] | None = None) -> set[str]:
+    """제목·주장의 낱말 집합(같은 사건 판정용). 흔한 낱말과 주제 낱말(stop)은 뺀다."""
+    drop = TITLE_STOP | (stop or set())
+    return {t.lower() for t in _TITLE_TOKEN.findall(text) if t.lower() not in drop}
+
+
+def same_event(a: set[str], b: set[str], threshold: float = 0.5) -> bool:
+    """두 낱말 집합이 같은 사건을 가리키나(자카드 겹침). 낱말이 두 개 이하면 완전 일치일 때만."""
+    if not a or not b:
+        return False
+    if min(len(a), len(b)) < 3:
+        return a == b  # 낱말이 한두 개면 포함 관계로는 못 믿는다("원두" ⊂ 아무 원두 글)
+    return len(a & b) / len(a | b) >= threshold
+
+
 def sns_texts(gen: GeneratedContent) -> dict[str, str]:
     """사람에게 보이는 SNS 글: 캡션, 스레드, 카드 글(장마다). 블로그는 MVP 게시 대상이 아니다(ADR 0016)."""
     out = {"인스타그램 캡션": gen.instagram_caption, "스레드 글": gen.threads_text}
@@ -168,6 +252,10 @@ def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
     hit = next((p for p in CTA_AWKWARD if p in outro_cta(gen)), None)
     if hit:
         out.append(f'마무리 문구에 카드에서 할 수 없는 말 "{hit}"')
+    for name, text in texts.items():
+        hit = next((p for p in FILLER_PHRASES if p in text), None)
+        if hit:
+            out.append(f'{name}에 자료 없이 채운 일반론 "{hit}"')
     for name, text in texts.items():
         hit = next((p for p in UNCONFIRMED_PHRASES if p in text), None)
         if hit:

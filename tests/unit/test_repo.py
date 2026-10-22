@@ -51,7 +51,7 @@ def test_unused_relevant_items_and_mark_used(repo: Repository) -> None:
     repo.set_source_relevance(items[1].id, 0.5)
     repo.set_source_topic(items[0].id, "핸드드립", 0.9)
     got = repo.unused_relevant_items(0.8)
-    assert [i.id for i, _, _ in got] == [items[0].id]
+    assert [i.id for i, _, _, _ in got] == [items[0].id]
     assert got[0][2] == "핸드드립"
     repo.mark_items_used([items[0].id], "content-1")
     assert repo.unused_relevant_items(0.8) == []

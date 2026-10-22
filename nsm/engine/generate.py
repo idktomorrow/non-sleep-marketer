@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
@@ -23,9 +22,9 @@ from nsm.domain.policy import (
     should_act,
     under_cost_cap,
 )
-from nsm.domain.quality import normalize_bullets, rule_violations
-from nsm.engine.collect import excluded_word
+from nsm.domain.quality import fact_count, normalize_bullets, rule_violations
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.material import pick_material
 from nsm.ports import AdapterError
 
 log = logging.getLogger(__name__)
@@ -75,20 +74,8 @@ def all_texts(gen: GeneratedContent) -> list[str]:
 def _pick_material(
     ctx: JobContext,
 ) -> tuple[str, list[tuple[SourceItem, float]]] | None:
-    """쓸 자료 묶음: 가장 오래 안 쓴 페르소나 주제 → 그 주제의 관련성 높은 자료 3건."""
-    groups: dict[str, list[tuple[SourceItem, float]]] = defaultdict(list)
-    words = ctx.config.settings.collect.exclude_words
-    for item, rel, topic in ctx.repo.unused_relevant_items(ctx.config.settings.relevance_threshold):
-        # 제외어를 나중에 넣었어도 이미 모아 둔 자료가 원고에 쓰이지 않게(C15)
-        if topic and not excluded_word(item, words):
-            groups[topic].append((item, rel))
-    if not groups:
-        return None
-    last_used = ctx.repo.persona_topic_last_used()
-    epoch = datetime.min.replace(tzinfo=ctx.clock.now().tzinfo)
-    topic = min(groups, key=lambda t: (last_used.get(t, epoch), -len(groups[t])))
-    chosen = sorted(groups[topic], key=lambda x: -x[1])[:SOURCES_PER_CONTENT]
-    return topic, chosen
+    """쓸 자료 묶음(C31: 빈약한 자료·이미 올린 소식·소재 쏠림을 거른다, nsm/engine/material.py)."""
+    return pick_material(ctx, SOURCES_PER_CONTENT)
 
 
 def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -> GeneratedContent:
@@ -219,6 +206,8 @@ def _make_one(
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
     template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)))
+    if template == "compare" and len(items) < 2:
+        template = "info"  # 비교할 대상이 둘 없으면 억지 비교를 만들지 않는다(C31)
     brief = ContentBrief(
         topic=f"{persona_topic}: {items[0].title}",
         template=template,
@@ -263,6 +252,14 @@ def _make_one(
         # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
         approved = False
         reason = "; ".join(filter(None, [f"페르소나 규칙 위반: {', '.join(violations)}", reason]))
+    facts = fact_count(gen)
+    if facts < s.min_facts:
+        # 구체 사실이 없는 원고("검색해 보세요"류)는 자동 게시하지 않는다(C31)
+        approved = False
+        reason = "; ".join(
+            filter(None, [f"구체 사실 부족({facts}개, 최소 {s.min_facts}개)", reason])
+        )
+        result.counts["thin"] = result.counts.get("thin", 0) + 1
     content = Content(
         id=new_id(),
         status="draft" if approved else "pending_review",

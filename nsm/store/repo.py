@@ -170,6 +170,34 @@ class Repository:
         )
         return [self._row_to_item(r) for r in rows]
 
+    def set_source_facts(self, item_id: str, label: str | None) -> None:
+        """구체 사실 유무('has'|'none', C31). None이면 다시 판정하게 비운다(본문을 나중에 받았을 때)."""
+        self.db.execute("UPDATE source_items SET facts = ? WHERE id = ?", [label, item_id])
+
+    def latest_classification(self, target_id: str, kind: str) -> str | None:
+        """그 대상의 가장 최근 판정 라벨(없으면 None)."""
+        rows = self.db.execute(
+            "SELECT label FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
+            "AND kind = ? ORDER BY created_at DESC LIMIT 1",
+            [target_id, kind],
+        )
+        return rows[0][0] if rows else None
+
+    def relevant_items_without_facts(self, threshold: float, limit: int = 100) -> list[SourceItem]:
+        """원문 읽기가 끝났는데(가져옴·건너뜀·실패 소진) 구체 사실 판정이 아직 없는 관련 자료(C31).
+        원문을 받기 전 요약문으로 판정해 굳히지 않게, 본문 결론이 난 것만 돌려준다."""
+        rows = self.db.execute(
+            f"SELECT {self._ITEM_COLS} FROM source_items s "
+            "WHERE relevance >= ? AND used_in_content_id IS NULL AND facts IS NULL "
+            "AND (EXISTS (SELECT 1 FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label IN ('fetched', 'skipped')) "
+            " OR (SELECT count(*) FROM classifications c WHERE c.target_type = 'source_item' "
+            "  AND c.target_id = s.id AND c.kind = 'body' AND c.label = 'failed') >= ?) "
+            "ORDER BY collected_at DESC LIMIT ?",
+            [threshold, self.BODY_RETRIES, limit],
+        )
+        return [self._row_to_item(r) for r in rows]
+
     def set_source_topic(self, item_id: str, topic: str, confidence: float) -> None:
         self.db.execute(
             "UPDATE source_items SET topic = ?, topic_confidence = ? WHERE id = ?",
@@ -192,15 +220,15 @@ class Repository:
 
     def unused_relevant_items(
         self, threshold: float, limit: int = 200
-    ) -> list[tuple[SourceItem, float, str | None]]:
-        """아직 콘텐츠에 쓰이지 않은 관련 자료: (자료, 관련성, 주제), 최신순."""
+    ) -> list[tuple[SourceItem, float, str | None, str | None]]:
+        """아직 콘텐츠에 쓰이지 않은 관련 자료: (자료, 관련성, 주제, 구체 사실 유무), 최신순."""
         rows = self.db.execute(
-            f"SELECT {self._ITEM_COLS}, relevance, topic FROM source_items "
+            f"SELECT {self._ITEM_COLS}, relevance, topic, facts FROM source_items "
             "WHERE used_in_content_id IS NULL AND relevance >= ? "
             "ORDER BY collected_at DESC LIMIT ?",
             [threshold, limit],
         )
-        return [(self._row_to_item(r[:8]), float(r[8]), r[9]) for r in rows]
+        return [(self._row_to_item(r[:8]), float(r[8]), r[9], r[10]) for r in rows]
 
     def items_by_url_hashes(self, hashes: list[str]) -> list[tuple[SourceItem, float | None, bool]]:
         """URL 해시로 찾은 자료: (자료, 관련성, 이미 원고에 썼나). 키워드 원고(C15)가 이번에 찾은 글을 고를 때."""
@@ -437,6 +465,39 @@ class Repository:
             "WHERE persona_topic IS NOT NULL GROUP BY persona_topic"
         )
         return {r[0]: from_db(r[1]) for r in rows}  # type: ignore[misc]
+
+    def recent_claims(self, since: datetime, limit: int = 60) -> list[str]:
+        """최근 원고의 사실 주장 문장(같은 소식 거르기용, C31)."""
+        rows = self.db.execute(
+            "SELECT generated FROM contents WHERE created_at >= ? AND status != 'discarded' "
+            "ORDER BY created_at DESC LIMIT ?",
+            [to_db(since), limit],
+        )
+        out: list[str] = []
+        for (raw,) in rows:
+            try:
+                out += [str(c.get("text", "")) for c in json.loads(raw).get("claims", [])]
+            except (ValueError, AttributeError, TypeError):
+                continue
+        return [c for c in out if c]
+
+    def persona_topic_counts_since(self, since: datetime) -> dict[str, int]:
+        """최근 원고 수를 페르소나 주제별로(주제 주간 상한, C31). 폐기한 것은 세지 않는다."""
+        rows = self.db.execute(
+            "SELECT persona_topic, count(*) FROM contents WHERE created_at >= ? "
+            "AND status != 'discarded' AND persona_topic IS NOT NULL GROUP BY persona_topic",
+            [to_db(since)],
+        )
+        return {r[0]: int(r[1]) for r in rows}
+
+    def recent_titles(self, since: datetime, limit: int = 20) -> list[str]:
+        """최근 원고 제목(topic 열), 최신순. 같은 소식 판정의 비교 대상(C31)."""
+        rows = self.db.execute(
+            "SELECT topic FROM contents WHERE created_at >= ? AND status != 'discarded' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            [to_db(since), limit],
+        )
+        return [r[0] for r in rows]
 
     def recent_topics(self, since: datetime) -> set[str]:
         rows = self.db.execute(

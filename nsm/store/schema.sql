@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS source_items (
     relevance DOUBLE,
     topic VARCHAR,
     topic_confidence DOUBLE,
-    used_in_content_id VARCHAR
+    used_in_content_id VARCHAR,
+    facts VARCHAR                      -- 'has' | 'none': 구체 사실(날짜·수량·가격·장소)이 있나(C31, v4)
 );
 
 CREATE TABLE IF NOT EXISTS classifications (

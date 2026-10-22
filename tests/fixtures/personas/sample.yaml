@@ -22,3 +22,7 @@ persona:
   ad_label: false
 settings:
   dry_run: true
+  # C31 품질 하한은 전용 테스트에서만 켠다(픽스처 자료 본문이 짧다)
+  min_source_chars: 0
+  min_facts: 0
+  topic_weekly_limit: 0
