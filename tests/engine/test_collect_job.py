@@ -61,7 +61,7 @@ def test_collect_stores_classifies_and_isolates_failures(ctx: JobContext) -> Non
     usable = ctx.repo.unused_relevant_items(0.8)
     assert len(usable) == 3
     assert all(topic == "핸드드립" for _, _, topic, _ in usable)
-    assert all("코스피" not in item.title for item, _, _ in usable)
+    assert all("코스피" not in item.title for item, _, _, _ in usable)
 
 
 def test_collect_second_run_dedupes_and_does_not_reclassify(ctx: JobContext) -> None:
