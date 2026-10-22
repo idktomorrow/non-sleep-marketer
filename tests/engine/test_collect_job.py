@@ -54,7 +54,7 @@ def test_collect_stores_classifies_and_isolates_failures(ctx: JobContext) -> Non
         "classified": 4,
         "relevant": 3,
         "bodies": 0,
-        "facts_judged": 0,
+        "facts_judged": 3,  # 소스에 원문 읽기가 없으면 요약문으로 바로 판정(C31)
     }
     assert any("broken" in e for e in r.errors)
     assert r.ok
