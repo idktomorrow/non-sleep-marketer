@@ -162,6 +162,26 @@ def palette(primary: str, accent: str) -> dict[str, str]:
 # ---------------------------------------------------------------- HTML
 
 
+def _aspect(path: str | Path | None) -> float:
+    """그림 가로/세로 비율(S18): 사진을 자르지 않고 배치하려고 쓴다. 못 읽으면 4:5."""
+    if not path:
+        return 0.8
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return round(im.width / max(1, im.height), 4)
+    except Exception:  # noqa: BLE001
+        return 0.8
+
+
+def _host(url: str | None) -> str:
+    from urllib.parse import urlsplit
+
+    h = urlsplit(url or "").netloc
+    return h[4:] if h.startswith("www.") else h
+
+
 def _file_uri(path: str | Path | None) -> str:
     if not path:
         return ""
@@ -183,6 +203,8 @@ def _env() -> Environment:
     )
     env.filters["file_uri"] = _file_uri
     env.filters["one_break"] = _one_break
+    env.filters["aspect"] = _aspect
+    env.filters["host"] = _host
     return env
 
 
@@ -259,6 +281,8 @@ def build_html(
             ]
         if getattr(s, "sticker", None) is not None:  # 보조 캐릭터(S14)
             update["sticker"] = _asset(s.sticker)
+        if getattr(s, "photo", None) is not None:  # 장 내용과 맞는 실제 사진(S18)
+            update["photo"] = _asset(s.photo)
         if s.kind == "comic":  # 만화 컷(S14)
             update["panels"] = [
                 pn.model_copy(update={"image": _asset(pn.image)}) for pn in s.panels

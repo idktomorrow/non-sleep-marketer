@@ -66,7 +66,9 @@ def labeled_deck(content: Content):
         s.model_copy(update={"sources": card_sources(list(s.sources))}) if s.kind == "outro" else s
         for s in deck.slides
     ]
-    return deck.model_copy(update={"labels": labels, "slides": slides})
+    return deck.model_copy(
+        update={"labels": labels, "slides": slides, "sources": card_sources(list(deck.sources))}
+    )
 
 
 class CardOverflowError(Exception):
@@ -134,8 +136,10 @@ _TEXT_FIELD = {
 
 def _sources_tail(content: Content) -> str:
     """SNS 글 끝에 붙일 출처 줄(배치 Q1). 카드 마무리 장의 출처에서 사이트 이름 1~2개."""
-    outro = next((s for s in content.generated.deck.slides if s.kind == "outro"), None)
-    line = sources_line(list(outro.sources) if outro else [])
+    deck = content.generated.deck
+    outro = next((s for s in deck.slides if s.kind == "outro"), None)
+    # 마무리 장이 없는 소식형(S18)은 덱 출처로
+    line = sources_line(list(outro.sources) if outro else list(deck.sources))
     return f"\n\n{line}" if line else ""
 
 

@@ -208,11 +208,14 @@ class MemeFormatCandidate:
     url: str  # 확인한 출처 페이지
     image_path: str = ""  # 대표 사례 그림(로컬 사본). 없으면 ""
     image_url: str = ""
-    era: str = ""  # "recent"(최근 확산) | "classic"(오래됐지만 유명한 형식) | "local"(국내 유행)
+    # "recent"(페이지에 최근 날짜의 확산 기록) | "listed"(인기 목록에 있지만 최근 기록 없음) | "classic"(오래됐지만 유명한 형식)
+    # | "local"(국내 해설 사이트 '유행 중' 표시) | "fan"(팬 커뮤니티 사례, 근거 부족) | "original"(새로 만드는 창작). S18
+    era: str = ""
     evidence: str = ""  # 확인 가능한 확산 근거(페이지에 적힌 날짜·수치 그대로, 추정 없음)
     about: str = ""  # 형식 설명(페이지 요약)
     site: str = ""  # 출처 사이트 이름
     checked_at: str = ""
+    latest_evidence: str = ""  # 페이지에 적힌 가장 최근 확산 날짜(YYYY-MM-DD), 없으면 ""(S18)
 
 
 @dataclass(frozen=True)
@@ -228,6 +231,7 @@ class MemeFormatRequest:
     hook_sources: tuple[SourceItem, ...] = ()
     caution: str = ""
     force_key: str = ""  # "다른 밈으로 다시 만들기": 이 형식으로
+    recent_mechanisms: tuple[str, ...] = ()  # 최근 밈의 웃음 작동 방식(같은 방식 반복 피하기, S18)
 
 
 @dataclass(frozen=True)
@@ -251,6 +255,14 @@ class MemeRank:
 
 
 @dataclass(frozen=True)
+class MemePage:
+    """밈 게시물의 한 장(S18). 만화 컷 수(그림 안의 칸 나눔)와 게시물 장수는 다르다."""
+
+    scene: str
+    overlays: tuple[MemeOverlaySpec, ...] = ()
+
+
+@dataclass(frozen=True)
 class MemeFormatPlan:
     key: str  # 고른 형식
     why: str  # 고른 이유(사람이 읽음)
@@ -264,6 +276,11 @@ class MemeFormatPlan:
     ranking: tuple[MemeRank, ...] = ()
     claims: tuple[tuple[str, str], ...] = ()
     suggested_character: str = ""
+    # S18: 소재 출처·웃음이 작동하는 방식(한 줄)·고른 표현 형식과 그 이유, 게시물 장들(1~3)
+    source_kind: str = ""
+    mechanism: str = ""
+    form: str = ""
+    pages: tuple[MemePage, ...] = ()
 
 
 @runtime_checkable

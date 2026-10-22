@@ -57,7 +57,6 @@
 {% macro meme_image(s, i, n, deck) -%}
 <section class="slide meme-image{% if not s.image %} missing{% endif %}" data-kind="meme_image">
   {%- if s.image %}<img class="meme-img" src="{{ s.image.path | file_uri }}" alt="{{ s.image.alt }}">{% else %}<div class="panel-empty">그림 없음</div>{% endif %}
-  <svg class="mo-tails" viewBox="0 0 1080 1350" aria-hidden="true"></svg>
   {%- for o in s.overlays %}
   <div class="mo mo-{{ o.kind }} mo-{{ o.size }} mo-{{ o.align }}" style="left: {{ o.x }}%; top: {{ o.y }}%; width: {{ o.w }}%; --w: {{ o.w }}%;"
        data-fit="{{ {'s': 22, 'm': 26, 'l': 32, 'xl': 40}[o.size] }}"{% if o.kind == 'bubble' and o.tail_x is not none %} data-tx="{{ o.tail_x }}" data-ty="{{ o.tail_y }}"{% endif %}>{{ o.text }}</div>
@@ -118,13 +117,30 @@
   {%- set ai_slides = deck.labels.ai_slides -%}
   {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
   {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
+  {%- if i == n and s.kind != 'outro' and s.kind != 'meme_image' and deck.sources %}<span class="deck-sources" data-sources>출처 {{ deck.sources | join(' · ') }}</span>{% endif -%}
   <span class="page" data-page>{{ i }} / {{ n }}</span>
 </div>
 {%- endmacro %}
 
+{#- 배경 사진(S18): 카드 비율(4:5)과 많이 다르면 자르지 않는다. 흐린 같은 사진을 깔고 원본 비율 그대로 위에 둔다
+    (포스터 글자·상품·얼굴이 잘리지 않게). 비율이 비슷하면 예전처럼 꽉 채운다 -#}
 {% macro open(cls, s, bg) -%}
-<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}" data-kind="{{ s.kind }}"{% if bg %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{%- set ar = bg | aspect if bg else 0 -%}
+{%- set fit = bg and (ar < 0.66 or ar > 0.95) -%}
+<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}{% if fit %} bg-fit{% endif %}" data-kind="{{ s.kind }}"{% if bg and not fit %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{%- if fit %}<div class="bg-blur" style="background-image: url('{{ bg | file_uri }}')"></div><img class="bg-fit-img{% if ar > 0.95 %} wide{% endif %}" src="{{ bg | file_uri }}" alt="">{% endif %}
 {{- deco(s, bg) }}
+{%- endmacro %}
+
+{#- 장 내용과 맞는 실제 사진(S18): 원본 비율 그대로(자르지 않음), 사진 출처를 작게 -#}
+{% macro photo(s) -%}
+{%- if s.photo %}{% set ar = s.photo.path | aspect %}
+<figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}" style="--ar: {{ ar }}">
+  {%- if ar < 1.2 %}<div class="photo-blur" style="background-image: url('{{ s.photo.path | file_uri }}')"></div>{% endif %}
+  <img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}">
+  {%- if s.photo.source %}<figcaption>사진 {{ s.photo.source | host }}</figcaption>{% endif %}
+</figure>
+{%- endif %}
 {%- endmacro %}
 
 {% macro cover(s, i, n, deck) -%}
@@ -149,10 +165,10 @@
 
 {% macro body(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('body', s, bg) }}
+{{ open('body' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{{ photo(s) }}
     {%- set panel = style == 'editorial' and bg %}
     {%- if panel %}<div class="caption-panel">{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
@@ -165,9 +181,9 @@
 
 {% macro listing(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('list', s, bg) }}
+{{ open('list' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content">{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <ol>{% for b in s.bullets %}<li data-fit="26">{{ b }}</li>{% endfor %}</ol>
   </div>
@@ -176,9 +192,9 @@
 
 {% macro compare(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('compare', s, bg) }}
+{{ open('compare' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content">{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <div class="cols">
       {% for side, cls in [(s.left, 'left'), (s.right, 'right')] %}
@@ -195,10 +211,10 @@
 {#- S12 제안(ADR 0052): 상품 그리드. 그림은 장별 background처럼 사람이 올린 로컬 파일이고 이름·가격은 HTML 글자다 -#}
 {% macro products(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('products', s, bg) }}
+{{ open('products' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <div class="grid items-{{ s.items | length }}">
       {% for it in s.items %}
@@ -217,12 +233,12 @@
 {#- S12 제안: 일정·구매처 같은 확인 가능한 정보 줄 -#}
 {% macro facts(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('facts', s, bg) }}
+{{ open('facts' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
-    <dl class="rows">
+    <dl class="rows layout-{{ s.layout }}">
       {% for r in s.rows %}
       <div class="fact"><dt data-fit="20">{{ r.label }}</dt><dd data-fit="22">{{ r.value }}</dd></div>
       {% endfor %}

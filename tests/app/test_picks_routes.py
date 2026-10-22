@@ -103,15 +103,14 @@ def test_pages_show_pick_with_photo_candidate(env) -> None:
     assert _post(env, "/picks/pk1/save", csrf="wrong").status_code == 403
 
 
-def test_photo_use_sets_cover_and_outro_background_and_resets_render_check(env) -> None:
+def test_photo_use_sets_cover_without_reusing_it_on_last_slide(env) -> None:
     store, repo = env["store"], env["repo"]
     r = _post(env, "/picks/pk1/photo/use")
     assert r.status_code == 303
     deck = repo.get_content("pk1").generated.deck
-    # 표지·마지막 장은 같은 사진을 **다른 파일**로 받는다(한 장의 배경을 지워도 다른 장이 깨지지 않게, S13 리뷰)
-    cover_bg, outro_bg = deck.slides[0].background, deck.slides[-1].background
-    assert cover_bg and outro_bg and cover_bg != outro_bg
-    assert Path(cover_bg).read_bytes() == Path(outro_bg).read_bytes()
+    # 표지에만 넣고 마지막 장에 표지 사진을 재탕하지 않는다(S18). 배치 제안이 없으면 본문 장도 비운다
+    assert deck.slides[0].background and not deck.slides[-1].background
+    assert all(getattr(s, "photo", None) is None for s in deck.slides)
     # 1×1 투명 PNG는 쓸 만한 색이 없어 브랜드 색 그대로(색을 못 뽑으면 바꾸지 않는다, S14)
     assert deck.brand.primary_color == env["holder"]["cfg"].brand.primary_color
     assert Path(deck.slides[0].background).is_file() and not deck.labels.ai_generated_image
@@ -298,3 +297,45 @@ def test_remake_meme_route_queues_job_with_valid_key(env) -> None:
     r = _post(env, "/picks/pk1/meme/remake", key="daily-struggle")
     assert r.status_code == 303 and calls == [("meme_remake", "pk1|daily-struggle")]
     assert _post(env, "/picks/pk1/meme/remake", key="../etc").status_code == 400
+
+
+def test_photo_use_places_photos_by_content_not_order(env) -> None:
+    """배치 제안(candidates.json)대로: 내용이 맞는 장에만 사진, 맞는 사진이 없는 장은 비운다(S18)."""
+    import json
+
+    repo = env["repo"]
+    pick = env["store"].get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    second = folder / "cand-01.png"
+    second.write_bytes(Path(pick.photo_candidate_path).read_bytes())
+    deck = repo.get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo"))
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "path": pick.photo_candidate_path,
+                        "source_url": "https://a/1",
+                        "alt": "포스터",
+                    },
+                    {"path": str(second), "source_url": "https://b/2", "alt": "굿즈 사진"},
+                ],
+                "placement": {"cover": 1, "slides": {str(body): 0}, "notes": {"0": "공식 포스터"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    deck = repo.get_content("pk1").generated.deck
+    assert deck.slides[0].background  # 제안이 고른 표지(1번 후보)
+    photo = deck.slides[body].photo
+    assert photo is not None and photo.source == "https://a/1" and photo.alt == "공식 포스터"
+    others = [s for i, s in enumerate(deck.slides) if i not in (0, body)]
+    assert all(getattr(s, "photo", None) is None for s in others)
+
+
+def test_info_pick_without_real_photo_is_flagged(env) -> None:
+    """소재 사진이 없는 정보 원고는 조용히 완성으로 보이지 않는다(S18)."""
+    assert _post(env, "/picks/pk1/photo/drop").status_code == 303
+    assert "소재 사진 없음" in env["client"].get("/picks").text

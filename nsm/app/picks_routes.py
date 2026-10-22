@@ -48,6 +48,13 @@ KIND_LABELS = {"info": "정보", "meme": "밈"}
 PRODUCTION_BLOCKING = ("images_pending", "producing", "failed_image", "unknown_image")
 
 
+def _has_real_photo(content) -> bool:
+    return any(
+        getattr(s, "background", None) or getattr(s, "photo", None)
+        for s in content.generated.deck.slides
+    )
+
+
 def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[str, Any]:
     """카드 한 장에 보일 값. 상태 배지는 슬롯 제작 단계·사진 준비·렌더 확인·재확인 여부를 함께 본다(S14)."""
     age = now - content.created_at
@@ -59,6 +66,9 @@ def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[
         readiness = ("ok", "게시 준비 완료")
     elif p.photo_status == "candidate":
         readiness = ("warn", "사진 확인 대기")
+    elif (p.kind or "info") == "info" and not _has_real_photo(content):
+        # 소재 사진이 없는 정보 원고를 조용히 완성으로 보이지 않게(S18): 직접 올리거나 다른 자료로
+        readiness = ("warn", "소재 사진 없음 · 직접 올리기 필요")
     else:
         readiness = ("gray", "미리보기 확인 전")
     kind = p.kind or "info"

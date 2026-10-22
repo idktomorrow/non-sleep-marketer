@@ -183,7 +183,9 @@ def _fill_info_slot(
             made_titles.append(lead.title)
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
-            _attach_photo(ctx, store, content.id, chosen[0][0].url, fetch_photo)
+            _attach_photo(
+                ctx, store, content.id, [i.url for i, _ in chosen if i.url], fetch_photo, d.gen.deck
+            )
         return "made", ""
     return "empty", "쓸 만한 새 자료가 없음" if not ranked else "서로 다른 소재가 모자람"
 
@@ -419,17 +421,90 @@ def run_slots_retry(ctx: JobContext) -> JobResult:
 
 
 def _attach_photo(
-    ctx: JobContext, store: PicksStore, cid: str, url: str | None, fetch_photo: PhotoFetcher
+    ctx: JobContext,
+    store: PicksStore,
+    cid: str,
+    urls,
+    fetch_photo: PhotoFetcher,
+    deck=None,
 ) -> None:
-    if not url or url.startswith("file:"):
+    """사진 후보(S11) → 여러 장 + 장별 배치 제안(S18). 기본 수집기면 자료 기사마다 대표·본문 이미지를 모으고,
+    내용으로 짝지은 배치를 candidates.json에 둔다. 사진이 하나도 없으면 검토 사유에 남긴다(조용히 완성 처리 안 함)."""
+    import json
+
+    from nsm.adapters.sources.og_image import fetch_article_images
+
+    if isinstance(urls, str):
+        urls = [urls]
+    urls = [u for u in urls if u and not u.startswith("file:")][:3]
+    dest = picks_dir(ctx) / cid
+    cands = []
+    for u in urls:
+        try:
+            if fetch_photo is fetch_photo_candidate:
+                cands += fetch_article_images(u, dest, max_images=3, start_index=len(cands))
+            else:
+                one = fetch_photo(u, dest)
+                if one is not None:
+                    cands.append(one)
+        except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
+            log.info("사진 후보 수집 실패(%s): %s", u, e)
+        if len(cands) >= 5:
+            break
+    if not cands:
+        if urls:
+            c = ctx.repo.get_content(cid)
+            if c is not None:
+                ctx.repo.set_review_reason(
+                    cid,
+                    "; ".join(
+                        filter(
+                            None,
+                            [
+                                c.review_reason,
+                                "소재 사진 없음: 직접 올리거나 다른 자료로 보강하세요",
+                            ],
+                        )
+                    ),
+                )
         return
-    try:
-        cand = fetch_photo(url, picks_dir(ctx) / cid)
-    except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
-        log.info("사진 후보 수집 실패(%s): %s", url, e)
-        return
-    if cand is None:
-        return
+    rows = [
+        {
+            "path": str(c.path),
+            "image_url": c.image_url,
+            "source_url": c.source_url,
+            "alt": getattr(c, "alt", ""),
+            "kind": getattr(c, "kind", "og"),
+            "size": [c.width, c.height],
+        }
+        for c in cands[:5]
+    ]
+    placement = None
+    if deck is not None:
+        from nsm.engine.photo_match import match_photos
+
+        try:
+            p = match_photos(ctx, deck, rows)
+            placement = {
+                "cover": p.cover,
+                "slides": {str(k): v for k, v in p.slides.items()},
+                "notes": {str(k): v for k, v in p.notes.items()},
+                "method": p.method,
+            }
+        except Exception as e:  # noqa: BLE001
+            log.info("사진 배치 제안 실패: %s", e)
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "candidates.json").write_text(
+        json.dumps({"candidates": rows, "placement": placement}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
+    first = (
+        rows[placement["cover"]] if placement and placement.get("cover") is not None else rows[0]
+    )
     store.set_photo(
-        cid, "candidate", image_url=cand.image_url, source_url=cand.source_url, path=str(cand.path)
+        cid,
+        "candidate",
+        image_url=first["image_url"],
+        source_url=first["source_url"],
+        path=first["path"],
     )

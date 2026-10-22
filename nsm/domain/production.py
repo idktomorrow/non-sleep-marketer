@@ -137,9 +137,12 @@ def image_slots(
     scenes = scenes or {}
     out: list[SlotPlan] = []
     sticker_done = False
+    first_meme: str | None = None
     for i, s in enumerate(deck.slides):
         if s.kind == "meme_image":
             t = f"s{i}.image"
+            chain = first_meme  # 여러 장 밈(S18): 2장째부터는 1장째 결과를 참조해 같은 모습으로
+            first_meme = first_meme or t
             out.append(
                 SlotPlan(
                     target=t,
@@ -153,6 +156,7 @@ def image_slots(
                     transparent=False,
                     meme_ref=meme_ref if meme_ref and Path(meme_ref).is_file() else None,
                     text_zones=tuple(_zone(o) for o in s.overlays),
+                    chain_from=chain,
                 )
             )
         elif s.kind == "comic":

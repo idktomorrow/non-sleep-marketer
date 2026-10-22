@@ -128,7 +128,8 @@ def test_auto_picks_format_and_builds_single_meme_with_separate_sources(fctx) ->
     assert plan["mode"] == "format" and plan["format"]["url"].endswith("this-is-fine")
     assert plan["sources"]["character"] == ["https://news.example.com/poster"]
     assert plan["sources"]["meme_ref"][0].endswith("this-is-fine")
-    assert [r["key"] for r in plan["ranking"]] == ["this-is-fine", "daily-struggle"]
+    # 순위에는 밈 형식 후보와 창작(S18)이 함께 오른다
+    assert [r["key"] for r in plan["ranking"]] == ["this-is-fine", "daily-struggle", "original"]
     assert "참고 밈: This Is Fine — https://knowyourmeme.com" in c.generated.instagram_caption
     # 캐릭터 참조와 밈 참조는 다른 폴더
     root = fctx.media_dir / "content" / c.id
@@ -166,11 +167,13 @@ def test_no_character_plans_but_does_not_enqueue(fctx) -> None:
     assert "고르세요" in sl.last_error and sl.plan["character"]["chosen"] is False
 
 
-def test_no_format_candidates_falls_back_to_two_panel_script(fctx) -> None:
+def test_no_format_candidates_still_plans_original_meme_not_fixed_two_panel(fctx) -> None:
+    """형식 탐색이 막혀도 2컷 고정 틀로 돌아가지 않고 창작 후보로 기획을 계속한다(S18)."""
     fctx.meme_formats.cands = []
     run_picks(fctx, fetch_photo=_fake_photo)
-    _pick, c, _sl = _meme(fctx)
-    assert c.generated.deck.slides[0].kind == "comic"
+    _pick, c, sl = _meme(fctx)
+    assert [s.kind for s in c.generated.deck.slides] == ["meme_image"]
+    assert sl.plan["format"]["key"] == "original" and sl.plan["sources"]["meme_ref"] == []
 
 
 def test_remake_with_other_candidate(fctx) -> None:

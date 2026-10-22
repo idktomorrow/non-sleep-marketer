@@ -109,12 +109,11 @@ def test_ad_false_has_no_ad_badge() -> None:
 
 
 def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
+    from PIL import Image
+
     bg = tmp_path / "bg.png"
-    bg.write_bytes(
-        bytes.fromhex(
-            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082"
-        )
-    )
+    # 카드 비율(4:5)에 가까운 사진은 꽉 채운 배경으로(S18: 비율이 많이 다르면 자르지 않고 원본 비율 배치)
+    Image.new("RGB", (400, 500), (200, 120, 40)).save(bg)
     deck = load("info")
     slides = list(deck.slides)
     slides[0] = slides[0].model_copy(update={"background": str(bg)})
@@ -324,3 +323,44 @@ def test_cover_title_blank_lines_collapse(tmp_path: Path) -> None:
     deck = CardDeck.model_validate(raw)
     assert "극장판 흥행에\n게임도 역주행</h1>" in build_html(deck)
     assert _cover_sizes(deck, tmp_path)["titleLines"] == 2
+
+
+def test_wide_or_tall_background_is_not_cropped(tmp_path: Path) -> None:
+    """카드 비율과 많이 다른 사진(가로 포스터·세로 긴 이미지)은 자르지 않고 원본 비율로 배치(S18)."""
+    from PIL import Image
+
+    from nsm.render.html_renderer import build_html
+
+    wide = tmp_path / "wide.png"
+    Image.new("RGB", (1600, 900), (10, 20, 30)).save(wide)
+    deck = load("info")
+    slides = list(deck.slides)
+    slides[0] = slides[0].model_copy(update={"background": str(wide)})
+    html = build_html(deck.model_copy(update={"slides": slides}), "editorial")
+    assert 'class="bg-fit-img wide"' in html and "bg-blur" in html
+    assert f"background-image: url('{wide.resolve().as_uri()}')\" data" not in html
+
+
+def test_editorial_renders_list_and_compare_with_their_own_layout() -> None:
+    """소식형에 list·compare 장이 오면 본문 장으로 뭉개지지 않고 각자 모양으로(S18 실키 결과에서 발견)."""
+    from nsm.domain.models import CompareSide, CompareSlide, ListSlide
+    from nsm.render.html_renderer import build_html
+
+    deck = load("info")
+    deck = deck.model_copy(
+        update={
+            "template": "editorial",
+            "slides": [
+                deck.slides[0],
+                CompareSlide(
+                    heading="비교",
+                    left=CompareSide(title="왼쪽", points=["가"]),
+                    right=CompareSide(title="오른쪽", points=["나"]),
+                ),
+                ListSlide(heading="요점", bullets=["하나", "둘"]),
+            ],
+        }
+    )
+    html = build_html(deck, "editorial")
+    assert 'data-kind="compare"' in html and "왼쪽" in html and 'class="cols"' in html
+    assert 'data-kind="list"' in html and "<ol>" in html

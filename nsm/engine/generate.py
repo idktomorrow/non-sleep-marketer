@@ -267,9 +267,11 @@ def build_draft(
     persona, brand = ctx.config.persona, ctx.config.brand
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
-    # 사진 우선형 스타일이면 소식형(editorial: 개요·상품 그리드·일정 패널)도 돌려 쓴다(S12 제안)
-    templates = ("editorial", *TEMPLATES) if brand.card_style == "editorial" else TEMPLATES
-    template = choose_template(ctx.repo.recent_templates(len(templates)), templates)
+    # 사진 우선형이면 소식형 하나로 쓰고 장마다 내용이 표현을 고른다(S18). 다른 스타일은 예전처럼 돌려 쓴다
+    if brand.card_style == "editorial":
+        template = "editorial"
+    else:
+        template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)), TEMPLATES)
     brief = ContentBrief(
         topic=f"{persona_topic}: {items[0].title}",
         template=template,

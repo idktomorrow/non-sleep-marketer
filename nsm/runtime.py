@@ -401,8 +401,11 @@ def _setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers, force=True)
 
 
-def run_forever() -> None:
-    """한 프로세스에서 스케줄러(작업 스레드 1개)와 대시보드(uvicorn)를 함께 띄운다 (ADR 0006)."""
+def run_forever(manual_only: bool = False) -> None:
+    """한 프로세스에서 스케줄러(작업 스레드 1개)와 대시보드(uvicorn)를 함께 띄운다 (ADR 0006).
+
+    manual_only(S18): 예약 작업을 걸지 않는다. 대시보드에서 사람이 누른 작업("지금 실행"·제작·다시 만들기)만
+    작업 스레드에서 돈다(검증용 홈에서 자동 게시·예약 수집이 끼어들지 않게)."""
     import uvicorn
 
     from nsm.adapters.notify.windows import DesktopNotifier
@@ -434,9 +437,12 @@ def run_forever() -> None:
         recover_interrupted_replies(ctx)
         recover_stale_slots(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
-        installed = scheduler.install(cfg)
+        installed = [] if manual_only else scheduler.install(cfg)
         scheduler.start()
-        log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
+        if manual_only:
+            log.info("예약 작업 없음(--manual-only). 대시보드: %s", url)
+        else:
+            log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
 
         def refresh() -> None:
             # 어댑터 묶음은 작업 스레드에서 새로 만든다(브라우저 드라이버·네트워크 자원은 거기서만)
@@ -451,7 +457,7 @@ def run_forever() -> None:
             ):
                 log.info(
                     "활동 시간이 바뀌어 예약을 다시 겁니다: %s",
-                    ", ".join(scheduler.reschedule(new)),
+                    ", ".join([] if manual_only else scheduler.reschedule(new)),
                 )
             if _adapter_settings(new) != _adapter_settings(old):
                 refresh()  # 공급자·모델·플랫폼 설정이 바뀌면 다음 작업부터 새 묶음(S13)
