@@ -679,3 +679,51 @@ def reedit_info(
     for p in (ctx.media_dir / "previews" / cid).glob("slide-*.png"):  # 예전 미리보기는 버린다
         p.unlink()
     return gen.deck.slides[0].title
+
+
+def make_from_material(
+    ctx: JobContext,
+    topic: str,
+    chosen: list,
+    kinds: tuple[str, ...],
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
+) -> JobResult:
+    """사람이 고른 소재(키워드 검색 결과 등)로 오늘의 추천과 **같은 제작 흐름**을 탄다(S18 프로세스).
+
+    입구(관심 주제 자동 추천·키워드)가 달라도 정보는 사진 수집·관찰 → 관점 → 장 편집 → 사람 사진 확인,
+    밈은 형식 탐색·기획 → 그림 → 완성 그림 검토로 같다. 결과는 계획 밖 슬롯으로 저장돼 추천 목록에 같은 카드로 나온다."""
+    from nsm.domain.picks_policy import normalize_tokens
+
+    result = JobResult("keyword")
+    now = ctx.clock.now()
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    slots = SlotStore(ctx.repo.db, ctx.clock)
+    today = local(now, ctx.tz).date()
+    run_id = new_id()
+    cluster = Cluster(
+        topic=topic,
+        items=list(chosen),
+        tokens=normalize_tokens(" ".join(i.title for i, _ in chosen), ctx.config.workspace.aliases),
+    )
+    info_titles = [i.title for i, _ in chosen[:3]]
+    made = {"info": 0, "meme": 0}
+    for kind in kinds:
+        slot = slots.add_extra(today, kind, ctx.config.settings.preset, run_id)
+        outcome, reason = _guarded_fill(
+            ctx, slot, kind, [cluster], [], store, slots,
+            result, fetch_photo, now, info_titles, [topic], {}, [],
+        )  # fmt: skip
+        if outcome == "made":
+            made[kind] += 1
+        elif outcome in ("retry", "failed"):
+            slots.fail(slot, "failed_text", reason, RETRY_IN)
+            result.errors.append(f"{'정보' if kind == 'info' else '밈'}: {reason}")
+        else:
+            slots.set_stage(slot, "empty", error=reason)
+            result.errors.append(
+                f"{'정보' if kind == 'info' else '밈'}: {reason or '만들 수 없음'}"
+            )
+    result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
+    result.counts["made"] = made["info"] + made["meme"]
+    result.ok = result.counts["made"] > 0
+    return result

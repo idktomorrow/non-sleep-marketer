@@ -69,7 +69,7 @@
   <label class="check"><input type="checkbox" name="picks_enabled" {% if v.picks_enabled == 'on' %}checked{% endif %}> 추천 모드 켜기 <span class="hint">매일 활동 시간이 시작되면 자료를 모은 뒤 최근 소식 중 서로 다른 소재를 완성 원고로 추천합니다(전부 검토 대기). 켜면 평소의 "원고 만들기" 자동 실행은 쉽니다. 유행 순위가 아니라 공개 시각·관련성 기준입니다</span></label>
   <div class="field-row">
     <label>하루 정보 추천 수(0~5) <span class="hint">게시 수와 별개입니다. 원고 1건에 약 4~6센트. 이 작업 공간(프리셋)에만 적용</span><input type="number" name="picks_count" value="{{ v.picks_count }}" min="0" max="5" step="1" required></label>
-    <label>하루 밈·공감 추천 수(0~3) <span class="hint">캐릭터 2컷 만화. 캐릭터를 안 골라도 대본은 만들고, 그림은 캐릭터·참조를 고른 뒤에 그립니다. 정보+밈 합계 6개까지</span><input type="number" name="meme_count" value="{{ v.meme_count }}" min="0" max="3" step="1" required></label>
+    <label>하루 밈·공감 추천 수(0~3) <span class="hint">유명 밈 재해석·원본 짤 합성·패러디·고르는 재미 등 소재에 맞는 형식으로 한 장(필요하면 여러 장). 그림은 캐릭터·참조가 있으면 그리고, 완성 그림을 검토합니다. 정보+밈 합계 6개까지</span><input type="number" name="meme_count" value="{{ v.meme_count }}" min="0" max="3" step="1" required></label>
     <label>검색 별칭(한 줄에 "대표 주제: 별칭, 별칭") <span class="hint">검색에만 씁니다(예: 치이카와 굿즈: ちいかわ グッズ, Chiikawa goods). 주제 분류와 추천은 대표 주제 하나로 묶입니다</span><textarea name="picks_aliases" rows="3">{{ v.picks_aliases }}</textarea></label>
   </div>
   <p class="muted small" style="margin-bottom:0"><b>무엇을 다룰지는 위 페르소나의 "관심 주제"</b>가 정합니다(예: 치이카와, 한국 아이돌, 특정 그룹 이름). 주제마다 최신 소식·이슈와 그 주제의 밈을 추천하고, 한 게시물에는 주제 하나만 다룹니다. 여기 정보·밈 개수는 하루에 몇 개씩 만들지(구성)일 뿐입니다. 사진 후보는 기사 대표 이미지를 받아 둘 뿐이며, 검토 상세에서 "이 사진 쓰기"를 눌러야 카드에 들어갑니다.</p>

@@ -44,10 +44,10 @@ def test_keyword_post_starts_the_job_and_shows_progress(env) -> None:  # noqa: F
     asked = _wire(env)
     r = _post(env, "  치이카와  굿즈 ")
     assert r.status_code == 303 and r.headers["location"] == "/"
-    assert asked == ["치이카와 굿즈"]
+    assert asked == ["info|치이카와 굿즈"]  # 종류(정보·밈·둘 다)를 함께 넘긴다(기본 정보)
     html = env["client"].get("/jobs/status").text
     assert "키워드 원고 &#39;치이카와 굿즈&#39; 완료" in html  # 진행 표시에 키워드도 보인다
-    assert "원고 1개 만듦" in html
+    assert "만듦" in html
 
 
 def test_bad_keyword_is_explained_and_not_run(env) -> None:  # noqa: F811
@@ -87,7 +87,25 @@ def test_same_keyword_twice_while_running_starts_once(env) -> None:  # noqa: F81
     _post(env, "치이카와 굿즈")
     _post(env, "치이카와  굿즈")  # 두 번 누름(공백만 다름)
     _post(env, "먼작귀 굿즈")  # 다른 키워드는 따로
-    assert asked == ["치이카와 굿즈", "먼작귀 굿즈"]
+    assert asked == ["info|치이카와 굿즈", "info|먼작귀 굿즈"]
     pending.set_result(JobResult("keyword", counts={"keyword": "치이카와 굿즈"}))
     _post(env, "치이카와 굿즈")  # 끝난 뒤에는 다시 할 수 있다
-    assert asked[-1] == "치이카와 굿즈" and len(asked) == 3
+    assert asked[-1] == "info|치이카와 굿즈" and len(asked) == 3
+
+
+def test_keyword_kind_choice_is_passed_and_validated(env) -> None:  # noqa: F811
+    """정보·밈·둘 다(S18): 고른 종류를 같은 흐름에 넘긴다. 다른 값은 거절."""
+    asked = _wire(env)
+    env["client"].post(
+        "/keyword-draft",
+        data={"csrf": env["state"].csrf_token, "keyword": "치이카와", "kind": "both"},
+        follow_redirects=False,
+    )
+    assert asked == ["both|치이카와"]
+    r = env["client"].post(
+        "/keyword-draft",
+        data={"csrf": env["state"].csrf_token, "keyword": "치이카와", "kind": "video"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert 'name="kind" value="meme"' in env["client"].get("/").text

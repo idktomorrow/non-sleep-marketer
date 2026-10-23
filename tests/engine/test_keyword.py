@@ -97,7 +97,7 @@ def test_keyword_searches_now_and_makes_one_draft(ctx: JobContext) -> None:
     r = run_keyword_draft(ctx, "  치이카와   굿즈 ")
     assert r.ok and not r.skipped
     assert r.counts["keyword"] == "치이카와 굿즈"  # 공백 정리
-    assert r.counts["created"] == 1 and r.counts["new"] == 3
+    assert r.counts["made_info"] == 1 and r.counts["new"] == 3
     naver, trends, upload = ctx.sources
     assert naver.calls == [(["치이카와 굿즈"], 12)]
     assert trends.calls == [] and upload.calls == []  # 검색어를 받지 않는 소스는 부르지 않음
@@ -108,7 +108,7 @@ def test_keyword_searches_now_and_makes_one_draft(ctx: JobContext) -> None:
     assert {i.id for i in brief.sources} <= {"kw-1", "kw-2", "kw-3"}
     row = ctx.repo.db.execute("SELECT persona_topic, status FROM contents")[0]
     assert row == ("치이카와 굿즈", "pending_review")  # 보호 모드: 평소 규칙대로 검토
-    assert ctx.notifier.calls[-1][0] == "검토 대기 콘텐츠"
+    assert ctx.notifier.calls[-1][0] == "키워드 원고"  # 추천 목록에 카드로
 
 
 def test_keyword_uses_only_what_it_found_not_the_old_pool(ctx: JobContext, clock) -> None:
@@ -125,7 +125,7 @@ def test_keyword_reuses_already_collected_unused_articles(ctx: JobContext, goods
         ctx.repo.insert_source_item(g)
         ctx.repo.set_source_relevance(g.id, 0.9)
     r = run_keyword_draft(ctx, "치이카와 굿즈")
-    assert r.counts["new"] == 0 and r.counts["duplicate"] == 3 and r.counts["created"] == 1
+    assert r.counts["new"] == 0 and r.counts["duplicate"] == 3 and r.counts["made_info"] == 1
 
 
 def test_no_useful_material_makes_nothing_and_costs_nothing(ctx: JobContext) -> None:
@@ -171,7 +171,7 @@ def test_clean_keyword_validates_length() -> None:
 
 def test_runner_logs_keyword_runs_and_requires_a_value(ctx: JobContext) -> None:
     r = run_job("keyword", ctx, manual=True, arg="치이카와 굿즈")
-    assert r.counts["created"] == 1
+    assert r.counts["made_info"] == 1
     assert ctx.repo.recent_runs(5)[0]["job"] == "keyword"
     with pytest.raises(ValueError, match="값이 필요"):
         run_job("keyword", ctx)
@@ -180,7 +180,8 @@ def test_runner_logs_keyword_runs_and_requires_a_value(ctx: JobContext) -> None:
 def test_keyword_summary_reads_as_a_sentence(ctx: JobContext) -> None:
     r = run_keyword_draft(ctx, "치이카와 굿즈")
     text = describe("keyword", r.skipped, r.counts, r.errors)
-    assert text.startswith("'치이카와 굿즈' 원고 1개 만듦(검토 대기 1개)")
+    # S18: 키워드도 추천과 같은 흐름이라 추천 카드로 만든다(정보·밈 선택, 기본 정보)
+    assert text.startswith("'치이카와 굿즈' 추천 1건 만듦(정보 1·밈 0)")
     assert "찾은 새 글 3개, 쓸 만한 자료 3개" in text
 
 
@@ -220,7 +221,7 @@ def test_already_collected_low_score_article_is_rescored_for_keyword(
         ctx.repo.insert_source_item(g)
         ctx.repo.set_source_relevance(g.id, 0.3)  # 평소 기준으로는 관련 없음
     r = run_keyword_draft(ctx, "치이카와 굿즈")
-    assert r.counts["created"] == 1
+    assert r.counts["made_info"] == 1
     assert dict(ctx.repo.db.execute("SELECT id, relevance FROM source_items"))["kw-1"] == 0.3
 
 
@@ -244,3 +245,16 @@ def test_exclude_word_found_only_in_the_article_body_is_dropped(ctx: JobContext,
     r = run_keyword_draft(ctx, "치이카와 굿즈")
     assert src.fetched and "쓸 만한 자료가 없어" in r.skipped
     assert ctx.text_generator.briefs == []
+
+
+def test_keyword_makes_picks_cards_through_the_same_flow(ctx: JobContext) -> None:
+    """키워드도 오늘의 추천과 같은 흐름(S18): 결과는 추천 카드(계획 밖 슬롯), 종류 파싱."""
+    from nsm.engine.keyword import parse_keyword_arg
+    from nsm.store.picks import PicksStore
+
+    assert parse_keyword_arg("both|치이카와") == (("info", "meme"), "치이카와")
+    assert parse_keyword_arg("치이카와") == (("info",), "치이카와")  # 예전 형식
+    r = run_keyword_draft(ctx, "info|치이카와 굿즈")
+    assert r.ok and r.counts["made_info"] == 1
+    picks = PicksStore(ctx.repo.db, ctx.clock).list()
+    assert len(picks) == 1 and picks[0].kind == "info"

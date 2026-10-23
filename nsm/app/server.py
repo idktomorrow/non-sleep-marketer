@@ -615,8 +615,10 @@ def create_app(state: AppState) -> FastAPI:
         return back(_local_path(request.headers.get("referer")) or "/")
 
     @app.post("/keyword-draft", dependencies=[Depends(check_csrf)])
-    def keyword_draft(request: Request, keyword: str = Form("")) -> RedirectResponse:
-        """키워드 원고(C15): 키워드로 최근 글을 찾아 원고 1건. 진행은 오른쪽 아래 표시로 본다."""
+    def keyword_draft(
+        request: Request, keyword: str = Form(""), kind: str = Form("info")
+    ) -> RedirectResponse:
+        """키워드 원고(C15·S18): 키워드로 최근 글을 찾아 정보·밈·둘 다를 추천과 같은 흐름으로. 진행은 오른쪽 아래 표시로."""
         if state.run_keyword_now is None:
             raise HTTPException(503, "스케줄러가 없습니다")
         path = _local_path(request.headers.get("referer")) or "/"
@@ -625,11 +627,13 @@ def create_app(state: AppState) -> FastAPI:
         except KeywordError as e:
             return back(path.split("?")[0] + "?" + urlencode({"kw_error": str(e)}))
         # 두 번 눌러도 같은 키워드를 두 번 돌리지 않는다(검색·판정 비용, 남은 자료로 두 번째 원고)
+        if kind not in ("info", "meme", "both"):
+            raise HTTPException(400, "종류는 정보·밈·둘 다 중 하나입니다")
         busy = any(
             r.name == "keyword" and r.detail == kw and r.finished is None for r in state.manual_runs
         )
         if not busy:
-            _track("keyword", state.run_keyword_now(kw), detail=kw)
+            _track("keyword", state.run_keyword_now(f"{kind}|{kw}"), detail=kw)
         return back(path)
 
     def _track(name: str, future: Future, detail: str = "") -> None:
@@ -833,6 +837,15 @@ def create_app(state: AppState) -> FastAPI:
             done=done,
             thumbs=_thumbs(waiting + [d[0] for d in done]),
         )
+
+    @app.post("/queue/{cid}/post-now", dependencies=[Depends(check_csrf)])
+    def post_now(request: Request, cid: str) -> RedirectResponse:
+        """이 원고만 지금 올리기(S18): 실패해 재시도를 기다리던 게시도 바로. 하루 한도·게시 시간·요청 제한 쉬기는 지킨다."""
+        _content_or_404(cid)
+        if state.run_job_now is None:
+            raise HTTPException(503, "작업 실행기가 없습니다")
+        _track("publish_one", state.run_job_now("publish_one", cid), detail=cid)
+        return back(_local_path(request.headers.get("referer")) or "/queue")
 
     @app.post("/queue/{cid}/unapprove", dependencies=[Depends(check_csrf)])
     def unapprove(cid: str) -> RedirectResponse:

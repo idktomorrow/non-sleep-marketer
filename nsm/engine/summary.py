@@ -62,9 +62,17 @@ def _generate(c: dict[str, Any]) -> list[str]:
 
 
 def _keyword(c: dict[str, Any]) -> list[str]:
-    """키워드 원고(C15): 예) "'치이카와 굿즈' 원고 1개 만듦(검토 대기 1개) · 찾은 새 글 8개, 쓸 만한 자료 3개"."""
+    """키워드 원고(C15·S18): 예) "'치이카와 굿즈' 추천 2건 만듦(정보 1·밈 1) · 찾은 새 글 8개, 쓸 만한 자료 3개"."""
     kw = c.get("keyword")
-    made = _generate(c)
+    if "made" in c:  # S18: 추천과 같은 흐름(정보·밈 카드)
+        n = _n(c, "made")
+        made = [
+            f"추천 {n}건 만듦(정보 {_n(c, 'made_info')}·밈 {_n(c, 'made_meme')})"
+            if n
+            else "새 원고 없음"
+        ]
+    else:
+        made = _generate(c)
     if kw:
         made[0] = f"'{kw}' {made[0]}"
     found = f"찾은 새 글 {_n(c, 'new')}개" + (

@@ -15,6 +15,7 @@
   </div>
   <div class="actions">
     <a class="btn btn-sm" href="/review/{{ c.id }}">열어 보기</a>
+    {% if pubs|selectattr("status", "in", ["queued", "failed"])|list %}<form class="inline" method="post" action="/queue/{{ c.id }}/post-now" onsubmit="return confirm('이 원고만 지금 올릴까요? 실제 계정에 게시됩니다(하루 한도·게시 시간은 지킵니다).')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-primary">지금 올리기</button></form>{% endif %}
     <form class="inline" method="post" action="/queue/{{ c.id }}/unapprove"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">검토로 되돌리기</button></form>
     <form class="inline" method="post" action="/review/{{ c.id }}/discard" onsubmit="return confirm('이 원고를 폐기할까요? 게시가 취소되고 되돌릴 수 없습니다.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm btn-ghost btn-danger">폐기</button></form>
   </div>

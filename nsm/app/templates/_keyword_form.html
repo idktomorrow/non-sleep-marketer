@@ -1,0 +1,12 @@
+<h2 id="keyword">키워드로 원고 만들기</h2>
+<div class="panel">
+  {% if kw_error %}<div class="notice bad">{{ kw_error }}</div>{% endif %}
+  <form method="post" action="/keyword-draft" class="quick-upload"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="text" name="keyword" maxlength="40" required placeholder="예: 치이카와 굿즈 신상" aria-label="키워드" style="flex:1;min-width:200px">
+    <label class="small"><input type="radio" name="kind" value="info" checked> 정보</label>
+    <label class="small"><input type="radio" name="kind" value="meme"> 밈</label>
+    <label class="small"><input type="radio" name="kind" value="both"> 둘 다</label>
+    <button class="btn-primary btn-sm">이 키워드로 원고 만들기</button>
+  </form>
+  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾아, 오늘의 추천과 같은 방식으로 만듭니다. 정보는 사진을 모아 보고 쓰고(사진은 "이 사진 쓰기"로 확인), 밈은 유명 형식을 골라 기획·그림까지. 결과는 <a href="/picks">오늘의 추천</a> 목록에 카드로 나옵니다(정보 약 5~10센트, 밈은 그림 포함 약 10~20센트). 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다. 관심 주제 목록은 바뀌지 않습니다.</p>
+</div>

@@ -91,15 +91,7 @@
 {% endif %}
 
 {% if can_keyword %}
-<h2 id="keyword">키워드로 원고 만들기</h2>
-<div class="panel">
-  {% if kw_error %}<div class="notice bad">{{ kw_error }}</div>{% endif %}
-  <form method="post" action="/keyword-draft" class="quick-upload"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="text" name="keyword" maxlength="40" required placeholder="예: 치이카와 굿즈 신상" aria-label="키워드" style="flex:1;min-width:200px">
-    <button class="btn-primary btn-sm">이 키워드로 원고 만들기</button>
-  </form>
-  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾아, 쓸 만한 자료로 원고 1건을 만듭니다(1~2분, 약 3~6센트). 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다(비용 없음). 관심 주제 목록은 바뀌지 않습니다.</p>
-</div>
+{% include "_keyword_form.html" %}
 {% endif %}
 
 <h2>지금 실행</h2>

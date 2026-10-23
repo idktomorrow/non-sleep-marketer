@@ -222,8 +222,13 @@ def _record_failure(
         ctx.repo.transition_publication(pub.id, "failed", error=msg, next_attempt_at=retry_at)
 
 
-def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
-    """manual(사람이 "지금 실행"): 같은 플랫폼 게시 간격은 무시한다. 하루 한도·게시 시간은 지킨다(계정 보호)."""
+def run_publish(
+    ctx: JobContext, manual: bool = False, only_content: str | None = None
+) -> JobResult:
+    """manual(사람이 "지금 실행"): 같은 플랫폼 게시 간격은 무시한다. 하루 한도·게시 시간은 지킨다(계정 보호).
+
+    only_content(사람이 카드에서 "지금 올리기"): 그 원고만 올린다. 실패해 재시도를 기다리는 게시도 바로 다시 시도한다.
+    대기열의 다른 원고가 먼저 올라가지 않게(S18 실측: "게시 지금 실행"이 다른 승인 원고를 먼저 올렸다)."""
     result = JobResult("publish")
     now = ctx.clock.now()
     s = ctx.config.settings
@@ -260,7 +265,14 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
             at = (last + gap).astimezone(ZoneInfo(ctx.tz)).strftime("%H:%M")
             waits.append(f"{name} {s.min_hours_between_posts:g}시간 간격 대기({at} 이후)")
             continue
-        due = ctx.repo.due_publications(platform, now)
+        if only_content:
+            due = [
+                p
+                for p in ctx.repo.publications_for_content(only_content)
+                if p.platform == platform and p.status in ("queued", "failed")
+            ]
+        else:
+            due = ctx.repo.due_publications(platform, now)
         if not due:
             waits.append(f"{name} 올릴 차례인 원고 없음(재시도 시각 전이거나 대기 없음)")
             continue

@@ -80,6 +80,8 @@ ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "meme_remake": run_meme_remake,
     "info_reedit": run_info_reedit,
     "card_review": lambda ctx, cid: _card_review(ctx, cid),
+    # 카드의 "지금 올리기": 그 원고만(대기열의 다른 원고가 먼저 올라가지 않게, S18)
+    "publish_one": lambda ctx, cid: run_publish(ctx, manual=True, only_content=cid),
 }
 
 

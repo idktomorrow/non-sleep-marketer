@@ -199,6 +199,24 @@ class SlotStore:
         return [s for s in out if preset is None or s.preset in (None, preset)]
 
     # ------------------------------------------------------------ 상태 전이
+    def add_extra(self, run_date: date, kind: str, preset: str, run_id: str) -> Slot:
+        """계획 밖 슬롯 하나를 바로 '쓰는 중'으로 만든다(키워드로 만들기 등, 사람이 누른 추가분).
+        계획 수(plan)와 상관없이 다음 번호를 쓰고, 채운 뒤에는 오늘의 추천 목록에 같은 카드로 나온다."""
+        now = self._now()
+        rows = self.db.execute(
+            "SELECT COALESCE(MAX(slot_no), 0) FROM pick_slots WHERE run_date = ? AND requested_kind = ?",
+            [run_date, kind],
+        )
+        no = int(rows[0][0]) + 1
+        self.db.execute(
+            "INSERT INTO pick_slots (run_date, requested_kind, slot_no, stage, preset, run_id, "
+            "attempts, mix, created_at, updated_at) VALUES (?, ?, ?, 'writing', ?, ?, 0, 'none', ?, ?)",
+            [run_date, kind, no, preset, run_id, now, now],
+        )
+        slot = self.get(run_date, kind, no)
+        assert slot is not None
+        return slot
+
     def claim(self, run_date: date, kind: str, run_id: str, now: datetime) -> Slot | None:
         """planned 슬롯 하나를 writing으로 잡는다(조건부 UPDATE: 동시 실행·재실행이 같은 슬롯을 두 번 쓰지 않게)."""
         rows = self.db.execute(
