@@ -121,8 +121,12 @@
 
 {#- 배경 사진(S18): 비율과 상관없이 카드를 꽉 채운다(가로 사진은 양옆을 자른다). 글은 아래 그라데이션 위에.
     흐린 같은 사진으로 채우거나 위에 작게 두지 않는다(사용자 피드백 2026-10-23: "첫 장은 풀사진에 그라데이션 글") -#}
+{#- 화질(S18): 카드(1080×1350)를 채우려면 1.6배 넘게 늘려야 하는 작은 사진은 늘리지 않고 위쪽 띠로 -#}
 {% macro open(cls, s, bg) -%}
-<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}" data-kind="{{ s.kind }}"{% if bg %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{%- set wh = bg | pixels if bg else (0, 0) -%}
+{%- set band = bg and wh[0] and ([1080 / wh[0], 1350 / wh[1]] | max) > 1.6 -%}
+<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}{% if band %} bg-band{% endif %}" data-kind="{{ s.kind }}"{% if bg and not band %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{%- if band %}<img class="bg-band-img" src="{{ bg | file_uri }}" alt="">{% endif %}
 {{- deco(s, bg) }}
 {%- endmacro %}
 
@@ -213,15 +217,17 @@
 {% macro products(s, i, n, deck) -%}
 {%- set bg = s.background -%}
 {%- set item_photos = s.items | selectattr('image') | list | length -%}
+{#- 가로로 긴 단체 사진만 있으면 한 줄에 하나씩 크게(자르지 않음, S18 화질) -#}
+{%- set wide = item_photos and (s.items | selectattr('image') | map(attribute='image') | map('aspect') | min) >= 1.25 -%}
 {{ open('products' ~ (' has-photo' if s.photo and not item_photos else '') ~ (' item-photos' if item_photos else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
     {{- sticker(s) }}{% if not item_photos %}{{ photo(s) }}{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
-    <div class="grid items-{{ s.items | length }}">
+    <div class="grid items-{{ s.items | length }}{% if wide %} wide-items{% endif %}">
       {% for it in s.items %}
       <div class="product{% if it.image %} with-img{% endif %}">
-        {% if it.image %}<div class="product-pic"><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
+        {% if it.image %}<div class="product-pic" style="--ar: {{ it.image | aspect }}"><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
         <div class="product-name" data-fit="22">{{ it.name }}</div>
         {% if it.note %}<div class="product-note" data-fit="16">{{ it.note }}</div>{% endif %}
         {% if it.price %}<div class="product-price" data-fit="20">{{ it.price }}</div>{% endif %}

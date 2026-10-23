@@ -382,6 +382,22 @@ class ReviewActions:
         g = g.model_copy(
             update={"deck": g.deck.model_copy(update={"slides": slides, "sources": sources})}
         )
+        # 화질(S18): 표지를 채우려면 1.6배 넘게 늘려야 하는 사진은 위쪽 띠로 배치된다. 검토하는 사람에게 알린다
+        if cover_dest is not None:
+            from PIL import Image
+
+            with Image.open(cover_dest) as im:
+                w, h = im.size
+            scale = max(1080 / w, 1350 / h)
+            if scale > 1.6:
+                note = f"사진 해상도: 표지 사진 {w}×{h}, 표지를 채우려면 {scale:.1f}배 → 위쪽 띠로 배치"
+                c = self._content(cid)
+                kept = [
+                    x
+                    for x in (c.review_reason or "").split("; ")
+                    if x and not x.startswith("사진 해상도:")
+                ]
+                self.repo.set_review_reason(cid, "; ".join([*kept, note]))
         # 색은 표지 사진에서, 표지 사진이 없으면 처음 넣은 사진에서(S18 리뷰: 표지가 비면 요청이 조용히 무시됐다)
         color_src = cover_dest or first_dest
         if recolor and color_src is not None:

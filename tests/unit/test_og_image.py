@@ -217,3 +217,16 @@ def test_wide_body_photos_are_kept_but_thumbnails_are_not() -> None:
     assert big_enough(800, 420, "body") and big_enough(600, 500, "body")
     assert not big_enough(697, 220, "body") and not big_enough(400, 400, "body")
     assert not big_enough(800, 420, "og")  # 대표 이미지 기준은 그대로
+
+
+def test_largest_variant_of_the_same_image() -> None:
+    """화질(S18 실측: 네이버 ?type=w800 → w966이면 올린 원본 886×432). 다른 그림으로 바꾸지 않는다."""
+    from nsm.adapters.sources.og_image import largest_variant
+
+    assert largest_variant("https://mblogthumb-phinf.pstatic.net/a/b.jpg?type=w800") == (
+        "https://mblogthumb-phinf.pstatic.net/a/b.jpg?type=w966"
+    )
+    assert largest_variant(
+        "https://x.com/p/a.jpg", "/i/a-480.jpg 480w, /i/a-1600.jpg 1600w", "https://x.com/p/"
+    ) == ("https://x.com/i/a-1600.jpg")
+    assert largest_variant("https://x.com/a.jpg?type=w800") == "https://x.com/a.jpg?type=w800"

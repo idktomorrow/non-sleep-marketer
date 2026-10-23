@@ -15,7 +15,7 @@ from nsm.engine.photo_match import observe, split_photos
 from tests.fakes import load_source_items
 
 
-def _img(tmp_path: Path, name: str, size=(800, 1000)) -> str:
+def _img(tmp_path: Path, name: str, size=(2400, 3000)) -> str:
     p = tmp_path / name
     Image.new("RGB", size, (230, 120, 160)).save(p)
     return str(p)
@@ -388,3 +388,56 @@ def test_zoom_and_marks_must_talk_about_the_observed_detail(app_config, tmp_path
     deck = build_deck("editorial", out, app_config.brand, app_config.persona, _brief(photos))
     photo = deck.slides[1].photo
     assert photo.crop is None and [m.text for m in photo.marks] == ["꼬리"]
+
+
+def test_zoom_on_a_small_photo_is_skipped_for_sharpness(app_config, tmp_path) -> None:
+    """화질(S18): 잘라 낸 영역을 칸 폭으로 1.6배 넘게 늘려야 하면 확대하지 않고 전체 사진으로, 이유는 자료 부족에."""
+    small = ObservedPhoto(
+        path=_img(tmp_path, "small.jpg", (800, 390)),
+        kind="official",
+        shows="인형",
+        details=[PhotoDetail(what="금색 단추", box=[10, 10, 30, 40])],
+    )
+    out = _out([_slide(heading="금색 단추", body="금색 단추", photo=0, focus=0)], cover_photo=-1)
+    gaps: list[str] = []
+    deck = build_deck("editorial", out, app_config.brand, app_config.persona, _brief([small]), gaps)
+    assert deck.slides[1].photo is not None and deck.slides[1].photo.crop is None
+    assert any("해상도 부족" in g for g in gaps)
+
+
+def test_wide_group_product_photos_are_stacked_uncropped(tmp_path) -> None:
+    """잘림(S18 실호출: 2:1 단체 사진을 거의 정사각 칸에 cover로 넣어 양 끝 상품이 잘림): 칸이 사진 비율을 따르고 한 줄에 하나씩."""
+    from nsm.domain.models import (
+        CardDeck,
+        CoverSlide,
+        DeckBrand,
+        DeckPersona,
+        ProductItem,
+        ProductsSlide,
+    )
+    from nsm.render.html_renderer import HtmlCardRenderer, build_html
+
+    a, b = _img(tmp_path, "a.jpg", (886, 432)), _img(tmp_path, "b.jpg", (886, 432))
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#E05A8A", accent_color="#FFD34E"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[
+            CoverSlide(title="ANA 굿즈"),
+            ProductsSlide(
+                heading="마스코트와 인형",
+                items=[
+                    ProductItem(name="마스코트 8종", price="각 2,100엔", image=a),
+                    ProductItem(name="인형 3종", price="각 2,800엔", image=b),
+                ],
+            ),
+        ],
+    )
+    html = build_html(deck, "kitsch")
+    assert "wide-items" in html and "--ar: 2.05" in html
+    r = HtmlCardRenderer(style="kitsch")
+    try:
+        r.render(deck, tmp_path / "out")
+        assert r.last_overflow == []
+    finally:
+        r.close()

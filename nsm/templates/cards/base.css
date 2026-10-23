@@ -210,19 +210,25 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 /* 말풍선 모양 층: 그림 위, 글자 아래 */
 svg.bubbles { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
 
-/* 장 내용과 맞는 실제 사진(S18, ADR 0062): 칸 높이는 사진 비율을 따르고, 높이 상한에 걸리면 꽉 채우며 가장자리를 자른다 */
+/* 장 내용과 맞는 실제 사진(S18, ADR 0062): 칸은 사진 비율 그대로(자르지 않음). 높이 상한(--cap)에 걸리면
+   자르는 대신 칸 폭을 줄인다(실호출: 단체 사진의 양 끝 상품이 잘림) */
 .photo-fig {
-  position: relative; margin: 0; width: 100%; flex: 0 0 auto; border-radius: 28px; overflow: hidden;
-  height: min(600px, calc(904px / var(--ar, 1.5))); background: color-mix(in srgb, var(--primary) 14%, #f4f1ea);
-  display: flex; align-items: center; justify-content: center;
+  --cap: 600px;
+  position: relative; margin: 0; flex: 0 0 auto; border-radius: 28px; overflow: hidden; align-self: center;
+  width: min(100%, calc(var(--cap) * var(--ar, 1.5))); aspect-ratio: var(--ar, 1.5);
+  background: color-mix(in srgb, var(--primary) 14%, #f4f1ea);
 }
-.photo-fig img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-fig img { position: relative; width: 100%; height: 100%; object-fit: contain; display: block; }
 .photo-fig figcaption {
   position: absolute; right: 12px; bottom: 10px; font-size: 16px; color: #fff; background: rgba(0,0,0,.5);
   padding: 2px 10px; border-radius: 8px;
 }
 /* 마무리 장이 없을 때 마지막 장 아래 작은 출처 표기(S18) */
 .deck-sources { font-size: 18px; opacity: .78; margin-right: auto; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 해상도가 모자란 배경 사진(S18 화질): 카드를 채우려면 1.6배 넘게 늘려야 하면 늘리지 않는다.
+   위에 카드 폭으로 원본 비율 그대로 두고, 아래는 진한 색 면에 글(흐린 채움 없음) */
+.slide.bg-band { isolation: isolate; background: var(--primary-deep); }
+.slide > .bg-band-img { position: absolute; left: 0; top: 0; z-index: -1; width: 100%; height: auto; display: block; }
 /* 디테일 확대(S18 편집 밀도): 원본의 관찰한 영역만 칸에 꽉. 이미지를 영역 비율만큼 키워 옮긴다(자르지 않은 원본 파일) */
 .photo-fig.zoom .zoom-box { position: absolute; inset: 0; overflow: hidden; }
 .photo-fig.zoom .zoom-box img { position: absolute; max-width: none; object-fit: fill; }

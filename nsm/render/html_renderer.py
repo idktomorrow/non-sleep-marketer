@@ -175,6 +175,17 @@ def _aspect(path: str | Path | None) -> float:
         return 0.8
 
 
+def _pixels(path: str | Path | None) -> tuple[int, int]:
+    """그림의 실제 픽셀 크기(S18 화질: 늘려야 하는 배율로 배치를 고른다). 못 읽으면 (0, 0)."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.width, im.height
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
 def _file_uri(path: str | Path | None) -> str:
     if not path:
         return ""
@@ -197,6 +208,7 @@ def _env() -> Environment:
     env.filters["file_uri"] = _file_uri
     env.filters["one_break"] = _one_break
     env.filters["aspect"] = _aspect
+    env.filters["pixels"] = _pixels
     return env
 
 

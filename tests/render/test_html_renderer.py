@@ -110,8 +110,8 @@ def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
     from PIL import Image
 
     bg = tmp_path / "bg.png"
-    # 카드 비율(4:5)에 가까운 사진은 꽉 채운 배경으로(S18: 비율이 많이 다르면 자르지 않고 원본 비율 배치)
-    Image.new("RGB", (400, 500), (200, 120, 40)).save(bg)
+    # 해상도가 충분한 사진은 꽉 채운 배경으로(S18 화질: 1.6배 넘게 늘려야 하면 위쪽 띠)
+    Image.new("RGB", (880, 1100), (200, 120, 40)).save(bg)
     deck = load("info")
     slides = list(deck.slides)
     slides[0] = slides[0].model_copy(update={"background": str(bg)})
@@ -359,3 +359,19 @@ def test_editorial_renders_list_and_compare_with_their_own_layout() -> None:
     html = build_html(deck, "editorial")
     assert 'data-kind="compare"' in html and "왼쪽" in html and 'class="cols"' in html
     assert 'data-kind="list"' in html and "<ol>" in html
+
+
+def test_small_cover_photo_is_not_stretched(tmp_path: Path) -> None:
+    """화질(S18 실측: 800×390 사진을 표지에 3.5배): 1.6배 넘게 늘려야 하면 위쪽 띠로, 늘리지 않는다."""
+    from PIL import Image
+
+    from nsm.render.html_renderer import build_html
+
+    small = tmp_path / "small.jpg"
+    Image.new("RGB", (886, 432)).save(small)
+    deck = load("info")
+    slides = list(deck.slides)
+    slides[0] = slides[0].model_copy(update={"background": str(small)})
+    html = build_html(deck.model_copy(update={"slides": slides}), "kitsch")
+    assert "bg-band" in html and 'class="bg-band-img"' in html
+    assert f"background-image: url('{small.resolve().as_uri()}')" not in html

@@ -137,7 +137,7 @@
 .style-editorial .products.has-photo .photo-fig,
 .style-editorial .facts.has-photo .photo-fig,
 .style-editorial .compare.has-photo .photo-fig,
-.style-editorial .list.has-photo .photo-fig { height: min(380px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .list.has-photo .photo-fig { --cap: 380px; }
 
 /* 정보 줄 배치: 데이터 종류에 맞춰(생성기가 검증한 layout만 온다) */
 /* timeline: 모든 줄에 날짜가 있고 순서가 있을 때. 세로 선 + 점, 날짜가 먼저 */
@@ -227,15 +227,15 @@
 }
 .style-editorial .products.item-photos .product:not(.with-img) { justify-content: center; }
 /* 본문 사진은 크게(사진 위주): 글이 짧은 장은 사진이 장의 대부분 */
-.style-editorial .body.has-photo .photo-fig { height: min(820px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .body.has-photo .photo-fig { --cap: 820px; }
 .style-editorial .facts.has-photo .photo-fig,
 .style-editorial .list.has-photo .photo-fig,
-.style-editorial .compare.has-photo .photo-fig { height: min(560px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .compare.has-photo .photo-fig { --cap: 560px; }
 /* 상품 2개: 세로로 길게 늘이지 않고 사진 비율에 가깝게(가운데 정렬) */
 .style-editorial .products.item-photos .grid.items-2 { flex: 0 1 auto; grid-auto-rows: minmax(0, 720px); align-content: center; }
 /* 정보 줄이 4줄 이상이면 사진을 줄여 글이 잘리지 않게(사진 위주라도 내용을 자르지 않는다) */
-.style-editorial .facts.has-photo:has(.rows > :nth-child(4)) .photo-fig { height: min(380px, calc(904px / var(--ar, 1.5))); }
-.style-editorial .facts.has-photo:has(.rows > :nth-child(5)) .photo-fig { height: min(300px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .facts.has-photo:has(.rows > :nth-child(4)) .photo-fig { --cap: 380px; }
+.style-editorial .facts.has-photo:has(.rows > :nth-child(5)) .photo-fig { --cap: 300px; }
 .style-editorial .facts.has-photo .rows.layout-rows .fact { padding: 14px 26px 16px; }
 .style-editorial .facts.has-photo .rows.layout-rows dd { font-size: 34px; }
 .style-editorial .facts.has-photo .rows.layout-rows dt { font-size: 22px; }
@@ -254,3 +254,16 @@
 .style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-name { font-size: 44px; line-height: 1.15; }
 .style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-note { font-size: 26px; }
 .style-editorial .products:not(.item-photos) .product-price { font-size: 30px; }
+
+/* ---------------- 화질·잘림(S18 실호출 2026-10-23): 사진의 역할에 맞춰 배치 ----------------
+   전체 상품 사진은 자르지 않는다: 칸이 사진 비율을 따르고(contain = 꽉), 가로로 긴 단체 사진은 한 줄에 하나씩 크게 */
+.style-editorial .products.item-photos .grid { grid-auto-rows: auto; align-content: start; flex: 0 1 auto; }
+.style-editorial .products.item-photos .grid.items-3 { grid-template-rows: auto; }
+.style-editorial .products.item-photos .grid.wide-items { grid-template-columns: 1fr; }
+.style-editorial .product-pic { flex: 0 0 auto; width: 100%; aspect-ratio: var(--ar, 1); }
+.style-editorial .product-pic .product-img { object-fit: contain; }
+/* 가로 단체 사진을 쌓을 때 장을 넘지 않게: 사진 높이 상한 안에서 폭을 비율로(자르지 않고 가운데) */
+.style-editorial .products.item-photos .grid.wide-items .product-pic { width: min(100%, calc(var(--pic-cap, 300px) * var(--ar, 2))); margin: 0 auto; }
+.style-editorial .products.item-photos .grid.wide-items.items-3 .product-pic { --pic-cap: 250px; }
+.style-editorial .products.item-photos .grid.wide-items.items-4 .product-pic { --pic-cap: 180px; }
+.style-editorial .products.item-photos .grid.wide-items .product { padding: 12px 12px 14px; gap: 8px; }

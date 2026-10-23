@@ -513,7 +513,21 @@ def mentions(text: str, what: str) -> bool:
     )
 
 
-def _photo_asset(photos, s: dict):
+MAX_UPSCALE = 1.6  # 이보다 크게 늘리면 흐려 보인다(S18 화질 실측: 800px 사진을 표지에 3.5배)
+ZOOM_WIDTH = 904  # 확대 장의 사진 칸 폭(카드 1080 - 좌우 여백)
+
+
+def _pixels(path: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.width, im.height
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
+def _photo_asset(photos, s: dict, gaps: list[str] | None = None):
     """원고가 고른 관찰 사진 → ImageAsset. 확대는 관찰한 디테일 상자(여유 둘레 포함)만, 주석은 그 디테일 가운데를 짚는다.
     관찰에 없는 디테일 번호·쓸 수 없는 사진(남의 썸네일·캡처)은 버린다."""
     from nsm.domain.models import ImageAsset, PhotoMark
@@ -529,7 +543,18 @@ def _photo_asset(photos, s: dict):
         f = -1
     said = f"{s.get('heading', '')} {s.get('body', '')}"
     # 확대한 디테일을 장 글이 말하지 않으면(다른 특징을 쓰면) 확대하지 않는다(실호출: 귀를 확대하고 '소매 장식'이라고 씀)
-    if 0 <= f < len(p.details) and mentions(said, p.details[f].what):
+    zoom_ok = 0 <= f < len(p.details) and mentions(said, p.details[f].what)
+    if zoom_ok:
+        # 잘라 낸 영역을 칸 폭으로 늘렸을 때 1.6배를 넘으면 흐리다: 확대하지 않고 전체 사진으로(화질 우선)
+        pw, _ph = _pixels(path)
+        bw = p.details[f].box[2] * 1.7  # 둘레 여유를 둔 대략의 자른 폭(%)
+        if pw and ZOOM_WIDTH / max(1.0, pw * min(bw, 100.0) / 100) > MAX_UPSCALE:
+            zoom_ok = False
+            if gaps is not None:
+                gaps.append(
+                    f"사진 해상도 부족: '{p.details[f].what[:20]}' 확대는 흐려서 전체 사진으로({pw}px)"
+                )
+    if zoom_ok:
         x, y, w, h = p.details[f].box
         pad_w, pad_h = max(w * 0.35, 6.0), max(h * 0.35, 6.0)
         cx, cy = max(0.0, x - pad_w), max(0.0, y - pad_h)
@@ -561,7 +586,7 @@ def _editorial_slides(s: dict, heading: str, photos=(), gaps: list[str] | None =
     보이지 않는 상품 장은 사진 중심 상품 소개가 아니므로 정보 줄로 줄이고 자료 부족으로 남긴다."""
     out = []
     hint = str(s.get("photo_hint", "")).strip()[:80]
-    asset = _photo_asset(photos, s) if photos else None
+    asset = _photo_asset(photos, s, gaps) if photos else None
     products = [x for x in s.get("products") or [] if str(x.get("name", "")).strip()][:4]
     if photos and len(products) >= 2:
         seen: set[str] = set()

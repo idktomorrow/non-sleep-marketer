@@ -208,7 +208,31 @@ def big_enough(width: int, height: int, kind: str) -> bool:
 
 
 _IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
-_ATTR = re.compile(r"""(src|data-src|data-lazy-src|alt)\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
+_ATTR = re.compile(
+    r"""(src|data-src|data-lazy-src|srcset|data-srcset|alt)\s*=\s*["']([^"']*)["']""", re.IGNORECASE
+)
+# 네이버 이미지 서버의 줄인 판(?type=w800 등): w966이면 올린 원본 크기까지 준다(실측: 800×390 → 886×432 원본)
+_PSTATIC_TYPE = re.compile(r"([?&]type=)w\d+(_blur)?", re.IGNORECASE)
+
+
+def largest_variant(url: str, srcset: str = "", base: str = "") -> str:
+    """같은 그림의 가장 큰 판(S18 화질): srcset의 가장 넓은 후보, 네이버 이미지 서버는 w966. 다른 그림으로 바꾸지 않는다."""
+    best, best_w = url, 0
+    for part in (srcset or "").split(","):
+        bits = part.strip().split()
+        if (
+            len(bits) == 2
+            and bits[1].endswith("w")
+            and bits[1][:-1].isdigit()
+            and int(bits[1][:-1]) > best_w
+        ):
+            best, best_w = urljoin(base or url, bits[0]), int(bits[1][:-1])
+    host = urlsplit(best).netloc
+    if host.endswith("pstatic.net") and _PSTATIC_TYPE.search(best):
+        best = _PSTATIC_TYPE.sub(r"\1w966", best)
+    return best
+
+
 # 장식·광고 그림: 경로의 한 마디(구분자 사이)가 이 낱말일 때만. "upload_", "lead-image"처럼 낱말 안에 든 것은 거르지 않는다
 _SKIP = re.compile(
     r"(?:^|[/_.-])(logo|icon|banner|btn|button|sprite|emoji|profile|avatar|ad|ads|advert|blank|spacer)"
@@ -247,7 +271,7 @@ def article_images(html: str, base_url: str) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     og = extract_og_image(html, base_url)
     if og:
-        out.append((og, ""))
+        out.append((largest_variant(og), ""))
     region = _article_region(html)
     for m in _IMG_TAG.finditer(region):
         attrs = {k.lower(): v for k, v in _ATTR.findall(m.group(0))}
@@ -269,7 +293,9 @@ def article_images(html: str, base_url: str) -> list[tuple[str, str]]:
             filter(None, [attrs.get("alt", ""), _TAGS.sub(" ", cap.group(1)) if cap else ""])
         )
         desc = re.sub(r"^image\s+", "", " ".join(_html.unescape(desc).replace("\xa0", " ").split()))
-        out.append((urljoin(base_url, _html.unescape(src)), desc[:200]))
+        full = urljoin(base_url, _html.unescape(src))
+        srcset = _html.unescape(attrs.get("data-srcset") or attrs.get("srcset") or "")
+        out.append((largest_variant(full, srcset, base_url), desc[:200]))
     seen: set[str] = set()
     uniq = []
     for u, d in out:
