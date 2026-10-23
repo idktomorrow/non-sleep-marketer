@@ -448,3 +448,12 @@ def test_reapplying_photos_drops_previous_slide_photos(env) -> None:
     use({"cover": 0, "slides": {}})
     d = repo.get_content("pk1").generated.deck
     assert d.slides[0].background and d.slides[body].photo is None
+
+
+def test_reedit_route_runs_job_for_info_picks(env) -> None:
+    calls: list[tuple] = []
+    env["state"].run_job_now = lambda *a: calls.append(a)
+    assert "사진 보고 다시 편집" in env["client"].get("/picks").text
+    cid = "01M5KWD8TNHVWSW5FXBRC2Y16W"
+    assert _post(env, f"/picks/{cid}/reedit").status_code == 303 and calls == [("info_reedit", cid)]
+    assert _post(env, "/picks/../etc/reedit").status_code in (400, 404)

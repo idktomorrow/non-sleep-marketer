@@ -116,6 +116,7 @@ class SlotPlan:
     meme_ref: str | None = None  # 밈 참조 그림(구도·연출 이해용, 캐릭터 참조 아님, S17)
     text_zones: tuple[str, ...] = ()  # 글자가 들어갈 자리(그림에서 비워 둘 곳, S17)
     composite: bool = False  # 유명 짤 원본을 바탕으로 캐릭터만 합성(meme_ref가 바탕 그림)
+    core: str = ""  # 재미의 핵심(기획의 core): 그림에서 꼭 살아 있어야 할 표정·시선·배치·동작
 
 
 def _zone(o) -> str:
@@ -133,6 +134,7 @@ def image_slots(
     scenes: dict[str, str] | None = None,
     meme_ref: str | None = None,
     meme_make: str = "restage",
+    meme_core: str = "",
 ) -> list[SlotPlan]:
     """덱에서 그림이 필요한 자리. 만화 컷은 주인공, 정보 카드는 첫 메모(body·facts) 한 곳에 보조 캐릭터 스티커,
     밈 한 장(S17)은 장 전체 그림 하나(캐릭터 참조 + 밈 참조)."""
@@ -161,6 +163,7 @@ def image_slots(
                     chain_from=chain,
                     composite=meme_make == "composite"
                     and bool(meme_ref and Path(meme_ref).is_file()),
+                    core=meme_core,
                 )
             )
         elif s.kind == "comic":
@@ -239,7 +242,13 @@ def compose_prompt(slot: SlotPlan, ref: CharacterRef, chained: bool) -> str:
             "background, pose and camera angle (do not copy the composition)."
         )
     if slot.role == "meme":
-        roles = (
+        must = (
+            f" What makes it funny and MUST stay clearly visible: {slot.core}. The character must act inside the"
+            " scene (natural size, gaze, contact and overlap), not float on top of it."
+            if slot.core
+            else ""
+        )
+        roles = must + (
             " Reference images: the FIRST image(s) are the CHARACTER reference — keep only the character's face, "
             "body shape, colors and proportions; ignore their background, pose, other characters and any text."
         )
@@ -333,6 +342,7 @@ def build_spec(
         "meme_ref": file_sha(slot.meme_ref)[:16] if slot.meme_ref else None,
         # 합성일 때만 넣는다(예전 그림의 지문이 바뀌지 않게). 합성 지시를 바꾸면 숫자를 올린다
         **({"composite": 2} if slot.composite else {}),
+        **({"core": slot.core} if slot.core else {}),
         "text_zones": list(slot.text_zones),
         "size": [slot.width, slot.height],
         "transparent": slot.transparent,

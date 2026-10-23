@@ -139,6 +139,14 @@ class DeckLabels(_Model):
     ai_slides: list[int] | None = None
 
 
+class PhotoMark(_Model):
+    """사진 위 짧은 주석(S18 편집 밀도): 관찰한 디테일 한 곳을 가리킨다. 좌표는 보여 주는 영역 기준 %."""
+
+    text: str = Field(max_length=24)
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+
+
 class ImageAsset(_Model):
     """장에 붙는 그림 하나(S14 제안): 경로 + 출처. 글자는 절대 그림에 넣지 않는다(ADR 0007)."""
 
@@ -146,6 +154,9 @@ class ImageAsset(_Model):
     ai: bool = False  # AI로 만든 그림이면 그 장에 "AI 생성 이미지" 표기
     alt: str = ""
     source: str = ""  # 실제 사진의 출처(기사 URL 등, S18). 출처 표기는 사용 허락이 아니다
+    # S18 편집 밀도: 관찰한 디테일을 크게 보여 줄 때 원본의 이 영역만([x, y, w, h], 원본 기준 %)
+    crop: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    marks: list[PhotoMark] = Field(default_factory=list, max_length=3)
 
 
 class CoverSlide(_Model):
@@ -355,11 +366,29 @@ class Claim(_Model):
     source_item_id: str
 
 
+class PhotoDetail(_Model):
+    """사진에서 눈에 띄는 부분 하나(관찰, S18): 무엇이 보이는지 + 위치([x, y, w, h], 원본 기준 %)."""
+
+    what: str
+    box: list[float] = Field(min_length=4, max_length=4)
+
+
+class ObservedPhoto(_Model):
+    """원고를 쓰기 전에 실제로 확보한 사진과 그 사진에 보이는 것(S18 편집 밀도). 보이는 것만, 설정·감상은 넣지 않는다."""
+
+    path: str
+    source_url: str = ""
+    kind: str = "photo"  # photo | official | designed | screenshot
+    shows: str = ""
+    details: list[PhotoDetail] = Field(default_factory=list)
+
+
 class ContentBrief(_Model):
     topic: str
     template: TemplateKind
     sources: list[SourceItem] = Field(min_length=1)
     is_ad: bool = False
+    photos: list[ObservedPhoto] = Field(default_factory=list)  # S18: 기획 전에 관찰한 실제 사진
 
 
 class GeneratedContent(_Model):
@@ -371,6 +400,8 @@ class GeneratedContent(_Model):
     blog_title: str
     blog_markdown: str
     claims: list[Claim]
+    # S18 편집 밀도: 검토하는 사람에게 보일 편집 메모(중심 관점, 부족한 자료). 카드·글에는 나가지 않는다
+    editor_notes: list[str] = Field(default_factory=list)
 
 
 class Content(_Model):

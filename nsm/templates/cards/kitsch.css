@@ -100,3 +100,11 @@
 .skin-kitsch .body:not(.has-bg):not(.has-photo) .content { border-left-color: var(--outline); }
 .skin-kitsch .caption-panel { border: 4px solid var(--outline); box-shadow: 8px 8px 0 rgba(27,29,34,.22); }
 .skin-kitsch .outro .cta { font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }
+
+/* 리듬(S18 편집 밀도): 사진을 구경하는 장은 사진이 주인공이라 무늬·반짝이를 빼고 바탕만 둔다.
+   무늬는 사진 없이 정보를 정리하는 장에만 남는다(소재와 상관없이 모든 장에 같은 장식이 반복되지 않게) */
+.skin-kitsch .slide.has-photo:not(.has-bg),
+.skin-kitsch .slide.item-photos:not(.has-bg) { background: var(--paper); }
+.skin-kitsch .slide.has-photo .sparkles,
+.skin-kitsch .slide.item-photos .sparkles { display: none; }
+.skin-kitsch .photo-mark b { font-family: "Gaegu", "Pretendard", sans-serif; font-size: 34px; border: 3px solid var(--outline); }

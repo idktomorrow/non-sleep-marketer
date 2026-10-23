@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
 from nsm.adapters.sources.og_image import PhotoCandidate
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content
 from nsm.domain.picks_policy import (
@@ -159,20 +161,41 @@ def _fill_info_slot(
         if made_titles is not None and _same_event_as_made(ctx, lead.title, lead.text, made_titles):
             result.counts["same_event_skipped"] = result.counts.get("same_event_skipped", 0) + 1
             continue
-        d = build_draft(ctx, (cluster.topic, chosen), result, with_background=False)
+        cid = new_id()
+        urls = [i.url for i, _ in chosen if i.url]
+        # S18 편집 밀도: 사진 우선형이면 원고를 쓰기 **전에** 사진을 모으고 관찰한다. 원고는 실제로 보이는 것을 보고
+        # 관점·장·확대·주석을 고른다(예전에는 글만 보고 쓴 뒤 사진을 붙였다)
+        rows: list[dict] | None = None
+        observed: list = []
+        if s.picks.photo_candidates and ctx.config.brand.card_style in PHOTO_FIRST_STYLES:
+            rows, observed = gather_photos(ctx, cid, [i for i, _ in chosen], fetch_photo)
+        d = build_draft(
+            ctx, (cluster.topic, chosen), result, with_background=False, photos=observed
+        )
+        if isinstance(d, str):  # 장애·자료 문제(둘 다 문자열 표식)
+            shutil.rmtree(
+                picks_dir(ctx) / cid, ignore_errors=True
+            )  # 쓰지 않을 후보 사진은 남기지 않는다
         if d == _RETRY_LATER:
             return "retry", "AI API 장애로 중단(다음 실행에 다시)"
         if d == _SKIP_MATERIAL or isinstance(d, str):
             continue
+        gen, placement = d.gen, None
+        if observed and rows:
+            from nsm.engine.photo_match import split_photos
+
+            # 사진은 사람이 "이 사진 쓰기"로 확인한 뒤에만 카드에 들어간다(S11): 원고가 고른 배치·확대·주석은 후보 파일에
+            deck, placement = split_photos(gen.deck, rows)
+            gen = gen.model_copy(update={"deck": deck})
         fresh = freshness(cluster.published_at, now, s.picks.fresh_hours)
         content = Content(
-            id=new_id(),
+            id=cid,
             status="pending_review",  # 추천은 늘 사람이 고른다
-            generated=d.gen,
+            generated=gen,
             relevance_confidence=d.relevance,
             is_ad=d.is_ad,
             created_at=now,
-            review_reason="; ".join(filter(None, ["오늘의 추천", d.reason])),
+            review_reason="; ".join(filter(None, ["오늘의 추천", d.reason, *d.gen.editor_notes])),
         )
         pick = Pick(
             content_id=content.id,
@@ -194,7 +217,7 @@ def _fill_info_slot(
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
             _attach_photo(
-                ctx, store, content.id, [i.url for i, _ in chosen if i.url], fetch_photo, d.gen.deck
+                ctx, store, content.id, urls, fetch_photo, gen.deck, rows=rows, placement=placement
             )
         return "made", ""
     return "empty", "쓸 만한 새 자료가 없음" if not ranked else "서로 다른 소재가 모자람"
@@ -440,18 +463,10 @@ def deck_shape(deck) -> list | None:
     return [[s.kind, [it.name for it in getattr(s, "items", None) or []]] for s in deck.slides]
 
 
-def _attach_photo(
-    ctx: JobContext,
-    store: PicksStore,
-    cid: str,
-    urls,
-    fetch_photo: PhotoFetcher,
-    deck=None,
-) -> None:
-    """사진 후보(S11) → 여러 장 + 장별 배치 제안(S18). 기본 수집기면 자료 기사마다 대표·본문 이미지를 모으고,
-    내용으로 짝지은 배치를 candidates.json에 둔다. 사진이 하나도 없으면 검토 사유에 남긴다(조용히 완성 처리 안 함)."""
-    import json
-
+def collect_photo_rows(
+    ctx: JobContext, cid: str, urls, fetch_photo: PhotoFetcher, folder: str = "src"
+) -> list[dict]:
+    """자료 기사마다 대표·본문 이미지를 모아 후보 목록으로(S11·S18). 원고를 쓰기 전에도 부른다(편집 밀도)."""
     if isinstance(urls, str):
         urls = [urls]
     urls = [u for u in urls if u and not u.startswith("file:")][:3]
@@ -460,7 +475,8 @@ def _attach_photo(
     for k, u in enumerate(urls):
         try:
             # 수집기는 한 장(예전 형태) 또는 여러 장(S18 기본)을 돌려준다. 자료마다 폴더를 나눠 파일 이름이 겹치지 않게
-            got = fetch_photo(u, dest if k == 0 else dest / f"src{k}")
+            here = dest if k == 0 and folder == "src" else dest / f"{folder}{k}"
+            got = fetch_photo(u, here)
             cands += [c for c in (got if isinstance(got, list) else [got]) if c is not None]
         except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
             log.info("사진 후보 수집 실패(%s): %s", u, e)
@@ -468,29 +484,7 @@ def _attach_photo(
             break
     for extra in cands[MAX_PHOTOS:]:  # 쓰지 않을 후보 파일은 남기지 않는다(S18 리뷰)
         Path(extra.path).unlink(missing_ok=True)
-    if not cands:
-        if urls:
-            c = ctx.repo.get_content(cid)
-            if c is not None:
-                ctx.repo.set_review_reason(
-                    cid,
-                    "; ".join(
-                        filter(
-                            None,
-                            [
-                                c.review_reason,
-                                _NO_PHOTO,
-                            ],
-                        )
-                    ),
-                )
-        return
-    # 예전에 붙은 "소재 사진 없음"은 사진을 찾았으면 지운다(실호출: 다시 모은 뒤에도 검토 사유에 남았다)
-    content = ctx.repo.get_content(cid)
-    if content is not None and content.review_reason and _NO_PHOTO in content.review_reason:
-        rest = [x for x in content.review_reason.split("; ") if x != _NO_PHOTO]
-        ctx.repo.set_review_reason(cid, "; ".join(rest))
-    rows = [
+    return [
         {
             "path": str(c.path),
             "image_url": c.image_url,
@@ -501,8 +495,97 @@ def _attach_photo(
         }
         for c in cands[:MAX_PHOTOS]
     ]
-    placement = None
-    if deck is not None:
+
+
+MIN_USABLE_PHOTOS = (
+    3  # 쓸 수 있는 사진(실물·공식)이 이보다 적으면 같은 소재의 다른 글에서 사진만 더 모은다
+)
+RELATED_JACCARD = 0.3
+
+
+def _related_urls(ctx: JobContext, items: list, limit: int = 2) -> list[str]:
+    """같은 소재를 다룬 다른 글(이미 수집한 자료) 주소. 사진이 모자랄 때 **사진만** 더 모은다(사실은 원래 자료에서만)."""
+    from nsm.domain.picks_policy import jaccard, normalize_tokens
+
+    aliases = ctx.config.workspace.aliases
+    lead = normalize_tokens(" ".join(i.title for i in items), aliases)
+    used = {i.url for i in items}
+    out: list[str] = []
+    for it, _rel, _topic in ctx.repo.unused_relevant_items(ctx.config.settings.relevance_threshold):
+        if (
+            it.url
+            and it.url not in used
+            and jaccard(normalize_tokens(it.title, aliases), lead) >= RELATED_JACCARD
+        ):
+            out.append(it.url)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def gather_photos(
+    ctx: JobContext,
+    cid: str,
+    items: list,
+    fetch_photo: PhotoFetcher,
+    rows: list[dict] | None = None,
+) -> tuple[list[dict], list]:
+    """원고를 쓰기 전 사진 확보·관찰(S18 편집 밀도): 자료 사진을 모아 관찰하고, 쓸 수 있는 사진이 모자라면
+    같은 소재의 다른 글에서 사진만 더 모아 관찰한다. 관찰 기록은 후보 목록에도 남긴다(무엇을 보고 골랐는지)."""
+    from nsm.engine.photo_match import observe
+
+    if rows is None:
+        rows = collect_photo_rows(ctx, cid, [i.url for i in items if i.url], fetch_photo)
+    observed = observe(ctx, rows) if rows else []
+    usable = sum(1 for p in observed if p.kind in ("photo", "official"))
+    if (observed or not rows) and usable < MIN_USABLE_PHOTOS:
+        more = collect_photo_rows(ctx, cid, _related_urls(ctx, items), fetch_photo, folder="more")
+        known = {r["path"] for r in rows}
+        more = [
+            m for m in more if m["path"] not in known
+        ]  # 다시 편집할 때 같은 파일을 두 번 넣지 않는다
+        if more:
+            rows = rows + more
+            observed = observed + observe(ctx, more)
+    for r, p in zip(rows, observed, strict=False):
+        r["observed"] = {
+            "kind": p.kind,
+            "shows": p.shows,
+            "details": [d.model_dump() for d in p.details],
+        }
+    return rows, observed
+
+
+def _attach_photo(
+    ctx: JobContext,
+    store: PicksStore,
+    cid: str,
+    urls,
+    fetch_photo: PhotoFetcher,
+    deck=None,
+    rows: list[dict] | None = None,
+    placement: dict | None = None,
+) -> None:
+    """사진 후보(S11) → 여러 장 + 장별 배치 제안(S18). 원고가 사진을 보고 고른 배치(placement)가 있으면 그것을,
+    없으면 내용으로 짝지은 배치를 candidates.json에 둔다. 사진이 하나도 없으면 검토 사유에 남긴다(조용히 완성 처리 안 함)."""
+    import json
+
+    if rows is None:
+        rows = collect_photo_rows(ctx, cid, urls, fetch_photo)
+    if not rows:
+        if urls:
+            c = ctx.repo.get_content(cid)
+            if c is not None:
+                ctx.repo.set_review_reason(
+                    cid, "; ".join(filter(None, [c.review_reason, _NO_PHOTO]))
+                )
+        return
+    # 예전에 붙은 "소재 사진 없음"은 사진을 찾았으면 지운다(실호출: 다시 모은 뒤에도 검토 사유에 남았다)
+    content = ctx.repo.get_content(cid)
+    if content is not None and content.review_reason and _NO_PHOTO in content.review_reason:
+        rest = [x for x in content.review_reason.split("; ") if x != _NO_PHOTO]
+        ctx.repo.set_review_reason(cid, "; ".join(rest))
+    if placement is None and deck is not None:
         from nsm.engine.photo_match import match_photos
 
         try:
@@ -516,6 +599,7 @@ def _attach_photo(
             }
         except Exception as e:  # noqa: BLE001
             log.info("사진 배치 제안 실패: %s", e)
+    dest = picks_dir(ctx) / cid
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "candidates.json").write_text(
         json.dumps(
@@ -525,9 +609,8 @@ def _attach_photo(
         ),
         encoding="utf-8",
     )
-    first = (
-        rows[placement["cover"]] if placement and placement.get("cover") is not None else rows[0]
-    )
+    cover = placement.get("cover") if placement else None
+    first = rows[cover] if cover is not None and 0 <= cover < len(rows) else rows[0]
     store.set_photo(
         cid,
         "candidate",
@@ -535,3 +618,53 @@ def _attach_photo(
         source_url=first["source_url"],
         path=first["path"],
     )
+
+
+def reedit_info(
+    ctx: JobContext, cid: str, fetch_photo: PhotoFetcher = fetch_photo_candidates
+) -> str:
+    """같은 자료·같은 사진으로 정보 원고를 다시 편집한다(S18 편집 밀도): 사진을 관찰하고, 관점을 정하고, 장마다
+    보여 줄 사진·디테일·주석을 고른다. 사진은 예전처럼 "이 사진 쓰기"로 사람이 확인한 뒤에 들어간다."""
+    import json
+
+    from nsm.engine.photo_match import split_photos
+
+    c = ctx.repo.get_content(cid)
+    if c is None or c.status != "pending_review":
+        raise ValueError("검토 대기 중인 원고만 다시 편집할 수 있습니다")
+    if c.generated.template == "meme":
+        raise ValueError("밈은 '다른 밈으로 다시 만들기'를 쓰세요")
+    items = ctx.repo.sources_for_content(cid)
+    if not items:
+        raise ValueError("이 원고의 자료를 찾을 수 없습니다")
+    rows_db = ctx.repo.db.execute("SELECT persona_topic FROM contents WHERE id = ?", [cid])
+    topic = (rows_db[0][0] if rows_db and rows_db[0][0] else None) or c.generated.topic
+    urls = [i.url for i in items if i.url]
+    manifest = picks_dir(ctx) / cid / "candidates.json"
+    rows: list[dict] = []
+    if manifest.is_file():  # 이미 모은 사진을 다시 받지 않는다(같은 소재 비교)
+        raw = json.loads(manifest.read_text(encoding="utf-8"))
+        rows = [r for r in raw.get("candidates") or [] if Path(r["path"]).is_file()]
+    rows, observed = gather_photos(ctx, cid, items, fetch_photo, rows or None)
+    result = JobResult("info_reedit")
+    d = build_draft(
+        ctx, (topic, [(i, 1.0) for i in items]), result, with_background=False, photos=observed
+    )
+    if isinstance(d, str):
+        raise ValueError("; ".join(result.errors) or "다시 편집하지 못했습니다")
+    gen, placement = d.gen, None
+    if observed:
+        deck, placement = split_photos(gen.deck, rows)
+        gen = gen.model_copy(update={"deck": deck})
+    ctx.repo.update_generated(cid, gen)
+    ctx.repo.set_review_reason(
+        cid,
+        "; ".join(
+            filter(None, ["오늘의 추천", "다시 편집(사진 관찰)", d.reason, *gen.editor_notes])
+        ),
+    )
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    _attach_photo(ctx, store, cid, urls, fetch_photo, gen.deck, rows=rows, placement=placement)
+    for p in (ctx.media_dir / "previews" / cid).glob("slide-*.png"):  # 예전 미리보기는 버린다
+        p.unlink()
+    return gen.deck.slides[0].title

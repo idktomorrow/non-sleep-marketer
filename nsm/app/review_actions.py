@@ -341,13 +341,18 @@ class ReviewActions:
                 continue
             dest, cand = copy(k, f"slide-{i + 1:02d}")
             first_dest = first_dest or dest
+            # 원고가 사진을 보고 고른 확대 영역·주석(S18 편집 밀도)이 있으면 그대로 쓴다
+            asset = (placement.get("assets") or {}).get(str(i)) or {}
             slides[i] = slides[i].model_copy(
                 update={
-                    "photo": ImageAsset(
-                        path=str(dest),
-                        ai=False,
-                        alt=notes.get(str(k)) or cand.get("alt", ""),
-                        source=cand.get("source_url", ""),
+                    "photo": ImageAsset.model_validate(
+                        {
+                            "alt": notes.get(str(k)) or cand.get("alt", ""),
+                            "source": cand.get("source_url", ""),
+                            **asset,
+                            "path": str(dest),
+                            "ai": False,
+                        }
                     )
                 }
             )
@@ -366,7 +371,17 @@ class ReviewActions:
             first_dest = first_dest or dest
             items[j] = items[j].model_copy(update={"image": str(dest)})
             slides[i] = slides[i].model_copy(update={"items": items})
-        g = g.model_copy(update={"deck": g.deck.model_copy(update={"slides": slides})})
+        # 표지·상품 사진의 출처도 게시 글 끝 출처에 남긴다(장 사진은 ImageAsset.source로 따로 모인다)
+        used_k = [placement.get("cover")] + list((placement.get("items") or {}).values())
+        photo_src = [
+            cands[int(k)].get("source_url", "")
+            for k in used_k
+            if k is not None and usable(k) and cands[int(k)].get("source_url")
+        ]
+        sources = list(dict.fromkeys([*g.deck.sources, *photo_src]))[:8]
+        g = g.model_copy(
+            update={"deck": g.deck.model_copy(update={"slides": slides, "sources": sources})}
+        )
         # 색은 표지 사진에서, 표지 사진이 없으면 처음 넣은 사진에서(S18 리뷰: 표지가 비면 요청이 조용히 무시됐다)
         color_src = cover_dest or first_dest
         if recolor and color_src is not None:

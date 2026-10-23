@@ -126,11 +126,20 @@
 {{- deco(s, bg) }}
 {%- endmacro %}
 
-{#- 장 내용과 맞는 실제 사진(S18): 칸에 맞춰 꽉 채운다(높이 상한에 걸리면 가장자리를 조금 자른다) -#}
+{#- 장 내용과 맞는 실제 사진(S18): 칸에 맞춰 꽉 채운다(높이 상한에 걸리면 가장자리를 조금 자른다).
+    편집 밀도(S18): crop이 있으면 관찰한 디테일 영역만 크게, marks는 그 디테일을 짚는 짧은 주석(점 + 글자) -#}
 {% macro photo(s) -%}
-{%- if s.photo %}{% set ar = s.photo.path | aspect %}
-<figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}" style="--ar: {{ ar }}">
+{%- if s.photo %}{% set ar = s.photo.path | aspect %}{% set c = s.photo.crop %}
+{%- if c %}{% set ar = ar * c[2] / c[3] %}{% endif %}
+<figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}{% if c %} zoom{% endif %}" style="--ar: {{ ar }}">
+  {%- if c %}
+  <div class="zoom-box"><img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}" style="width: {{ 10000 / c[2] }}%; height: {{ 10000 / c[3] }}%; left: {{ -c[0] * 100 / c[2] }}%; top: {{ -c[1] * 100 / c[3] }}%;"></div>
+  {%- else %}
   <img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}">
+  {%- endif %}
+  {%- for m in s.photo.marks %}
+  <span class="photo-mark{% if m.x > 60 %} left{% endif %}{% if m.y < 22 %} below{% endif %}" style="left: {{ m.x }}%; top: {{ m.y }}%;"><i></i><b data-fit="22">{{ m.text }}</b></span>
+  {%- endfor %}
 </figure>
 {%- endif %}
 {%- endmacro %}

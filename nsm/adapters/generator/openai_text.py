@@ -258,6 +258,23 @@ class OpenAITextGenerator:
         ]
         return self._parse(self._text(self._call("photo:match", body, pp.ESTIMATE_USD)))
 
+    def observe_photos(self, photos) -> list[dict]:
+        """원고를 쓰기 전 실제 사진 관찰(S18 편집 밀도, 포트 PhotoObserver): 보이는 것·디테일·위치."""
+        from nsm.adapters.generator import photo_place as pp
+
+        body = self._body(pp.OBSERVE_SYSTEM, "", pp.OBSERVE_SCHEMA, "photo_observe", pp.MAX_TOKENS)
+        body["input"] = [{"role": "user", "content": pp.observe_content(photos)}]
+        out = self._parse(self._text(self._call("photo:observe", body, pp.OBSERVE_USD)))
+        return list(out.get("photos", []))
+
+    def review_meme_image(self, image_path: str, brief: str) -> dict:
+        """완성된 밈 그림 검토(S18, 포트 MemeImageReviewer): 재미의 핵심이 그림에 보이는지, 문제는 어느 단계인지."""
+        from nsm.adapters.generator import photo_place as pp
+
+        body = self._body(pp.MEME_REVIEW_SYSTEM, "", pp.MEME_REVIEW_SCHEMA, "meme_review", 800)
+        body["input"] = [{"role": "user", "content": pp.meme_review_content(image_path, brief)}]
+        return self._parse(self._text(self._call("meme:review", body, pp.MEME_REVIEW_USD)))
+
     def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan:
         """유명·유행 밈 형식 하나를 골라 구도·연출·레이아웃까지 재해석(S17 제안, ADR 0061)."""
         body = self._body(

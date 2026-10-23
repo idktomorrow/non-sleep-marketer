@@ -155,3 +155,99 @@ def match_photos(ctx, deck: CardDeck, cands: list[dict]) -> Placement:
         notes={keep[k]: v for k, v in p.notes.items()},
         method=p.method,
     )
+
+
+# ---------------------------------------------------------------- 관찰 → 원고 → 배치(S18 편집 밀도)
+
+
+def _box(b) -> list[float] | None:
+    """{x,y,w,h}(%) → [x, y, w, h], 사진 안으로 자르고 너무 작거나 틀린 상자는 버린다."""
+    try:
+        x, y, w, h = (float(b[k]) for k in ("x", "y", "w", "h"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    x, y = max(0.0, min(x, 99.0)), max(0.0, min(y, 99.0))
+    w, h = min(w, 100.0 - x), min(h, 100.0 - y)
+    return [round(v, 1) for v in (x, y, w, h)] if w >= 3 and h >= 3 else None
+
+
+def observe(ctx, rows: list[dict]) -> list:
+    """원고를 쓰기 전에 실제 사진을 관찰한다(포트 PhotoObserver). 공급자가 없거나 실패하면 빈 목록(예전처럼 글만 보고 쓴다)."""
+    from nsm.domain.models import ObservedPhoto, PhotoDetail
+    from nsm.ports import PhotoObserver
+
+    gen = ctx.text_generator
+    keep = [r for r in rows if Path(r["path"]).is_file()]
+    if not keep or not isinstance(gen, PhotoObserver):
+        return []
+    try:
+        out = gen.observe_photos(
+            [(r["path"], r.get("source_url", ""), r.get("alt", "")) for r in keep]
+        )
+    except Exception as e:  # noqa: BLE001  관찰은 있으면 좋고 없으면 글만 보고 쓴다
+        log.info("사진 관찰 실패(글만 보고 씀): %s", e)
+        return []
+    by_k: dict[int, dict] = {}
+    for x in out:
+        try:
+            by_k[int(x["photo"])] = x
+        except (KeyError, TypeError, ValueError):
+            continue
+    photos = []
+    for k, r in enumerate(keep):
+        x = by_k.get(k, {})
+        details = [
+            PhotoDetail(what=str(d.get("what", ""))[:60], box=b)
+            for d in (x.get("details") or [])[:3]
+            if str(d.get("what", "")).strip() and (b := _box(d.get("box"))) is not None
+        ]
+        photos.append(
+            ObservedPhoto(
+                path=r["path"],
+                source_url=r.get("source_url", ""),
+                kind=str(x.get("kind", "photo")),
+                shows=str(x.get("shows", ""))[:200] or r.get("alt", ""),
+                details=details,
+            )
+        )
+    return photos
+
+
+def split_photos(deck: CardDeck, rows: list[dict]) -> tuple[CardDeck, dict | None]:
+    """원고가 관찰한 사진을 골라 넣은 덱 → (사진을 뺀 덱, 배치). 사진은 사람이 "이 사진 쓰기"로 확인한 뒤에만
+    카드에 들어간다(S11). 확대 영역·주석은 배치에 그대로 남겨 그때 적용한다."""
+    index = {r["path"]: k for k, r in enumerate(rows)}
+    placement: dict = {
+        "cover": None,
+        "slides": {},
+        "items": {},
+        "assets": {},
+        "notes": {},
+        "method": "writer",
+    }
+    slides = []
+    found = False
+    for i, s in enumerate(deck.slides):
+        upd: dict = {}
+        if i == 0 and s.background in index:
+            placement["cover"] = index[s.background]
+            upd["background"] = None
+            found = True
+        photo = getattr(s, "photo", None)
+        if photo is not None and photo.path in index:
+            placement["slides"][str(i)] = index[photo.path]
+            placement["assets"][str(i)] = photo.model_dump(exclude={"path"})
+            upd["photo"] = None
+            found = True
+        if s.kind == "products":
+            items = list(s.items)
+            for j, it in enumerate(items):
+                if it.image in index:
+                    placement["items"][f"{i}.{j}"] = index[it.image]
+                    items[j] = it.model_copy(update={"image": None})
+                    found = True
+            upd["items"] = items
+        slides.append(s.model_copy(update=upd) if upd else s)
+    if not found:
+        return deck, None
+    return deck.model_copy(update={"slides": slides}), placement

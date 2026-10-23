@@ -62,9 +62,23 @@ def run_meme_remake(ctx: JobContext, arg: str) -> JobResult:
     return result
 
 
+def run_info_reedit(ctx: JobContext, cid: str) -> JobResult:
+    """'사진 보고 다시 편집'(S18 편집 밀도): 같은 자료·같은 사진으로 관찰 → 관점 → 장 편집."""
+    from nsm.engine.picks import reedit_info
+
+    result = JobResult("info_reedit")
+    try:
+        result.counts["title"] = reedit_info(ctx, cid)
+    except Exception as e:  # noqa: BLE001  사람에게 이유를 보인다
+        result.ok = False
+        result.errors.append(str(e)[:200])
+    return result
+
+
 ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "keyword": run_keyword_draft,
     "meme_remake": run_meme_remake,
+    "info_reedit": run_info_reedit,
 }
 
 

@@ -464,6 +464,7 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
         "mechanism": plan.mechanism,
         "form": plan.form,
         "make": plan.make,
+        "core": plan.core,
         "pages": len(plan.pages) or 1,
         # 팬 사례 후보는 다시 만들 때 같은 글을 가리키도록 계획에 저장한다(재검색하면 순서가 바뀐다, S18 리뷰)
         "fan_candidates": [

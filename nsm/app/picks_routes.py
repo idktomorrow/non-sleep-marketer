@@ -255,6 +255,16 @@ def install_picks_routes(
         state.run_job_now("meme_remake", f"{cid}|{key}")
         return back("/picks")
 
+    @app.post("/picks/{cid}/reedit", dependencies=[Depends(check_csrf)])
+    def reedit_info(cid: str) -> RedirectResponse:
+        """사진 보고 다시 편집(S18 편집 밀도): 같은 자료·사진으로 관찰 → 관점 → 장 편집(작업 스레드에서, AI 호출 2회)."""
+        if state.run_job_now is None:
+            raise HTTPException(503, "작업 실행기가 없습니다")
+        if not re.fullmatch(r"[0-9A-Z]{26}", cid):
+            raise HTTPException(400, "원고 id 형식이 아닙니다")
+        state.run_job_now("info_reedit", cid)
+        return back("/picks")
+
     @app.post("/picks/{cid}/recheck", dependencies=[Depends(check_csrf)])
     def recheck_pick(cid: str) -> RedirectResponse:
         _run(lambda: actions.recheck(cid))

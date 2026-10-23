@@ -284,6 +284,8 @@ class MemeFormatPlan:
     # 만드는 방법(사용자 피드백 2026-10-23): composite=유명 짤 원본을 그대로 두고 그 안에 캐릭터만 합성,
     # restage=구조만 빌려 캐릭터 세계에서 새로 그림
     make: str = "restage"
+    # 재미를 전달하는 핵심(표정·시선·배치·동작·자막·선택지 대비 등). 완성 그림에서 살아 있어야 한다(S18)
+    core: str = ""
 
 
 @runtime_checkable
@@ -314,6 +316,22 @@ class PhotoPlacer(Protocol):
         photos: list[tuple[str, str, str]],
         items: list[str] = (),  # 상품 장의 상품 하나하나 "[장.번호] 이름 · 설명"(S18)
     ) -> dict: ...
+
+
+@runtime_checkable
+class PhotoObserver(Protocol):
+    """원고를 쓰기 전에 실제 사진을 관찰한다(S18 편집 밀도). photos: (로컬 경로, 출처 URL, 설명) 목록.
+    돌려주는 값: [{"photo": 번호, "kind", "shows", "details": [{"what", "box": {x,y,w,h}}]}]. 검증은 호출자가 한다."""
+
+    def observe_photos(self, photos: list[tuple[str, str, str]]) -> list[dict]: ...
+
+
+@runtime_checkable
+class MemeImageReviewer(Protocol):
+    """완성된 밈 그림 검토(S18): 기획의 재미 핵심이 그림에 실제로 보이는지. 돌려주는 값:
+    {"ok": bool, "problems": [{"part": "scene"|"composite"|"text"|"idea", "note": str}]}. 검증은 호출자가 한다."""
+
+    def review_meme_image(self, image_path: str, brief: str) -> dict: ...
 
 
 @runtime_checkable

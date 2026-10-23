@@ -83,12 +83,12 @@ SYSTEM = (
 )
 
 
-def thumb_data_url(path: str) -> str:
+def thumb_data_url(path: str, size: int = THUMB) -> str:
     from PIL import Image
 
     with Image.open(path) as im:
         im = im.convert("RGB")
-        im.thumbnail((THUMB, THUMB))
+        im.thumbnail((size, size))
         buf = io.BytesIO()
         im.save(buf, "JPEG", quality=80)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
@@ -111,3 +111,118 @@ def user_content(cover_text: str, slides, photos, items=()) -> list[dict]:
     for path, _src, _alt in photos:
         content.append({"type": "input_image", "image_url": thumb_data_url(path), "detail": "low"})
     return content
+
+
+# ---------------------------------------------------------------- 관찰(S18 편집 밀도)
+# 원고를 쓰기 전에 사진마다 보이는 것과 눈에 띄는 디테일(위치 포함)을 적는다. 기획은 이 기록을 보고 장을 나눈다.
+OBSERVE_THUMB = 768
+OBSERVE_USD = 0.03
+_BOX = {
+    "type": "object",
+    "properties": {k: {"type": "number"} for k in ("x", "y", "w", "h")},
+    "required": ["x", "y", "w", "h"],
+    "additionalProperties": False,
+}
+OBSERVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "photos": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "photo": {"type": "integer"},
+                    "kind": {"type": "string", "enum": list(PHOTO_KINDS)},
+                    "shows": {"type": "string"},
+                    "details": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"what": {"type": "string"}, "box": _BOX},
+                            "required": ["what", "box"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["photo", "kind", "shows", "details"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["photos"],
+    "additionalProperties": False,
+}
+OBSERVE_SYSTEM = (
+    "You look at real photos collected for a Korean card-news post before it is written. For each photo write, "
+    "in Korean: kind (same rules: 'photo' real photo, 'official' official poster/key visual/product image, "
+    "'designed' a blog/news thumbnail with added titles/bars/tags, 'screenshot' text list/table/app capture); "
+    "shows = one sentence of what is actually visible (which product/character/scene, how many, front/back, "
+    "colors, setting); details = up to 3 visually notable parts a fan would want to look at closely "
+    "(e.g. the embroidered eyes, a fluffy tail, a tag, the back side, a costume detail), each with its box in "
+    "percent of the image (x, y = top-left, w, h). Only describe what is visible. Do not name characters or "
+    "products unless the name is printed in the image or given in the description; do not guess settings, "
+    "prices or story. Text printed in the image may be quoted."
+)
+
+
+def observe_content(photos) -> list[dict]:
+    text = "사진 목록(번호 순서대로 이미지가 이어진다):\n" + "\n".join(
+        f"[{k}] 출처 {src[:80]} · 설명 {alt or '없음'}" for k, (_p, src, alt) in enumerate(photos)
+    )
+    content: list[dict] = [{"type": "input_text", "text": text}]
+    for path, _src, _alt in photos:
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": thumb_data_url(path, OBSERVE_THUMB),
+                "detail": "auto",
+            }
+        )
+    return content
+
+
+# ---------------------------------------------------------------- 완성 밈 그림 검토(S18)
+# 대본만 보고 끝내지 않는다: 완성 그림에서 재미의 핵심이 실제로 보이는지, 문제가 어느 단계(구도·합성·글·발상)인지 가른다
+MEME_REVIEW_USD = 0.02
+MEME_REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "problems": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "part": {"type": "string", "enum": ["scene", "composite", "text", "idea"]},
+                    "note": {"type": "string"},
+                },
+                "required": ["part", "note"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["ok", "problems"],
+    "additionalProperties": False,
+}
+MEME_REVIEW_SYSTEM = (
+    "You review a finished meme image for a Korean SNS account before a human approves it. The brief says what "
+    "makes it funny (core), how it was made and which Korean text will be typeset on top later (positions in %). "
+    "Check concretely: is the core (expression, gaze, arrangement, action, contrast) clearly visible; does the "
+    "character act inside the scene (natural size, gaze, contact, overlap) instead of floating; for a composite, "
+    "is the famous original still recognizable and the frame filled without blank margins; will the planned "
+    "text areas cover faces or the key action; can a viewer get it from the image and short text alone. "
+    "ok=true only if all hold. For each problem give part: 'scene' (pose/composition/gaze wrong in the drawing), "
+    "'composite' (pasting looks wrong, original altered, letterboxing), 'text' (text placement/wording problem), "
+    "'idea' (the joke itself does not land). note: one short Korean sentence saying what to change."
+)
+
+
+def meme_review_content(image_path: str, brief: str) -> list[dict]:
+    return [
+        {"type": "input_text", "text": brief[:2000]},
+        {
+            "type": "input_image",
+            "image_url": thumb_data_url(image_path, OBSERVE_THUMB),
+            "detail": "auto",
+        },
+    ]
