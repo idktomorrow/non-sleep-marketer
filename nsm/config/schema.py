@@ -149,6 +149,9 @@ class Settings(_Model):
     # 게시 계정 핸들(예: {"threads": "@nonsleepmarketer"}). 실계정 어댑터(배치 G)는 로그인된
     # 계정이 여기 적힌 핸들과 다르면 게시하지 않는다. 비어 있으면 실계정 게시를 하지 않는다.
     accounts: dict[Platform, str] = Field(default_factory=dict)
+    # Aside 계정(예: "u1"). Aside에 계정이 여럿이면 게시할 SNS에 로그인된 계정을 고른다(`aside account list`).
+    # 비우면 Aside의 활성 계정(실측 2026-10-23: 인스타그램이 u1에만 로그인돼 있어 기본 u0에서 "로그인 필요"로 실패)
+    aside_account: str | None = Field(default=None, pattern=r"^u\d{1,2}$")
     browser_profile_dir: str | None = None  # 기본: <NSM_HOME>/browser-profile
     collect_profile_dir: str | None = (
         None  # 수집 전용 계정 프로필. 기본: <NSM_HOME>/collect-profile

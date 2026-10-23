@@ -79,7 +79,21 @@ ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "keyword": run_keyword_draft,
     "meme_remake": run_meme_remake,
     "info_reedit": run_info_reedit,
+    "card_review": lambda ctx, cid: _card_review(ctx, cid),
 }
+
+
+def _card_review(ctx: JobContext, cid: str) -> JobResult:
+    """완성 카드 검토(S18 프로세스): 미리보기를 그린 뒤 저절로 돈다."""
+    from nsm.engine.card_review import run_card_review
+
+    result = JobResult("card_review")
+    try:
+        result.counts["result"] = run_card_review(ctx, cid)
+    except Exception as e:  # noqa: BLE001
+        result.ok = False
+        result.errors.append(str(e)[:200])
+    return result
 
 
 def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = None) -> JobResult:

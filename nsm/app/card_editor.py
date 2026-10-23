@@ -203,7 +203,12 @@ def set_background(
     slides = list(gen.deck.slides)
     if not 0 <= index < len(slides):
         raise EditError("없는 슬라이드입니다")
-    slides[index] = slides[index].model_copy(update={"background": path})
+    upd: dict = {"background": path}
+    if (
+        getattr(slides[index], "subject", None) is not None
+    ):  # 다른 사진이면 예전 사진의 주인공 영역은 맞지 않는다
+        upd["subject"] = None
+    slides[index] = slides[index].model_copy(update=upd)
     ai = any(is_ai_background(s.background, media_dir) for s in slides)
     deck = gen.deck.model_copy(
         update={

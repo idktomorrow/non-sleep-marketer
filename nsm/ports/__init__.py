@@ -327,6 +327,14 @@ class PhotoObserver(Protocol):
 
 
 @runtime_checkable
+class CardReviewer(Protocol):
+    """완성 카드 검토(S18 프로세스): 렌더한 장 PNG를 보고 장마다 문제와 원인 단계(material·plan·layout·text)를 돌려준다.
+    돌려주는 값: {"slides": [{"slide": 번호(1부터), "problems": [{"part", "note"}]}]}. 검증은 호출자가 한다."""
+
+    def review_cards(self, paths: list[str], brief: str) -> dict: ...
+
+
+@runtime_checkable
 class MemeImageReviewer(Protocol):
     """완성된 밈 그림 검토(S18): 기획의 재미 핵심이 그림에 실제로 보이는지. 돌려주는 값:
     {"ok": bool, "problems": [{"part": "scene"|"composite"|"text"|"idea", "note": str}]}. 검증은 호출자가 한다."""

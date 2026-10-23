@@ -1070,6 +1070,9 @@ def create_app(state: AppState) -> FastAPI:
                     prod, c, revision, deck, str(getattr(renderer, "version", "")), out, overflow
                 )
                 actions.mark_render_checked(cid, overflow)  # 추천 원고의 "게시 준비 완료" 조건(S11)
+                # 완성 카드 검토(S18 프로세스): 소식형이면 그림을 보고 목적에 맞게 보이는지 따로 본다(작업 스레드, 화면은 기다리지 않음)
+                if deck.template == "editorial" and state.run_job_now is not None:
+                    state.run_job_now("card_review", cid)
             except Exception:
                 clear_rendered(state.media_dir, cid, cards=False)
                 raise

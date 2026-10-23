@@ -10,8 +10,14 @@
   --paper: color-mix(in srgb, var(--primary) 16%, #FFF2F7);
   --sticker-edge: #fff; --outline: #1B1D22;
 }
-/* 바탕: 파스텔 + 옅은 물방울 점 */
-.skin-kitsch .slide:not(.has-bg) {
+/* 바탕: 파스텔. 물방울 점·반짝이는 글이 중심인 강조 장(본문·목록·비교)에만(S18 프로세스: 모든 장에 같은 장식을 반복하지 않는다).
+   일정·조건처럼 정확히 읽혀야 하는 정보 줄 장과 사진 장은 바탕만 둔다 */
+.skin-kitsch .slide:not(.has-bg) { background: var(--paper); }
+.skin-kitsch .slide.facts .sparkles, .skin-kitsch .slide.products .sparkles { display: none; }
+.skin-kitsch .slide.body:not(.has-bg):not(.has-photo),
+.skin-kitsch .slide.list:not(.has-bg):not(.has-photo),
+.skin-kitsch .slide.compare:not(.has-bg):not(.has-photo),
+.skin-kitsch .slide.cover:not(.has-bg) {
   background:
     radial-gradient(circle at 18% 12%, rgba(255,255,255,.75) 0 120px, transparent 121px),
     radial-gradient(circle at 92% 88%, rgba(255,255,255,.6) 0 160px, transparent 161px),

@@ -324,8 +324,19 @@ class ReviewActions:
         first_dest = None
         cover_k = placement.get("cover")
         if cover_k is not None and usable(cover_k):
-            cover_dest, _ = copy(int(cover_k), "slide-01")
+            cover_dest, cover_cand = copy(int(cover_k), "slide-01")
             g = set_background(g, 0, str(cover_dest), media_dir)
+            # 주인공 영역(관찰): 원고가 정한 것, 없으면 관찰 기록. 표지를 자를지·키울지를 렌더러가 이걸로 정한다
+            subj = placement.get("cover_subject") or (cover_cand.get("observed") or {}).get(
+                "subject"
+            )
+            if subj and g.deck.slides[0].kind == "cover":
+                cover = g.deck.slides[0].model_copy(update={"subject": subj})
+                g = g.model_copy(
+                    update={
+                        "deck": g.deck.model_copy(update={"slides": [cover, *g.deck.slides[1:]]})
+                    }
+                )
         # 다시 적용하면 예전 배치로 넣은 장 사진은 비우고 새 배치만 쓴다(실호출: 같은 사진이 표지와 본문에 두 번).
         # 장 사진(photo)은 이 동작만 넣는다. 사람이 올린 배경·상품 그림은 건드리지 않는다
         slides = [

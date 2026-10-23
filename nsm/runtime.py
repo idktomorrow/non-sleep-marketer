@@ -76,10 +76,12 @@ def make_platform_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
 
 def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
     """실계정 어댑터(배치 G). settings.accounts에 핸들이 없는 플랫폼은 만들지 않는다(게시 안 함)."""
+    from nsm.adapters.drivers.aside import AsideRepl
     from nsm.adapters.platforms.instagram import InstagramAdapter
     from nsm.adapters.platforms.threads import ThreadsAdapter
 
     live = {"threads": ThreadsAdapter, "instagram": InstagramAdapter}
+    acct = cfg.settings.aside_account
     out = {}
     for p in cfg.settings.enabled_platforms:
         cls = live.get(p)
@@ -89,7 +91,8 @@ def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
         elif not handle:
             log.warning("%s 게시 계정이 settings.accounts에 없어 실계정 게시를 하지 않습니다.", p)
         else:
-            out[p] = cls(handle, clock, media_dir=paths.media_dir())
+            repl = AsideRepl(account=acct) if acct else None
+            out[p] = cls(handle, clock, repl=repl, media_dir=paths.media_dir())
     return out
 
 

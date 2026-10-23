@@ -552,6 +552,9 @@ def gather_photos(
             "kind": p.kind,
             "shows": p.shows,
             "details": [d.model_dump() for d in p.details],
+            "size": p.size,
+            "subject": p.subject,
+            "has_text": p.has_text,
         }
     return rows, observed
 
@@ -621,7 +624,10 @@ def _attach_photo(
 
 
 def reedit_info(
-    ctx: JobContext, cid: str, fetch_photo: PhotoFetcher = fetch_photo_candidates
+    ctx: JobContext,
+    cid: str,
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
+    feedback: list[str] | None = None,
 ) -> str:
     """같은 자료·같은 사진으로 정보 원고를 다시 편집한다(S18 편집 밀도): 사진을 관찰하고, 관점을 정하고, 장마다
     보여 줄 사진·디테일·주석을 고른다. 사진은 예전처럼 "이 사진 쓰기"로 사람이 확인한 뒤에 들어간다."""
@@ -648,7 +654,12 @@ def reedit_info(
     rows, observed = gather_photos(ctx, cid, items, fetch_photo, rows or None)
     result = JobResult("info_reedit")
     d = build_draft(
-        ctx, (topic, [(i, 1.0) for i in items]), result, with_background=False, photos=observed
+        ctx,
+        (topic, [(i, 1.0) for i in items]),
+        result,
+        with_background=False,
+        photos=observed,
+        feedback=feedback,
     )
     if isinstance(d, str):
         raise ValueError("; ".join(result.errors) or "다시 편집하지 못했습니다")

@@ -260,6 +260,7 @@ def build_draft(
     *,
     with_background: bool = True,
     photos: list | None = None,
+    feedback: list[str] | None = None,
 ) -> Draft | str:
     """자료 묶음 → 원고 초안. 실패하면 `_SKIP_MATERIAL`(자료 문제) 또는 `_RETRY_LATER`(장애)를 돌려준다.
 
@@ -280,6 +281,7 @@ def build_draft(
         sources=items,
         is_ad=persona.ad_label,
         photos=photos or [],  # S18 편집 밀도: 원고를 쓰기 전에 관찰한 실제 사진
+        feedback=feedback or [],  # S18 프로세스: 완성 카드 검토에서 나온 고칠 점(다시 편집할 때)
     )
     try:
         gen = ctx.text_generator.generate_content(brief, persona, brand)  # type: ignore[union-attr]

@@ -337,7 +337,7 @@ settings:
     instagram: "@내_인스타그램_핸들"
 ```
 
-`accounts`에 적은 핸들과 Aside 브라우저에 로그인된 계정이 **다르면 게시하지 않습니다**. 다른 계정에 잘못 올라가는 것을 막는 장치입니다.
+`accounts`에 적은 핸들과 Aside 브라우저에 로그인된 계정이 **다르면 게시하지 않습니다**. Aside에 계정이 여럿이면(`aside account list`) 게시할 SNS에 로그인된 쪽을 `aside_account: u1`처럼 적으세요. 비우면 Aside의 활성 계정을 씁니다. macOS에서는 `~/.local/bin/aside`도 인식합니다. 다른 계정에 잘못 올라가는 것을 막는 장치입니다.
 
 ### 무엇이 일어나나
 

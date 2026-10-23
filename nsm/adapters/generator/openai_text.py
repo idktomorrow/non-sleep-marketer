@@ -267,6 +267,14 @@ class OpenAITextGenerator:
         out = self._parse(self._text(self._call("photo:observe", body, pp.OBSERVE_USD)))
         return list(out.get("photos", []))
 
+    def review_cards(self, paths: list[str], brief: str) -> dict:
+        """완성 카드 검토(S18 프로세스, 포트 CardReviewer): 장마다 목적에 맞게 보이는지와 문제의 원인 단계."""
+        from nsm.adapters.generator import photo_place as pp
+
+        body = self._body(pp.CARD_REVIEW_SYSTEM, "", pp.CARD_REVIEW_SCHEMA, "card_review", 1500)
+        body["input"] = [{"role": "user", "content": pp.card_review_content(paths, brief)}]
+        return self._parse(self._text(self._call("card:review", body, pp.CARD_REVIEW_USD)))
+
     def review_meme_image(self, image_path: str, brief: str) -> dict:
         """완성된 밈 그림 검토(S18, 포트 MemeImageReviewer): 재미의 핵심이 그림에 보이는지, 문제는 어느 단계인지."""
         from nsm.adapters.generator import photo_place as pp

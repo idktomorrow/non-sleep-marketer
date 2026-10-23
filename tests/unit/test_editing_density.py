@@ -92,7 +92,10 @@ def test_writer_sees_observed_photos_and_schema_asks_for_angle_and_focus(tmp_pat
         '<photo n="0" kind="photo">파란 귀 인형 키링 앞면' in text
         and "[디테일 0] 자수로 놓은 큰 눈" in text
     )
-    assert "angle을 정한다" in text and "focus" in text
+    assert "독자가 무엇을 알게 되고" in text and "focus" in text
+    # 기획에 사진의 물리 정보(크기·표지 배율·글자)를 넘긴다(S18 프로세스: 표지를 채울 수 있는 사진을 고르게)
+    sized = [photos[0].model_copy(update={"size": [886, 432], "has_text": True})]
+    assert 'size="886x432" cover_scale="3.1" text="yes"' in user_prompt(_brief(sized))
     s = llm_schema(False, "editorial")
     assert {"angle", "cover_photo", "gaps"} <= set(s["required"])
     assert {"photo", "focus", "marks"} <= set(s["properties"]["slides"]["items"]["required"])
@@ -400,7 +403,12 @@ def test_zoom_on_a_small_photo_is_skipped_for_sharpness(app_config, tmp_path) ->
     )
     out = _out([_slide(heading="금색 단추", body="금색 단추", photo=0, focus=0)], cover_photo=-1)
     gaps: list[str] = []
-    deck = build_deck("editorial", out, app_config.brand, app_config.persona, _brief([small]), gaps)
+    cover = ObservedPhoto(
+        path=_img(tmp_path, "c.jpg", (1200, 1500)), kind="photo", size=[1200, 1500]
+    )
+    deck = build_deck(
+        "editorial", out, app_config.brand, app_config.persona, _brief([small, cover]), gaps
+    )
     assert deck.slides[1].photo is not None and deck.slides[1].photo.crop is None
     assert any("해상도 부족" in g for g in gaps)
 
@@ -441,3 +449,101 @@ def test_wide_group_product_photos_are_stacked_uncropped(tmp_path) -> None:
         assert r.last_overflow == []
     finally:
         r.close()
+
+
+def test_final_card_review_records_cause_and_reedits_once(tmp_path, monkeypatch) -> None:
+    """완성 카드 검토(S18 프로세스): 문제는 원인 단계별로 남기고, 소재·기획·표지 배치 문제면 한 번만 다시 편집.
+    글 문제만 있으면 사람에게(다시 편집하지 않음)."""
+    from nsm.domain.models import BodySlide, CardDeck, CoverSlide, DeckBrand, DeckPersona
+    from nsm.engine import card_review as CR
+    from nsm.engine import picks as P
+
+    small = _img(tmp_path, "small.jpg", (886, 432))
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[CoverSlide(title="t", background=small), BodySlide(heading="h", body="b")],
+    )
+    reasons = {"c1": "오늘의 추천; 관점: 굿즈 디테일"}
+    content = SimpleNamespace(
+        id="c1",
+        is_ad=False,
+        generated=SimpleNamespace(template="editorial", deck=deck),
+        review_reason=reasons["c1"],
+    )
+    prev = tmp_path / "previews" / "c1"
+    prev.mkdir(parents=True)
+    Image.new("RGB", (10, 10)).save(prev / "slide-01.png")
+    (prev / "overflow.txt").write_text("2")
+
+    answers = [
+        {
+            "slides": [
+                {
+                    "slide": 1,
+                    "problems": [{"part": "plan", "note": "표지에 가로 단체 사진이라 상품이 작음"}],
+                }
+            ]
+        }
+    ]
+
+    class Reviewer:
+        def review_cards(self, paths, brief):
+            assert "관점: 굿즈 디테일" in brief and "코드가 잰 문제" in brief
+            return answers[0]
+
+    reedits = []
+    monkeypatch.setattr(P, "reedit_info", lambda ctx, cid, feedback=None: reedits.append(feedback))
+    monkeypatch.setattr("nsm.engine.publish.labeled_deck", lambda c: c.generated.deck)
+
+    def get(cid):
+        return SimpleNamespace(**{**content.__dict__, "review_reason": reasons[cid]})
+
+    ctx = SimpleNamespace(
+        text_generator=Reviewer(),
+        media_dir=tmp_path,
+        repo=SimpleNamespace(
+            get_content=get, set_review_reason=lambda cid, r: reasons.__setitem__(cid, r)
+        ),
+    )
+    assert "다시 편집" in CR.run_card_review(ctx, "c1")
+    assert "완성 카드 검토: 1장 기획: 표지에 가로 단체 사진이라 상품이 작음" in reasons["c1"]
+    assert (
+        "완성 카드 검토: 수치: 2장 글 넘침" in reasons["c1"]
+        and "배경 사진 886×432" in reasons["c1"]
+    )
+    assert reedits == [["1장 기획: 표지에 가로 단체 사진이라 상품이 작음"]]
+    # 두 번째 검토에서는 다시 편집하지 않는다(한 번만), 예전 검토 줄은 새 결과로 바뀐다
+    answers[0] = {
+        "slides": [
+            {"slide": 2, "problems": [{"part": "text", "note": "제목이 '수량/제한'으로 갈림"}]}
+        ]
+    }
+    CR.run_card_review(ctx, "c1")
+    assert (
+        len(reedits) == 1 and "2장 글: 제목이" in reasons["c1"] and "1장 기획" not in reasons["c1"]
+    )
+
+
+def test_cover_gets_the_photo_that_fills_it_best_when_writer_leaves_it_empty(
+    app_config, tmp_path
+) -> None:
+    """쓸 사진이 있으면 표지는 사진(사용자 피드백). 원고가 비우면 표지를 가장 잘 채우는 사진: 가로 단체 사진보다 정사각 사진."""
+    wide = ObservedPhoto(
+        path=_img(tmp_path, "w.jpg", (886, 432)),
+        kind="official",
+        size=[886, 432],
+        subject=[2, 5, 96, 90],
+    )
+    square = ObservedPhoto(
+        path=_img(tmp_path, "s.jpg", (838, 848)), kind="official", size=[838, 848]
+    )
+    thumb = ObservedPhoto(
+        path=_img(tmp_path, "t.jpg", (2000, 2500)), kind="designed", size=[2000, 2500]
+    )
+    out = _out([_slide(heading="h", body="b")], cover_photo=-1)
+    deck = build_deck(
+        "editorial", out, app_config.brand, app_config.persona, _brief([wide, square, thumb])
+    )
+    assert deck.slides[0].background == square.path  # 남의 썸네일은 크더라도 쓰지 않는다

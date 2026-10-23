@@ -134,6 +134,11 @@ OBSERVE_SCHEMA = {
                     "photo": {"type": "integer"},
                     "kind": {"type": "string", "enum": list(PHOTO_KINDS)},
                     "shows": {"type": "string"},
+                    # 꼭 보여야 할 영역(주인공: 인물·상품 묶음·포스터 본체·현장의 핵심). 자를 때 이 상자를 지킨다
+                    "subject": _BOX,
+                    "has_text": {
+                        "type": "boolean"
+                    },  # 사진 안에 읽혀야 하는 글자(포스터 제목·안내문)가 있나
                     "details": {
                         "type": "array",
                         "items": {
@@ -144,7 +149,7 @@ OBSERVE_SCHEMA = {
                         },
                     },
                 },
-                "required": ["photo", "kind", "shows", "details"],
+                "required": ["photo", "kind", "shows", "subject", "has_text", "details"],
                 "additionalProperties": False,
             },
         }
@@ -156,10 +161,13 @@ OBSERVE_SYSTEM = (
     "You look at real photos collected for a Korean card-news post before it is written. For each photo write, "
     "in Korean: kind (same rules: 'photo' real photo, 'official' official poster/key visual/product image, "
     "'designed' a blog/news thumbnail with added titles/bars/tags, 'screenshot' text list/table/app capture); "
-    "shows = one sentence of what is actually visible (which product/character/scene, how many, front/back, "
-    "colors, setting); details = up to 3 visually notable parts a fan would want to look at closely "
-    "(e.g. the embroidered eyes, a fluffy tail, a tag, the back side, a costume detail), each with its box in "
-    "percent of the image (x, y = top-left, w, h). Only describe what is visible. Do not name characters or "
+    "shows = one sentence of what is actually visible (people, objects, place, event, poster, chart; how many, "
+    "front/back, colors, setting); subject = the box that MUST stay visible if the photo is cropped (the main "
+    "people or faces, the whole group of items, the poster body, the key moment of the scene); has_text = true if "
+    "text inside the image must stay readable (poster title, notice); details = up to 3 visually notable parts a "
+    "reader would want to look at closely (a face or expression, a costume or product detail, a sign, a crowd, a "
+    "stage element), each with its box. All boxes in percent of the image (x, y = top-left, w, h). "
+    "Only describe what is visible. Do not name people, characters or "
     "products unless the name is printed in the image or given in the description; do not guess settings, "
     "prices or story. Text printed in the image may be quoted."
 )
@@ -226,3 +234,69 @@ def meme_review_content(image_path: str, brief: str) -> list[dict]:
             "detail": "auto",
         },
     ]
+
+
+# ---------------------------------------------------------------- 완성 카드 검토(S18 프로세스)
+# 넘침 검사(수치)는 렌더러가 한다. 여기서는 그림을 봐야 아는 것만: 핵심이 보이는지, 잘림·가림, 글과 그림의 일치, 제목 줄, 화질
+CARD_REVIEW_USD = 0.04
+CARD_REVIEW_THUMB = 640
+CARD_REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "slides": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "slide": {"type": "integer"},
+                    "problems": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "part": {
+                                    "type": "string",
+                                    "enum": ["material", "plan", "layout", "text"],
+                                },
+                                "note": {"type": "string"},
+                            },
+                            "required": ["part", "note"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["slide", "problems"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["slides"],
+    "additionalProperties": False,
+}
+CARD_REVIEW_SYSTEM = (
+    "You review finished Korean card-news slides (1080x1350 each, in order) before a human approves them. "
+    "The brief gives the post's purpose (angle) and what each slide is meant to do. Judge each slide by ITS purpose: "
+    "a schedule/notice slide needs dates, places and conditions to be clear; a comparison needs matching criteria; an "
+    "explainer needs context and logic; a showcase needs the subject (product, person, scene, poster) to be identifiable. "
+    "Common checks: can the key point be grasped quickly; does the image show what the text says; is the reading order "
+    "and emphasis right; is anything important cropped, covered by text, distorted, blurry from upscaling, or repeated "
+    "for no reason; does the title break lines at meaningful units (not splitting a phrase like '수량 제한'). "
+    "Do not use product photo size as the quality bar for every slide; a text slide without a photo can be fine. "
+    "Only report real problems. For each, part = 'material' (the needed photo/fact is missing or unusable), 'plan' "
+    "(wrong slide role, order, choice of photo or expression), 'layout' (placement/cropping/size issue the content "
+    "itself could be fine with), 'text' (wording, line breaks, length). note: one short Korean sentence saying what "
+    "to change. Slides are numbered from 1."
+)
+
+
+def card_review_content(paths: list[str], brief: str) -> list[dict]:
+    content: list[dict] = [{"type": "input_text", "text": brief[:4000]}]
+    for p in paths:
+        content.append(
+            {
+                "type": "input_image",
+                "image_url": thumb_data_url(p, CARD_REVIEW_THUMB),
+                "detail": "auto",
+            }
+        )
+    return content

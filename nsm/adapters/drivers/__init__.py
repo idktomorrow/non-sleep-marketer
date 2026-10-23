@@ -11,9 +11,10 @@ log = logging.getLogger(__name__)
 
 
 def find_aside_cli() -> Path | None:
-    """Aside CLI 실행 파일(.exe만). 기본 설치 위치를 먼저, 없으면 PATH.
+    """Aside CLI 실행 파일. 기본 설치 위치를 먼저, 없으면 PATH.
 
-    .cmd/.bat 래퍼는 cmd.exe가 인자를 다시 해석해 스크립트가 깨지거나 주입될 수 있어 쓰지 않는다.
+    Windows에서는 .exe만: .cmd/.bat 래퍼는 cmd.exe가 인자를 다시 해석해 스크립트가 깨지거나 주입될 수 있어 쓰지 않는다.
+    macOS·리눅스는 확장자 없는 실행 파일(예: ~/.local/bin/aside → Aside CLI.app 안의 aside)을 그대로 쓴다.
     """
     local = os.environ.get("LOCALAPPDATA")
     if local:
@@ -21,9 +22,11 @@ def find_aside_cli() -> Path | None:
         if p.exists():
             return p
     found = shutil.which("aside")
-    if found and Path(found).suffix.lower() == ".exe":
-        return Path(found)
-    return None
+    if not found:
+        return None
+    if os.name == "nt":
+        return Path(found) if Path(found).suffix.lower() == ".exe" else None
+    return Path(found) if os.access(found, os.X_OK) else None
 
 
 def make_driver(kind: str, profile_dir: Path, headless: bool) -> BrowserDriver:

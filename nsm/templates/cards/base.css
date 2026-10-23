@@ -227,8 +227,11 @@ svg.bubbles { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 
 .deck-sources { font-size: 18px; opacity: .78; margin-right: auto; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 해상도가 모자란 배경 사진(S18 화질): 카드를 채우려면 1.6배 넘게 늘려야 하면 늘리지 않는다.
    위에 카드 폭으로 원본 비율 그대로 두고, 아래는 진한 색 면에 글(흐린 채움 없음) */
-.slide.bg-band { isolation: isolate; background: var(--primary-deep); }
-.slide > .bg-band-img { position: absolute; left: 0; top: 0; z-index: -1; width: 100%; height: auto; display: block; }
+.slide.bg-band { isolation: isolate; background: var(--primary-deep) !important; }
+.slide > .bg-band-img { position: absolute; left: 0; top: 0; z-index: -2; width: 100%; height: auto; max-width: none; display: block; }
+/* 사진 끝을 진한 색으로 이어 제목이 사진에 겹치게(빈 띠 없음) */
+.slide > .bg-band-fade { position: absolute; left: 0; right: 0; height: 280px; z-index: -1;
+  background: linear-gradient(180deg, transparent 0%, var(--primary-deep) 100%); }
 /* 디테일 확대(S18 편집 밀도): 원본의 관찰한 영역만 칸에 꽉. 이미지를 영역 비율만큼 키워 옮긴다(자르지 않은 원본 파일) */
 .photo-fig.zoom .zoom-box { position: absolute; inset: 0; overflow: hidden; }
 .photo-fig.zoom .zoom-box img { position: absolute; max-width: none; object-fit: fill; }
@@ -239,3 +242,6 @@ svg.bubbles { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 
   box-shadow: 0 4px 14px rgba(0,0,0,.22); white-space: nowrap; }
 .photo-mark.left { flex-direction: row-reverse; transform: translate(calc(-100% + 14px), -14px); }
 .photo-mark.below b { margin-top: 0; }
+/* 제목 줄바꿈(S18 프로세스): 낱말 중간·한 덩어리 말('수량 제한')을 가르지 않게. 원고가 \n으로 나눈 줄이 우선이고,
+   그 안에서 넘치면 낱말 단위로 고르게 나눈다 */
+.slide h1, .slide h2 { word-break: keep-all; text-wrap: balance; }

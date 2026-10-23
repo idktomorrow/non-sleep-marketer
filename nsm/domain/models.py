@@ -164,6 +164,8 @@ class CoverSlide(_Model):
     title: str
     subtitle: str = ""
     background: str | None = None
+    # 배경 사진에서 꼭 보여야 할 영역([x, y, w, h], 원본 기준 %, S18 프로세스). 표지를 자를지·얼마나 키울지를 이걸로 정한다
+    subject: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class BodySlide(_Model):
@@ -381,6 +383,10 @@ class ObservedPhoto(_Model):
     kind: str = "photo"  # photo | official | designed | screenshot
     shows: str = ""
     details: list[PhotoDetail] = Field(default_factory=list)
+    # 일반 자산 처리(S18 프로세스): 실제 픽셀 크기, 꼭 보여야 할 영역(원본 기준 %), 읽혀야 하는 글자 유무
+    size: list[int] = Field(default_factory=list)
+    subject: list[float] | None = None
+    has_text: bool = False
 
 
 class ContentBrief(_Model):
@@ -389,6 +395,9 @@ class ContentBrief(_Model):
     sources: list[SourceItem] = Field(min_length=1)
     is_ad: bool = False
     photos: list[ObservedPhoto] = Field(default_factory=list)  # S18: 기획 전에 관찰한 실제 사진
+    feedback: list[str] = Field(
+        default_factory=list
+    )  # S18 프로세스: 지난 결과의 완성 카드 검토(다시 편집할 때 고칠 점)
 
 
 class GeneratedContent(_Model):

@@ -171,6 +171,16 @@ def _box(b) -> list[float] | None:
     return [round(v, 1) for v in (x, y, w, h)] if w >= 3 and h >= 3 else None
 
 
+def _size(path: str) -> tuple[int, int]:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.width, im.height
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
 def observe(ctx, rows: list[dict]) -> list:
     """원고를 쓰기 전에 실제 사진을 관찰한다(포트 PhotoObserver). 공급자가 없거나 실패하면 빈 목록(예전처럼 글만 보고 쓴다)."""
     from nsm.domain.models import ObservedPhoto, PhotoDetail
@@ -208,6 +218,9 @@ def observe(ctx, rows: list[dict]) -> list:
                 kind=str(x.get("kind", "photo")),
                 shows=str(x.get("shows", ""))[:200] or r.get("alt", ""),
                 details=details,
+                size=list(_size(r["path"])),
+                subject=_box(x.get("subject")),
+                has_text=bool(x.get("has_text", False)),
             )
         )
     return photos
@@ -231,7 +244,9 @@ def split_photos(deck: CardDeck, rows: list[dict]) -> tuple[CardDeck, dict | Non
         upd: dict = {}
         if i == 0 and s.background in index:
             placement["cover"] = index[s.background]
+            placement["cover_subject"] = getattr(s, "subject", None)
             upd["background"] = None
+            upd["subject"] = None
             found = True
         photo = getattr(s, "photo", None)
         if photo is not None and photo.path in index:
