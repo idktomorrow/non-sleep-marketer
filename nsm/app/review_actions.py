@@ -275,7 +275,15 @@ class ReviewActions:
         src = Path(pick.photo_candidate_path) if pick.photo_candidate_path else None
         if pick.photo_status != "candidate" or src is None or not src.is_file():
             raise ActionError(409, "쓸 수 있는 사진 후보가 없습니다")
-        manifest = src.parent / "candidates.json"
+        # 후보 목록은 원고 폴더 맨 위에 있다. 두세 번째 자료의 사진이 표지면 src{k}/ 아래 파일이라 한 단계 위를 본다(S18 리뷰)
+        manifest = next(
+            (
+                d / "candidates.json"
+                for d in (src.parent, src.parent.parent)
+                if (d / "candidates.json").is_file()
+            ),
+            src.parent / "candidates.json",
+        )
         raw = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
         cands = raw.get("candidates") or [
             {"path": str(src), "source_url": pick.photo_source_url or ""}
@@ -300,8 +308,20 @@ class ReviewActions:
             shutil.copyfile(p, dest)
             return dest, cand
 
+        # 배치를 계산한 뒤 덱이 바뀌었으면(장 삭제·상품 순서 변경) 종류·이름이 같은 자리에만 넣는다(S18 리뷰)
+        shape = raw.get("shape")
+
+        def same_slide(i: int, kind: str) -> bool:
+            return shape is None or (i < len(shape) and shape[i][0] == kind)
+
+        def same_item(i: int, j: int, name: str) -> bool:
+            return shape is None or (
+                i < len(shape) and j < len(shape[i][1]) and shape[i][1][j] == name
+            )
+
         g = c.generated
         cover_dest = None
+        first_dest = None
         cover_k = placement.get("cover")
         if cover_k is not None and usable(cover_k):
             cover_dest, _ = copy(int(cover_k), "slide-01")
@@ -312,7 +332,10 @@ class ReviewActions:
             i, k = int(key), int(k)
             if not (0 < i < len(slides)) or not usable(k) or not hasattr(slides[i], "photo"):
                 continue
+            if not same_slide(i, slides[i].kind):
+                continue
             dest, cand = copy(k, f"slide-{i + 1:02d}")
+            first_dest = first_dest or dest
             slides[i] = slides[i].model_copy(
                 update={
                     "photo": ImageAsset(
@@ -332,14 +355,17 @@ class ReviewActions:
             if not (0 < i < len(slides)) or slides[i].kind != "products" or not usable(k):
                 continue
             items = list(slides[i].items)
-            if not (0 <= j < len(items)):
+            if not (0 <= j < len(items)) or not same_item(i, j, items[j].name):
                 continue
             dest, _cand = copy(int(k), f"slide-{i + 1:02d}-item{j}")
+            first_dest = first_dest or dest
             items[j] = items[j].model_copy(update={"image": str(dest)})
             slides[i] = slides[i].model_copy(update={"items": items})
         g = g.model_copy(update={"deck": g.deck.model_copy(update={"slides": slides})})
-        if recolor and cover_dest is not None:
-            g = apply_photo_colors(g, cover_dest)
+        # 색은 표지 사진에서, 표지 사진이 없으면 처음 넣은 사진에서(S18 리뷰: 표지가 비면 요청이 조용히 무시됐다)
+        color_src = cover_dest or first_dest
+        if recolor and color_src is not None:
+            g = apply_photo_colors(g, color_src)
         try:
             self.repo.update_generated(cid, g)
         except InvalidTransitionError as e:

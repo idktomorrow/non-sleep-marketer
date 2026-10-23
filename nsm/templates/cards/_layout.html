@@ -69,15 +69,6 @@ window.nsmFit = function () {
       }
       if (outside(el)) bad = true;
     });
-    // 작은 출처 표기가 얹은 글자와 겹치면 아래로 옮긴다(S18 실키 결과: 위쪽 이름표·제목 상자를 가렸다).
-    // 아래에서도 겹치면 넘침으로 알린다(사람이 위치를 고르게)
-    const cr = slide.querySelector('.mo-credits');
-    if (cr) {
-      const hit = () => { const a = cr.getBoundingClientRect();
-        return [...slide.querySelectorAll('.mo')].some((m) => { const b = m.getBoundingClientRect();
-          return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }); };
-      if (hit()) { cr.classList.add('at-bottom'); if (hit()) bad = true; }
-    }
     if (bad) { const n = [...document.querySelectorAll('.slide')].indexOf(slide) + 1; if (!overflowing.includes(n)) overflowing.push(n); }
   });
   // 말풍선(S18): 몸통과 꼬리를 SVG 경로 하나로 그린다. 따로 그리면 몸통 테두리가 꼬리 밑변을 가르거나

@@ -60,7 +60,15 @@ def _vision(placer, deck: CardDeck, cands: list[dict]) -> Placement | None:
     except Exception as e:  # noqa: BLE001  배치는 있으면 좋고 없으면 비워 둔다
         log.info("사진 짝짓기 실패(비워 둠): %s", e)
         return None
-    n = len(cands)
+    try:
+        return _validated(out, deck, brief, len(cands))
+    except (TypeError, ValueError, KeyError, AttributeError) as e:
+        # 모양이 틀린 응답(번호 대신 None 등)은 버리고 글자 짝짓기로 넘어간다(S18 리뷰)
+        log.info("사진 짝짓기 응답 형식 오류(글자 짝짓기로): %s", e)
+        return None
+
+
+def _validated(out: dict, deck: CardDeck, brief: list, n: int) -> Placement:
     valid = {i for i, _ in brief}
     p = Placement(method="vision")
     used: set[int] = set()

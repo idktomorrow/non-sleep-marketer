@@ -191,13 +191,6 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 .meme-image .badge { font-size: 20px; }
 .meme-image .bottombar { position: absolute; left: 28px; right: 28px; bottom: 20px; z-index: 5; }
 .meme-image .ai-caption, .meme-image .page { background: rgba(0,0,0,.55); color: #fff; border-radius: 999px; padding: 4px 14px; font-size: 20px; }
-/* 작은 출처 표기: 위 띠(가상인물) 바로 아래 한 줄. 아래쪽은 행동·소품이 오는 경우가 많아 비운다 */
-.meme-image .mo-credits {
-  position: absolute; left: 28px; top: 88px; max-width: 74%; z-index: 5;
-  font-size: 16px; line-height: 1.3; color: #fff; background: rgba(0,0,0,.45); border-radius: 8px; padding: 3px 12px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.meme-image .mo-credits.at-bottom { top: auto; bottom: 64px; }
 .mo { position: absolute; z-index: 4; line-height: 1.22; letter-spacing: -0.02em; white-space: pre-line; }
 .mo-left { text-align: left; } .mo-center { text-align: center; } .mo-right { text-align: right; }
 .mo-s { font-size: 34px; } .mo-m { font-size: 46px; } .mo-l { font-size: 60px; } .mo-xl { font-size: 80px; }

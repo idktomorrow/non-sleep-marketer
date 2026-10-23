@@ -342,7 +342,10 @@ def _closing(template: str, cta: str, sources: list[str]) -> list:
 
 
 _DATE_LIKE = re.compile(
-    r"(\d{1,2}\s*월\s*\d{1,2}\s*일|\d{1,2}[./]\d{1,2}|\d{4}[.-]\d{1,2}|[월화수목금토일]요일|\(([월화수목금토일])\))"
+    # "10.24"·"11/3"은 날짜, "1.5배"·"2.5cm"·"3.5%"는 아니다(S18 리뷰): 월 1~12·일 1~31, 뒤에 숫자·단위가 붙으면 제외
+    r"(\d{1,2}\s*월\s*\d{1,2}\s*일"
+    r"|(?<![\d.])(?:1[0-2]|0?[1-9])[./](?:3[01]|[12]\d|0?[1-9])(?![\d.]|\s*[a-zA-Z%]|(?:배|개|명|원|만|천))"
+    r"|\d{4}[.-]\d{1,2}|[월화수목금토일]요일|\(([월화수목금토일])\))"
 )
 _FIGURE_LIKE = re.compile(r"^[\s~약]*[\d,.]+\s*[^\d]{0,8}$")
 
@@ -486,7 +489,29 @@ def strip_viewer_checks(deck: CardDeck) -> tuple[CardDeck, list[str]]:
         return True
 
     for s in deck.slides:
-        if s.kind == "facts":
+        # 제목 자체가 떠넘기기면(예: "가격은 확인 필요") 그 장은 정보가 아니다(S18 리뷰)
+        if s.kind not in ("cover", "outro") and not keep(getattr(s, "heading", "")):
+            continue
+        if s.kind == "compare":
+            sides = []
+            for side in (s.left, s.right):
+                sides.append(
+                    side.model_copy(update={"points": [p for p in side.points if keep(p)]})
+                )
+            if not all(x.points for x in sides):
+                continue
+            s = s.model_copy(update={"left": sides[0], "right": sides[1]})
+        elif s.kind == "products":
+            items = []
+            for it in s.items:
+                upd_it: dict[str, Any] = {}
+                for f in ("note", "price"):
+                    v = getattr(it, f, None)
+                    if v and not keep(f"{it.name} {v}"):
+                        upd_it[f] = ""
+                items.append(it.model_copy(update=upd_it) if upd_it else it)
+            s = s.model_copy(update={"items": items})
+        elif s.kind == "facts":
             rows = [r for r in s.rows if keep(f"{r.label}: {r.value}")]
             if len(rows) < 2:
                 notes.extend(f"{r.label}: {r.value}" for r in rows)

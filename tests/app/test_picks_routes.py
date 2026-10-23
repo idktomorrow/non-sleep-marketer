@@ -369,3 +369,57 @@ def test_photo_use_skips_missing_candidate_files(env) -> None:
     assert _post(env, "/picks/pk1/photo/use").status_code == 303
     d = env["repo"].get_content("pk1").generated.deck
     assert d.slides[0].background and d.slides[body].photo is None
+
+
+def test_photo_use_reads_manifest_above_source_folder_and_checks_deck_shape(env) -> None:
+    """두 번째 자료의 사진이 표지여도 원고 폴더의 배치를 쓴다. 배치 뒤 덱 모양이 바뀐 자리는 건너뛰고,
+    표지가 비어도 처음 넣은 사진으로 색을 맞춘다(S18 리뷰)."""
+    import json
+
+    from PIL import Image
+
+    repo, store = env["repo"], env["store"]
+    pick = store.get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    (folder / "src1").mkdir()
+    red = folder / "src1" / "cand-00.png"
+    Image.new("RGB", (64, 80), (220, 30, 40)).save(red)
+    store.set_photo(
+        "pk1", "candidate", image_url="https://b/x.png", source_url="https://b/2", path=str(red)
+    )
+    deck = repo.get_content("pk1").generated.deck
+    photo_slides = [i for i, s in enumerate(deck.slides) if hasattr(s, "photo") and i > 0]
+    first, *rest = photo_slides
+    assert rest  # 모양 검사를 볼 장이 있어야 한다
+    shape = [[s.kind, []] for s in deck.slides]
+    for i in rest:
+        shape[i][0] = "facts" if deck.slides[i].kind != "facts" else "body"  # 배치 뒤 바뀐 장
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [{"path": str(red), "source_url": "https://b/2"}],
+                "placement": {"cover": None, "slides": {str(i): 0 for i in photo_slides}},
+                "shape": shape,
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = deck.brand.primary_color
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    d = repo.get_content("pk1").generated.deck
+    assert d.slides[first].photo is not None and d.slides[first].photo.source == "https://b/2"
+    assert all(d.slides[i].photo is None for i in rest)
+    assert not d.slides[0].background and d.brand.primary_color != before
+
+
+def test_product_photos_count_as_real_photos() -> None:
+    from types import SimpleNamespace
+
+    from nsm.app.picks_routes import _has_real_photo
+    from nsm.domain.models import ProductItem, ProductsSlide
+
+    s = ProductsSlide(
+        heading="h", items=[ProductItem(name="a", image="x.jpg"), ProductItem(name="b")]
+    )
+    content = SimpleNamespace(generated=SimpleNamespace(deck=SimpleNamespace(slides=[s])))
+    assert _has_real_photo(content)

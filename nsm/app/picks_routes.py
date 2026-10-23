@@ -50,8 +50,11 @@ PRODUCTION_BLOCKING = ("images_pending", "producing", "failed_image", "unknown_i
 
 
 def _has_real_photo(content) -> bool:
+    # 상품마다 넣은 사진도 실제 사진이다(S18 리뷰: 상품 사진만 있는 덱을 "사진 없음"으로 띄웠다)
     return any(
-        getattr(s, "background", None) or getattr(s, "photo", None)
+        getattr(s, "background", None)
+        or getattr(s, "photo", None)
+        or any(it.image for it in getattr(s, "items", None) or [])
         for s in content.generated.deck.slides
     )
 

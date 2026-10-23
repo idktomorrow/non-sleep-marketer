@@ -296,9 +296,3 @@ def card_sources(sources: list[str], n: int = 6) -> list[str]:
     """카드 마무리 장에 보일 출처: 긴 주소 대신 사이트 이름(같은 이름은 한 번), 최대 n개.
     원문 주소는 원고 데이터와 대시보드 "사실 주장과 출처"에 그대로 남는다(ADR 0023 보충)."""
     return list(dict.fromkeys(site_label(s) for s in sources if s and s.strip()))[:n]
-
-
-def sources_line(sources: list[str], n: int = 2) -> str:
-    """ "출처: 네이버 블로그, 네이버 뉴스" (서로 다른 것 최대 n개). 출처가 없으면 빈 문자열."""
-    labels = list(dict.fromkeys(site_label(s) for s in sources if s and s.strip()))[:n]
-    return f"출처: {', '.join(labels)}" if labels else ""

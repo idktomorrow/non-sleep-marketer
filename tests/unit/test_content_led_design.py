@@ -307,3 +307,61 @@ def test_viewer_checks_leave_cards_and_go_to_caption(app_config) -> None:
     # 확인한 정보만 있는 덱은 그대로
     plain = build_deck("editorial", _out(""), app_config.brand, app_config.persona, brief)
     assert strip_viewer_checks(plain) == (plain, [])
+
+
+def test_viewer_checks_also_cover_headings_compare_and_product_notes() -> None:
+    from nsm.domain.models import CompareSide, CompareSlide, ProductItem, ProductsSlide
+
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[
+            CoverSlide(title="t"),
+            BodySlide(heading="가격은 확인 필요", body="본문"),
+            CompareSlide(
+                heading="한국과 일본",
+                left=CompareSide(title="한국", points=["11월 출시"]),
+                right=CompareSide(title="일본", points=["추후 공지"]),
+            ),
+            ProductsSlide(
+                heading="인형 2종",
+                items=[
+                    ProductItem(name="A상 인형", price="미정", note="전 1종"),
+                    ProductItem(name="B상 키링", price="1,100엔"),
+                ],
+            ),
+        ],
+    )
+    out, notes = strip_viewer_checks(deck)
+    assert [s.kind for s in out.slides] == ["cover", "products"]
+    assert out.slides[1].items[0].price == "" and out.slides[1].items[0].note == "전 1종"
+    assert "가격은 확인 필요" in notes and "추후 공지" in notes
+
+
+def test_decimals_are_not_dates() -> None:
+    assert fact_layout(_rows("2.5cm", "1.5배"), "timeline") == "rows"
+    assert fact_layout(_rows("10.24 출시", "11/3 배송"), "timeline") == "timeline"
+
+
+def test_malformed_vision_answer_falls_back_to_text_match() -> None:
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from nsm.engine.photo_match import match_photos
+
+    class Placer:
+        def place_photos(self, cover_text, slides, photos, items=()):
+            return {"cover": None, "slides": [{"slide": 1}]}
+
+    d = Path(tempfile.mkdtemp())
+    (d / "a.jpg").write_bytes(b"x")
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[CoverSlide(title="t"), BodySlide(heading="h", body="b")],
+    )
+    p = match_photos(SimpleNamespace(text_generator=Placer()), deck, [{"path": str(d / "a.jpg")}])
+    assert p.method == "text"

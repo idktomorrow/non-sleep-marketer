@@ -129,7 +129,8 @@ def apply_slide_edits(deck: CardDeck, form: dict[str, Any]) -> CardDeck:
             raise EditError(f"{i + 1}장 {where}: {first.get('msg', '형식 오류')}") from e
     update: dict[str, Any] = {"slides": slides}
     # 마무리 장이 없는 소식형(S18)은 덱 출처를 고친다(같은 검사, 캡션 출처 줄·마지막 장 작은 표기에 나간다)
-    if "deck_sources" in form:
+    # 원래 출처가 없던 덱(자료 주소가 없는 원고)은 빈 칸 그대로 저장할 수 있다. 있던 출처를 다 지우는 것만 막는다(S18 리뷰)
+    if "deck_sources" in form and (str(form["deck_sources"]).strip() or deck.sources):
         update["sources"] = parse_sources(form["deck_sources"])
     return deck.model_copy(update=update)
 

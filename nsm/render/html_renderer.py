@@ -175,13 +175,6 @@ def _aspect(path: str | Path | None) -> float:
         return 0.8
 
 
-def _host(url: str | None) -> str:
-    from urllib.parse import urlsplit
-
-    h = urlsplit(url or "").netloc
-    return h[4:] if h.startswith("www.") else h
-
-
 def _file_uri(path: str | Path | None) -> str:
     if not path:
         return ""
@@ -204,7 +197,6 @@ def _env() -> Environment:
     env.filters["file_uri"] = _file_uri
     env.filters["one_break"] = _one_break
     env.filters["aspect"] = _aspect
-    env.filters["host"] = _host
     return env
 
 

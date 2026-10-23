@@ -430,6 +430,13 @@ def run_slots_retry(ctx: JobContext) -> JobResult:
     return run_picks(ctx, retry_only=True)
 
 
+def deck_shape(deck) -> list | None:
+    """배치를 계산한 때의 덱 모양(장 종류·상품 이름). 그 뒤 덱이 바뀌면 어긋난 자리에 사진을 넣지 않게(S18 리뷰)."""
+    if deck is None:
+        return None
+    return [[s.kind, [it.name for it in getattr(s, "items", None) or []]] for s in deck.slides]
+
+
 def _attach_photo(
     ctx: JobContext,
     store: PicksStore,
@@ -503,7 +510,11 @@ def _attach_photo(
             log.info("사진 배치 제안 실패: %s", e)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "candidates.json").write_text(
-        json.dumps({"candidates": rows, "placement": placement}, ensure_ascii=False, indent=1),
+        json.dumps(
+            {"candidates": rows, "placement": placement, "shape": deck_shape(deck)},
+            ensure_ascii=False,
+            indent=1,
+        ),
         encoding="utf-8",
     )
     first = (
