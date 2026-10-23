@@ -115,5 +115,5 @@ def run_card_review(ctx: JobContext, cid: str) -> str:
         except Exception as e:  # noqa: BLE001
             log.info("검토 반영 다시 편집 실패: %s", e)
             return f"문제 {len(found)}건(다시 편집 실패)"
-        return f"문제 {len(found)}건 → 검토 반영해 다시 편집(사진은 '이 사진 쓰기' 다시)"
+        return f"문제 {len(found)}건 → 검토 반영해 다시 편집"
     return f"문제 {len(found)}건" if found else "문제 없음"

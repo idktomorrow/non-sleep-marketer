@@ -258,12 +258,12 @@ class OpenAITextGenerator:
         ]
         return self._parse(self._text(self._call("photo:match", body, pp.ESTIMATE_USD)))
 
-    def observe_photos(self, photos) -> list[dict]:
+    def observe_photos(self, photos, topic: str = "") -> list[dict]:
         """원고를 쓰기 전 실제 사진 관찰(S18 편집 밀도, 포트 PhotoObserver): 보이는 것·디테일·위치."""
         from nsm.adapters.generator import photo_place as pp
 
         body = self._body(pp.OBSERVE_SYSTEM, "", pp.OBSERVE_SCHEMA, "photo_observe", pp.MAX_TOKENS)
-        body["input"] = [{"role": "user", "content": pp.observe_content(photos)}]
+        body["input"] = [{"role": "user", "content": pp.observe_content(photos, topic)}]
         out = self._parse(self._text(self._call("photo:observe", body, pp.OBSERVE_USD)))
         return list(out.get("photos", []))
 

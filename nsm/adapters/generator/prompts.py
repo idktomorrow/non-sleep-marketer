@@ -252,7 +252,8 @@ EDITING_GUIDE = """편집(관찰한 사진이 있을 때). 상품·뉴스·행�
 2) 장마다 다섯 가지가 이어져야 한다: 전할 핵심, 그것을 뒷받침하는 자료(사진 번호나 <source>의 사실), 가장 잘 전하는 표현,
    필요한 만큼의 글, 게시물 안에서 이 장의 역할(다음 장이 필요한 이유). 문단을 기계적으로 장으로 나누거나, 장수를 채우려고
    관찰·설명을 지어내지 않는다. 자료가 모자라면 관점을 바꾸거나, 장을 합치거나, 빼고, 부족한 것은 gaps에 적는다.
-3) 사진 고르기: kind가 photo·official인 사진만. 사진마다 적힌 크기·표지 배율을 본다.
+3) 사진 고르기: kind가 photo·official이고 on_topic="no"가 아닌 사진만(소재와 무관한 인물·광고·다른 작품 사진은 쓰지 않는다).
+   사진마다 적힌 크기·표지 배율을 본다.
    - cover_photo는 관점을 보여 주면서 **표지를 크게 채울 수 있는** 사진(표지 배율 1.6 이하, 꼭 보여야 할 영역이 세로 카드에 들어가는 것)을
      우선한다. 가로로 긴 단체 사진처럼 표지를 채우기 어려운 사진은 본문 장에서 크게 보여 주고 표지는 다른 사진을 쓴다.
      쓸 수 있는 사진이 있으면 표지는 사진으로 한다(글만 있는 표지는 쓸 사진이 하나도 없을 때만).
@@ -327,7 +328,11 @@ def _photo_attrs(p) -> str:
         return ""
     w, h = p.size
     cover = max(1080 / w, 1350 / h)
-    return f' size="{w}x{h}" cover_scale="{cover:.1f}"' + (' text="yes"' if p.has_text else "")
+    return (
+        f' size="{w}x{h}" cover_scale="{cover:.1f}"'
+        + (' text="yes"' if p.has_text else "")
+        + ("" if p.on_topic else ' on_topic="no"')
+    )
 
 
 def user_prompt(brief: ContentBrief, today: date | None = None) -> str:
@@ -495,7 +500,7 @@ def _cover_fitness(p) -> float:
 
 
 def _best_cover(photos) -> str | None:
-    usable = [p for p in photos if p.kind in USABLE_PHOTO_KINDS]
+    usable = [p for p in photos if p.kind in USABLE_PHOTO_KINDS and p.on_topic]
     return min(usable, key=_cover_fitness).path if usable else None
 
 
@@ -504,7 +509,7 @@ def _usable_path(photos, k) -> str | None:
         k = int(k)
     except (TypeError, ValueError):
         return None
-    if 0 <= k < len(photos) and photos[k].kind in USABLE_PHOTO_KINDS:
+    if 0 <= k < len(photos) and photos[k].kind in USABLE_PHOTO_KINDS and photos[k].on_topic:
         return photos[k].path
     return None
 

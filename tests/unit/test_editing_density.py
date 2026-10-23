@@ -169,7 +169,7 @@ def test_observe_validates_boxes_and_split_keeps_photos_out_of_deck_until_confir
     rows = [{"path": _img(tmp_path, "a.jpg"), "source_url": "https://a"}]
 
     class Observer:
-        def observe_photos(self, photos):
+        def observe_photos(self, photos, topic=""):
             assert photos[0][1] == "https://a"
             return [
                 {
@@ -345,7 +345,7 @@ def test_too_few_usable_photos_pull_photos_from_related_posts(tmp_path) -> None:
         ]
 
     class Observer:
-        def observe_photos(self, photos):
+        def observe_photos(self, photos, topic=""):
             return [
                 {"photo": k, "kind": "photo", "shows": s, "details": []}
                 for k, (_p, s, _a) in enumerate(photos)
@@ -547,3 +547,41 @@ def test_cover_gets_the_photo_that_fills_it_best_when_writer_leaves_it_empty(
         "editorial", out, app_config.brand, app_config.persona, _brief([wide, square, thumb])
     )
     assert deck.slides[0].background == square.path  # 남의 썸네일은 크더라도 쓰지 않는다
+
+
+def test_writer_placement_is_applied_to_cards_right_away(tmp_path, monkeypatch) -> None:
+    """사진은 원고가 고른 대로 바로 카드에(사용자 피드백 2026-10-23). 배치가 없으면 후보로만 남는다."""
+    from nsm.app.review_actions import ReviewActions
+    from nsm.engine import picks as P
+
+    applied = []
+    monkeypatch.setattr(
+        ReviewActions, "photo_use", lambda self, cid, media_dir, recolor=False: applied.append(cid)
+    )
+    repo = SimpleNamespace(
+        get_content=lambda cid: SimpleNamespace(review_reason=""), set_review_reason=lambda *a: None
+    )
+    ctx = SimpleNamespace(
+        repo=repo,
+        media_dir=tmp_path,
+        clock=None,
+        config=SimpleNamespace(workspace=SimpleNamespace(color_from_photo=True)),
+    )
+    store = SimpleNamespace(set_photo=lambda *a, **k: None)
+    rows = [{"path": _img(tmp_path, "a.jpg"), "image_url": "u", "source_url": "s"}]
+    P._attach_photo(
+        ctx, store, "c1", ["s"], None, None, rows=rows, placement={"cover": 0, "slides": {}}
+    )
+    P._attach_photo(ctx, store, "c2", ["s"], None, None, rows=rows, placement=None)
+    assert applied == ["c1"]
+
+
+def test_off_topic_photos_are_never_used_even_for_the_cover(app_config, tmp_path) -> None:
+    """소재와 무관한 사진(실측: 영화 흥행 소식에 무관한 인물 사진)은 표지로도 쓰지 않는다. 쓸 사진이 없으면 글 표지."""
+    person = ObservedPhoto(
+        path=_img(tmp_path, "p.jpg", (800, 961)), kind="photo", size=[800, 961], on_topic=False
+    )
+    out = _out([_slide(heading="h", body="b", photo=0)], cover_photo=0)
+    deck = build_deck("editorial", out, app_config.brand, app_config.persona, _brief([person]))
+    assert deck.slides[0].background is None and deck.slides[1].photo is None
+    assert 'on_topic="no"' in user_prompt(_brief([person]))

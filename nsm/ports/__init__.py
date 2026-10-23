@@ -323,7 +323,7 @@ class PhotoObserver(Protocol):
     """원고를 쓰기 전에 실제 사진을 관찰한다(S18 편집 밀도). photos: (로컬 경로, 출처 URL, 설명) 목록.
     돌려주는 값: [{"photo": 번호, "kind", "shows", "details": [{"what", "box": {x,y,w,h}}]}]. 검증은 호출자가 한다."""
 
-    def observe_photos(self, photos: list[tuple[str, str, str]]) -> list[dict]: ...
+    def observe_photos(self, photos: list[tuple[str, str, str]], topic: str = "") -> list[dict]: ...
 
 
 @runtime_checkable

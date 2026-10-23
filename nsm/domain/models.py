@@ -387,6 +387,7 @@ class ObservedPhoto(_Model):
     size: list[int] = Field(default_factory=list)
     subject: list[float] | None = None
     has_text: bool = False
+    on_topic: bool = True  # 이 게시물 소재를 실제로 보여 주나(아니면 쓰지 않는다)
 
 
 class ContentBrief(_Model):

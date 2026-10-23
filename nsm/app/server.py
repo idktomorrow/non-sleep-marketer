@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -198,6 +198,24 @@ def create_app(state: AppState) -> FastAPI:
     )
     templates.env.filters.update(KO_FILTERS)
     templates.env.globals["JOBS"] = JOB_LABELS
+
+    def keyword_samples() -> dict:
+        """키워드 칸의 종류 고르기 견본(S18): 정보는 지금 카드 스타일 견본 두 장, 밈은 이 작업 공간의 최근 밈 미리보기."""
+        cfg = state.get_config()
+        b = cfg.brand
+        q = f"primary={quote(b.primary_color)}&accent={quote(b.accent_color)}"
+        info = [f"/settings/style-preview/{b.card_style}/{n}.png?{q}" for n in (1, 2)]
+        meme = None
+        for c in state.repo.list_contents(limit=50):
+            if (
+                c.generated.template == "meme"
+                and (state.media_dir / "previews" / c.id / "slide-01.png").is_file()
+            ):
+                meme = f"/previews/{c.id}/slide-01.png"
+                break
+        return {"info": info, "meme": meme}
+
+    templates.env.globals["keyword_samples"] = keyword_samples
 
     def tz() -> str:
         return state.get_config().settings.timezone

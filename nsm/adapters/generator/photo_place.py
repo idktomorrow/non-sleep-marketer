@@ -136,9 +136,10 @@ OBSERVE_SCHEMA = {
                     "shows": {"type": "string"},
                     # 꼭 보여야 할 영역(주인공: 인물·상품 묶음·포스터 본체·현장의 핵심). 자를 때 이 상자를 지킨다
                     "subject": _BOX,
-                    "has_text": {
-                        "type": "boolean"
-                    },  # 사진 안에 읽혀야 하는 글자(포스터 제목·안내문)가 있나
+                    # 사진 안에 읽혀야 하는 글자(포스터 제목·안내문)가 있나
+                    "has_text": {"type": "boolean"},
+                    # 이 게시물 소재를 실제로 보여 주나(실측 2026-10-23: 영화 흥행 소식에 무관한 인물 사진이 표지로)
+                    "on_topic": {"type": "boolean"},
                     "details": {
                         "type": "array",
                         "items": {
@@ -149,7 +150,15 @@ OBSERVE_SCHEMA = {
                         },
                     },
                 },
-                "required": ["photo", "kind", "shows", "subject", "has_text", "details"],
+                "required": [
+                    "photo",
+                    "kind",
+                    "shows",
+                    "subject",
+                    "has_text",
+                    "on_topic",
+                    "details",
+                ],
                 "additionalProperties": False,
             },
         }
@@ -164,7 +173,9 @@ OBSERVE_SYSTEM = (
     "shows = one sentence of what is actually visible (people, objects, place, event, poster, chart; how many, "
     "front/back, colors, setting); subject = the box that MUST stay visible if the photo is cropped (the main "
     "people or faces, the whole group of items, the poster body, the key moment of the scene); has_text = true if "
-    "text inside the image must stay readable (poster title, notice); details = up to 3 visually notable parts a "
+    "text inside the image must stay readable (poster title, notice); on_topic = true only if the photo actually "
+    "shows the post's subject given as TOPIC (that work, character, product, event, place or person), false for "
+    "unrelated people, reporters, ads, profile photos, other works or generic images; details = up to 3 visually notable parts a "
     "reader would want to look at closely (a face or expression, a costume or product detail, a sign, a crowd, a "
     "stage element), each with its box. All boxes in percent of the image (x, y = top-left, w, h). "
     "Only describe what is visible. Do not name people, characters or "
@@ -173,9 +184,14 @@ OBSERVE_SYSTEM = (
 )
 
 
-def observe_content(photos) -> list[dict]:
-    text = "사진 목록(번호 순서대로 이미지가 이어진다):\n" + "\n".join(
-        f"[{k}] 출처 {src[:80]} · 설명 {alt or '없음'}" for k, (_p, src, alt) in enumerate(photos)
+def observe_content(photos, topic: str = "") -> list[dict]:
+    text = (
+        (f"TOPIC: {topic[:200]}\n" if topic else "")
+        + "사진 목록(번호 순서대로 이미지가 이어진다):\n"
+        + "\n".join(
+            f"[{k}] 출처 {src[:80]} · 설명 {alt or '없음'}"
+            for k, (_p, src, alt) in enumerate(photos)
+        )
     )
     content: list[dict] = [{"type": "input_text", "text": text}]
     for path, _src, _alt in photos:

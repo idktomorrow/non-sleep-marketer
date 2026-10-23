@@ -1,12 +1,32 @@
 <h2 id="keyword">키워드로 원고 만들기</h2>
 <div class="panel">
   {% if kw_error %}<div class="notice bad">{{ kw_error }}</div>{% endif %}
-  <form method="post" action="/keyword-draft" class="quick-upload"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="text" name="keyword" maxlength="40" required placeholder="예: 치이카와 굿즈 신상" aria-label="키워드" style="flex:1;min-width:200px">
-    <label class="small"><input type="radio" name="kind" value="info" checked> 정보</label>
-    <label class="small"><input type="radio" name="kind" value="meme"> 밈</label>
-    <label class="small"><input type="radio" name="kind" value="both"> 둘 다</label>
-    <button class="btn-primary btn-sm">이 키워드로 원고 만들기</button>
+  {% set ks = keyword_samples() %}
+  <form method="post" action="/keyword-draft"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="quick-upload">
+      <input type="text" name="keyword" maxlength="40" required placeholder="예: 치이카와 굿즈 신상" aria-label="키워드" style="flex:1;min-width:200px">
+      <button class="btn-primary btn-sm">이 키워드로 원고 만들기</button>
+    </div>
+    <fieldset class="style-picker">
+      <legend>만들 원고 <span class="hint">오늘의 추천과 같은 방식으로 만들어 추천 목록에 카드로 나옵니다</span></legend>
+      <div class="style-options">
+        <label class="style-option">
+          <span class="style-head"><input type="radio" name="kind" value="info" checked> <b>정보 카드뉴스</b></span>
+          <span class="style-thumbs">{% for u in ks.info %}<img class="style-thumb" src="{{ u }}" width="128" height="160" loading="lazy" alt="정보 카드 견본 {{ loop.index }}장">{% endfor %}</span>
+          <span class="hint">최근 글과 사진을 모아 보고 쓴 소식 카드(지금 카드 스타일). 약 5~10센트</span>
+        </label>
+        <label class="style-option">
+          <span class="style-head"><input type="radio" name="kind" value="meme"> <b>밈</b></span>
+          <span class="style-thumbs">{% if ks.meme %}<img class="style-thumb" src="{{ ks.meme }}" width="128" height="160" loading="lazy" alt="최근 밈 견본">{% else %}<span class="style-thumb muted small" style="display:grid;place-items:center;width:128px;height:160px">아직 밈 없음</span>{% endif %}</span>
+          <span class="hint">이 키워드 소식과 유명 밈 형식을 엮어 기획·그림까지. 그림 포함 약 10~20센트</span>
+        </label>
+        <label class="style-option">
+          <span class="style-head"><input type="radio" name="kind" value="both"> <b>둘 다</b></span>
+          <span class="style-thumbs">{% if ks.info %}<img class="style-thumb" src="{{ ks.info[0] }}" width="128" height="160" loading="lazy" alt="정보 카드 견본">{% endif %}{% if ks.meme %}<img class="style-thumb" src="{{ ks.meme }}" width="128" height="160" loading="lazy" alt="밈 견본">{% endif %}</span>
+          <span class="hint">같은 소재로 정보 카드 1건 + 밈 1건</span>
+        </label>
+      </div>
+    </fieldset>
   </form>
-  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾아, 오늘의 추천과 같은 방식으로 만듭니다. 정보는 사진을 모아 보고 쓰고(사진은 "이 사진 쓰기"로 확인), 밈은 유명 형식을 골라 기획·그림까지. 결과는 <a href="/picks">오늘의 추천</a> 목록에 카드로 나옵니다(정보 약 5~10센트, 밈은 그림 포함 약 10~20센트). 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다. 관심 주제 목록은 바뀌지 않습니다.</p>
+  <p class="muted small" style="margin-bottom:0">네이버 블로그·뉴스에서 이 키워드의 최근 글을 바로 찾습니다. 쓸 만한 자료가 없으면 만들지 않고 알려 드립니다. 관심 주제 목록은 바뀌지 않습니다. 결과는 <a href="/picks">오늘의 추천</a> 목록에 나옵니다.</p>
 </div>

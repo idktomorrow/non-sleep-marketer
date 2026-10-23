@@ -346,6 +346,8 @@ def run_picks(
 
     result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
     result.counts["made"] = made["info"] + made["meme"]
+    if made["meme"]:
+        produce_now(ctx)
     if failed:
         result.counts["failed"] = failed
     if empty:
@@ -534,10 +536,13 @@ def gather_photos(
     같은 소재의 다른 글에서 사진만 더 모아 관찰한다. 관찰 기록은 후보 목록에도 남긴다(무엇을 보고 골랐는지)."""
     from nsm.engine.photo_match import observe
 
+    topic = " / ".join(
+        i.title for i in items[:2]
+    )  # 사진이 이 소재를 실제로 보여 주는지 판단하는 기준
     if rows is None:
         rows = collect_photo_rows(ctx, cid, [i.url for i in items if i.url], fetch_photo)
-    observed = observe(ctx, rows) if rows else []
-    usable = sum(1 for p in observed if p.kind in ("photo", "official"))
+    observed = observe(ctx, rows, topic) if rows else []
+    usable = sum(1 for p in observed if p.kind in ("photo", "official") and p.on_topic)
     if (observed or not rows) and usable < MIN_USABLE_PHOTOS:
         more = collect_photo_rows(ctx, cid, _related_urls(ctx, items), fetch_photo, folder="more")
         known = {r["path"] for r in rows}
@@ -546,7 +551,7 @@ def gather_photos(
         ]  # 다시 편집할 때 같은 파일을 두 번 넣지 않는다
         if more:
             rows = rows + more
-            observed = observed + observe(ctx, more)
+            observed = observed + observe(ctx, more, topic)
     for r, p in zip(rows, observed, strict=False):
         r["observed"] = {
             "kind": p.kind,
@@ -555,6 +560,7 @@ def gather_photos(
             "size": p.size,
             "subject": p.subject,
             "has_text": p.has_text,
+            "on_topic": p.on_topic,
         }
     return rows, observed
 
@@ -621,6 +627,33 @@ def _attach_photo(
         source_url=first["source_url"],
         path=first["path"],
     )
+    if placement:
+        apply_placement_now(ctx, store, cid)
+
+
+def apply_placement_now(ctx: JobContext, store: PicksStore, cid: str) -> None:
+    """원고가 고른 사진·확대·주석을 바로 카드에 넣는다(사용자 피드백 2026-10-23: 사진은 고른 대로 나와야 한다).
+    사람은 검토 상세에서 미리보기를 보고 장마다 바꾸거나 뺀다. 승인 전 사람 확인은 그대로다(검토 대기)."""
+    from nsm.app.review_actions import ActionError, ReviewActions
+
+    try:
+        ReviewActions(ctx.repo, store, ctx.clock).photo_use(
+            cid, ctx.media_dir, recolor=ctx.config.workspace.color_from_photo
+        )
+    except (ActionError, OSError) as e:  # 사진 넣기는 있으면 좋고, 실패하면 사진 확인 대기로 남는다
+        log.info("사진 자동 적용 실패(사진 확인 대기로 남김): %s", e)
+
+
+def produce_now(ctx: JobContext) -> None:
+    """방금 만든 밈의 그림 작업을 바로 처리한다(예약 작업이 꺼져 있어도 카드에 그림이 나오게, 실측 2026-10-23)."""
+    if ctx.config.workspace.production_mode != "full" or ctx.image_studio is None:
+        return
+    from nsm.engine.production import run_images
+
+    try:
+        run_images(ctx)
+    except Exception as e:  # noqa: BLE001  그림은 images 잡이 다시 시도한다
+        log.info("그림 바로 만들기 실패(다음 그림 작업에서): %s", e)
 
 
 def reedit_info(
@@ -726,4 +759,6 @@ def make_from_material(
     result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
     result.counts["made"] = made["info"] + made["meme"]
     result.ok = result.counts["made"] > 0
+    if made["meme"]:
+        produce_now(ctx)
     return result

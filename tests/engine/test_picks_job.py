@@ -186,7 +186,7 @@ def test_photo_first_style_observes_photos_before_writing(ctx: JobContext) -> No
     """편집 밀도(S18): 사진 우선형이면 원고를 쓰기 전에 사진을 모으고 관찰해 원고에 넘긴다(예전에는 쓴 뒤 붙였다)."""
 
     class Observing(FakeTextGenerator):
-        def observe_photos(self, photos):
+        def observe_photos(self, photos, topic=""):
             return [
                 {"photo": k, "kind": "photo", "shows": f"사진 {k}", "details": []}
                 for k in range(len(photos))
@@ -211,7 +211,7 @@ def test_reedit_uses_same_sources_and_photos_with_observation(ctx: JobContext) -
     before = ctx.repo.sources_for_content(pick.content_id)
 
     class Observing(FakeTextGenerator):
-        def observe_photos(self, photos):
+        def observe_photos(self, photos, topic=""):
             return [{"photo": 0, "kind": "photo", "shows": "같은 사진", "details": []}]
 
     ctx.text_generator = Observing()

@@ -181,7 +181,7 @@ def _size(path: str) -> tuple[int, int]:
         return 0, 0
 
 
-def observe(ctx, rows: list[dict]) -> list:
+def observe(ctx, rows: list[dict], topic: str = "") -> list:
     """원고를 쓰기 전에 실제 사진을 관찰한다(포트 PhotoObserver). 공급자가 없거나 실패하면 빈 목록(예전처럼 글만 보고 쓴다)."""
     from nsm.domain.models import ObservedPhoto, PhotoDetail
     from nsm.ports import PhotoObserver
@@ -192,7 +192,7 @@ def observe(ctx, rows: list[dict]) -> list:
         return []
     try:
         out = gen.observe_photos(
-            [(r["path"], r.get("source_url", ""), r.get("alt", "")) for r in keep]
+            [(r["path"], r.get("source_url", ""), r.get("alt", "")) for r in keep], topic
         )
     except Exception as e:  # noqa: BLE001  관찰은 있으면 좋고 없으면 글만 보고 쓴다
         log.info("사진 관찰 실패(글만 보고 씀): %s", e)
@@ -221,6 +221,7 @@ def observe(ctx, rows: list[dict]) -> list:
                 size=list(_size(r["path"])),
                 subject=_box(x.get("subject")),
                 has_text=bool(x.get("has_text", False)),
+                on_topic=bool(x.get("on_topic", True)),
             )
         )
     return photos

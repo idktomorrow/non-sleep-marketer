@@ -258,3 +258,23 @@ def test_keyword_makes_picks_cards_through_the_same_flow(ctx: JobContext) -> Non
     assert r.ok and r.counts["made_info"] == 1
     picks = PicksStore(ctx.repo.db, ctx.clock).list()
     assert len(picks) == 1 and picks[0].kind == "info"
+
+
+def test_keyword_both_keeps_material_with_the_info_card(ctx: JobContext) -> None:
+    """키워드 "둘 다": 같은 자료를 쓰는 밈이 뒤에 저장돼도 자료는 정보 원고 것으로 남는다(다시 편집·답글 근거)."""
+    from nsm.store.picks import PicksStore
+
+    run_keyword_draft(ctx, "info|치이카와 굿즈")
+    info = PicksStore(ctx.repo.db, ctx.clock).list()[0].content_id
+    before = {s.id for s in ctx.repo.sources_for_content(info)}
+    from nsm.domain.clock import new_id
+    from nsm.domain.models import Content
+    from nsm.store.picks import Pick
+
+    c = ctx.repo.get_content(info)
+    other = Content(**{**c.model_dump(), "id": new_id()})
+    PicksStore(ctx.repo.db, ctx.clock).save(
+        other, persona_topic="t", item_ids=list(before),
+        pick=Pick(content_id=other.id, run_date=ctx.clock.now().date(), rank=9, reason="r", kind="meme"),
+    )  # fmt: skip
+    assert {s.id for s in ctx.repo.sources_for_content(info)} == before
