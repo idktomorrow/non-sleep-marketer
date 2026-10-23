@@ -115,6 +115,7 @@ class SlotPlan:
     chain_from: str | None = None  # 1번째 컷 target(2번째 컷만)
     meme_ref: str | None = None  # 밈 참조 그림(구도·연출 이해용, 캐릭터 참조 아님, S17)
     text_zones: tuple[str, ...] = ()  # 글자가 들어갈 자리(그림에서 비워 둘 곳, S17)
+    composite: bool = False  # 유명 짤 원본을 바탕으로 캐릭터만 합성(meme_ref가 바탕 그림)
 
 
 def _zone(o) -> str:
@@ -131,6 +132,7 @@ def image_slots(
     cast: Cast,
     scenes: dict[str, str] | None = None,
     meme_ref: str | None = None,
+    meme_make: str = "restage",
 ) -> list[SlotPlan]:
     """덱에서 그림이 필요한 자리. 만화 컷은 주인공, 정보 카드는 첫 메모(body·facts) 한 곳에 보조 캐릭터 스티커,
     밈 한 장(S17)은 장 전체 그림 하나(캐릭터 참조 + 밈 참조)."""
@@ -157,6 +159,8 @@ def image_slots(
                     meme_ref=meme_ref if meme_ref and Path(meme_ref).is_file() else None,
                     text_zones=tuple(_zone(o) for o in s.overlays),
                     chain_from=chain,
+                    composite=meme_make == "composite"
+                    and bool(meme_ref and Path(meme_ref).is_file()),
                 )
             )
         elif s.kind == "comic":
@@ -239,6 +243,22 @@ def compose_prompt(slot: SlotPlan, ref: CharacterRef, chained: bool) -> str:
             " Reference images: the FIRST image(s) are the CHARACTER reference — keep only the character's face, "
             "body shape, colors and proportions; ignore their background, pose, other characters and any text."
         )
+        if slot.composite:
+            # 유명 짤 원본에 캐릭터만 합성(사용자 피드백 2026-10-23): 원본 사진·인물·배경·구도는 그대로
+            roles += (
+                " The LAST image is the ORIGINAL famous meme picture: use it as the BASE image. Keep it as it is — "
+                "the same photo, background, other people, framing, lighting and composition. Change ONLY what the "
+                "scene says: replace that one person or object with our character (or insert our character there), "
+                "same position, size and pose, drawn in the character's own cute illustration style and lit to sit "
+                "naturally in the photo. Remove any text baked into the original image."
+            )
+            frame = " Vertical 4:5 crop of the original meme picture."
+            zones = (
+                " Typeset text will be added later at: " + "; ".join(slot.text_zones) + "."
+                if slot.text_zones
+                else ""
+            )
+            return f"{who}. {slot.scene}.{look}{roles}{frame}{zones}"
         if slot.meme_ref:
             roles += (
                 " The LAST image is the MEME FORMAT reference — use it only to understand the composition: "
@@ -306,6 +326,8 @@ def build_spec(
         },
         "refs": [file_sha(r)[:16] for r in refs],
         "meme_ref": file_sha(slot.meme_ref)[:16] if slot.meme_ref else None,
+        # 합성일 때만 넣는다: 예전 그림의 지문(해시)이 바뀌어 다시 만들어지지 않게
+        **({"composite": True} if slot.composite else {}),
         "text_zones": list(slot.text_zones),
         "size": [slot.width, slot.height],
         "transparent": slot.transparent,

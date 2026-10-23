@@ -365,3 +365,90 @@ def test_malformed_vision_answer_falls_back_to_text_match() -> None:
     )
     p = match_photos(SimpleNamespace(text_generator=Placer()), deck, [{"path": str(d / "a.jpg")}])
     assert p.method == "text"
+
+
+def test_designed_thumbnails_are_never_placed_and_cover_gets_a_photo() -> None:
+    """남이 제목·막대를 얹어 만든 썸네일·캡처는 어디에도 쓰지 않고, 쓸 수 있는 사진이 있으면 표지에 넣는다
+    (사용자 피드백 2026-10-23: 표지 사진이 가장 좋고, 블로그 썸네일의 파란 막대·겹친 제목은 불필요)."""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from nsm.engine.photo_match import match_photos
+
+    class Placer:
+        def place_photos(self, cover_text, slides, photos, items=()):
+            return {
+                "cover": 0,  # 블로그 썸네일을 표지로 골랐다
+                "slides": [{"slide": 1, "photo": 1}],
+                "items": [],
+                "photos": [
+                    {"photo": 0, "shows": "블로그 제목 썸네일", "kind": "designed"},
+                    {"photo": 1, "shows": "인형 실물", "kind": "photo"},
+                    {"photo": 2, "shows": "매장 목록", "kind": "screenshot"},
+                ],
+            }
+
+    d = Path(tempfile.mkdtemp())
+    for n in ("a.jpg", "b.jpg", "c.jpg"):
+        (d / n).write_bytes(b"x")
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[CoverSlide(title="t"), BodySlide(heading="h", body="b")],
+    )
+    cands = [{"path": str(d / n)} for n in ("a.jpg", "b.jpg", "c.jpg")]
+    p = match_photos(SimpleNamespace(text_generator=Placer()), deck, cands)
+    # 썸네일(0)·캡처(2)는 버리고, 하나뿐인 실물 사진은 본문 대신 표지로
+    assert p.cover == 1 and p.slides == {}
+
+
+def test_found_photos_clear_old_no_photo_reason(tmp_path) -> None:
+    """사진을 다시 모아 찾았으면 예전 "소재 사진 없음" 검토 사유를 지운다(실호출: 찾은 뒤에도 남았다)."""
+    from types import SimpleNamespace
+
+    from nsm.engine.picks import _NO_PHOTO, _attach_photo
+
+    reasons = {"c1": f"오늘의 추천; {_NO_PHOTO}"}
+    repo = SimpleNamespace(
+        get_content=lambda cid: SimpleNamespace(review_reason=reasons[cid]),
+        set_review_reason=lambda cid, r: reasons.__setitem__(cid, r),
+    )
+    ctx = SimpleNamespace(repo=repo, media_dir=tmp_path)
+    store = SimpleNamespace(set_photo=lambda *a, **k: None)
+    img = tmp_path / "a.jpg"
+    img.write_bytes(b"x")
+    cand = SimpleNamespace(
+        path=img, image_url="https://a/x.jpg", source_url="https://a", width=800, height=800
+    )
+    _attach_photo(ctx, store, "c1", ["https://a"], lambda u, d: [cand])
+    assert reasons["c1"] == "오늘의 추천"
+
+
+def test_composite_meme_keeps_original_picture_and_swaps_in_character(tmp_path) -> None:
+    """유명 짤 원본에 캐릭터만 합성(사용자 피드백 2026-10-23): 계획의 make가 그림 지시까지 이어진다."""
+    from nsm.adapters.generator.prompts import format_plan_from_output
+    from nsm.domain.production import Cast, CharacterRef, compose_prompt, image_slots
+    from tests.unit.test_meme_format_parts import _out, _req
+
+    plan = format_plan_from_output(_out(make="composite"), _req())
+    assert plan.make == "composite"
+    assert format_plan_from_output(_out(make="weird"), _req()).make == "restage"
+
+    ref = tmp_path / "original.jpg"
+    ref.write_bytes(b"x")
+    deck = CardDeck(
+        template="meme",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[MemeImageSlide(scene="가운데 남자를 치이카와로")],
+    )
+    hero = CharacterRef(kind="account", name="치이카와")
+    comp = image_slots(deck, Cast(hero=hero), meme_ref=str(ref), meme_make="composite")[0]
+    re = image_slots(deck, Cast(hero=hero), meme_ref=str(ref))[0]
+    assert comp.composite and not re.composite
+    assert "BASE image" in compose_prompt(comp, hero, chained=False)
+    assert "Do NOT copy its people" in compose_prompt(re, hero, chained=False)
+    # 원본 그림이 없으면 합성할 수 없다
+    assert not image_slots(deck, Cast(hero=hero), meme_make="composite")[0].composite

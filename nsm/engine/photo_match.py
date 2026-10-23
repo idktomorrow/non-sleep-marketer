@@ -69,11 +69,15 @@ def _vision(placer, deck: CardDeck, cands: list[dict]) -> Placement | None:
 
 
 def _validated(out: dict, deck: CardDeck, brief: list, n: int) -> Placement:
+    from nsm.adapters.generator.photo_place import USABLE_KINDS
+
     valid = {i for i, _ in brief}
     p = Placement(method="vision")
-    used: set[int] = set()
+    # 남이 글자·막대를 얹어 만든 썸네일·배너·캡처는 어디에도 쓰지 않는다(사용자 피드백 2026-10-23: 파란 막대·겹친 제목)
+    kinds = {int(x["photo"]): x.get("kind", "photo") for x in out.get("photos", [])}
+    used: set[int] = {k for k in range(n) if kinds.get(k, "photo") not in USABLE_KINDS}
     cov = int(out.get("cover", -1))
-    if 0 <= cov < n:
+    if 0 <= cov < n and cov not in used:
         p.cover = cov
         used.add(cov)
     valid_items = {
@@ -93,6 +97,14 @@ def _validated(out: dict, deck: CardDeck, brief: list, n: int) -> Placement:
         if si in valid and 0 <= ph < n and ph not in used:
             p.slides[si] = ph
             used.add(ph)
+    # 표지는 사진이 있을 때 가장 좋다(사용자 피드백 2026-10-23): 남은 쓸 수 있는 사진, 없으면 본문 장의 사진을 표지로 옮긴다
+    if p.cover is None:
+        spare = [k for k in range(n) if k not in used]
+        if spare:
+            p.cover = spare[0]
+        elif p.slides:
+            si = min(p.slides)
+            p.cover = p.slides.pop(si)
     p.notes = {
         int(x["photo"]): str(x["shows"])[:120]
         for x in out.get("photos", [])

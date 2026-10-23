@@ -196,6 +196,17 @@ def fetch_photo_candidate(
 # ---------------------------------------------------------------- 기사 이미지 여러 장(S18 제안, ADR 0062)
 
 BODY_MIN_SIDE = 480  # 본문 이미지는 대표 이미지보다 작아도 쓸 만하다(상품 컷)
+# 가로로 긴 본문 사진(블로그 800×420 같은 배너형 상품 컷)은 긴 변이 충분하면 받는다(S18 실호출: 블로그 사진 0장)
+WIDE_LONG_SIDE, WIDE_SHORT_SIDE = 760, 360
+
+
+def big_enough(width: int, height: int, kind: str) -> bool:
+    short, long = min(width, height), max(width, height)
+    if kind == "og":
+        return short >= MIN_SIDE
+    return short >= BODY_MIN_SIDE or (long >= WIDE_LONG_SIDE and short >= WIDE_SHORT_SIDE)
+
+
 _IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _ATTR = re.compile(r"""(src|data-src|data-lazy-src|alt)\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
 # 장식·광고 그림: 경로의 한 마디(구분자 사이)가 이 낱말일 때만. "upload_", "lead-image"처럼 낱말 안에 든 것은 거르지 않는다
@@ -305,8 +316,11 @@ def fetch_article_images(
                 with Image.open(io.BytesIO(data)) as im:
                     fmt, width, height = im.format, im.width, im.height
                 kind = "og" if idx == 0 and not desc else "body"
-                need = MIN_SIDE if kind == "og" else BODY_MIN_SIDE
-                if fmt not in _EXT or width * height > MAX_PIXELS or min(width, height) < need:
+                if (
+                    fmt not in _EXT
+                    or width * height > MAX_PIXELS
+                    or not big_enough(width, height, kind)
+                ):
                     continue
                 with Image.open(io.BytesIO(data)) as im:
                     im.verify()

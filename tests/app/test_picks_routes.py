@@ -423,3 +423,28 @@ def test_product_photos_count_as_real_photos() -> None:
     )
     content = SimpleNamespace(generated=SimpleNamespace(deck=SimpleNamespace(slides=[s])))
     assert _has_real_photo(content)
+
+
+def test_reapplying_photos_drops_previous_slide_photos(env) -> None:
+    """두 번째 "이 사진 쓰기"는 새 배치만 남긴다(같은 사진이 표지와 본문에 두 번 나오지 않게)."""
+    import json
+
+    repo, store = env["repo"], env["store"]
+    pick = store.get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    deck = repo.get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo") and i > 0)
+    cands = [{"path": pick.photo_candidate_path, "source_url": "https://a/1"}]
+
+    def use(placement):
+        (folder / "candidates.json").write_text(
+            json.dumps({"candidates": cands, "placement": placement}), encoding="utf-8"
+        )
+        store.set_photo("pk1", "candidate", path=pick.photo_candidate_path)
+        assert _post(env, "/picks/pk1/photo/use").status_code == 303
+
+    use({"cover": None, "slides": {str(body): 0}})
+    assert repo.get_content("pk1").generated.deck.slides[body].photo is not None
+    use({"cover": 0, "slides": {}})
+    d = repo.get_content("pk1").generated.deck
+    assert d.slides[0].background and d.slides[body].photo is None

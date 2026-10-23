@@ -281,6 +281,9 @@ class MemeFormatPlan:
     mechanism: str = ""
     form: str = ""
     pages: tuple[MemePage, ...] = ()
+    # 만드는 방법(사용자 피드백 2026-10-23): composite=유명 짤 원본을 그대로 두고 그 안에 캐릭터만 합성,
+    # restage=구조만 빌려 캐릭터 세계에서 새로 그림
+    make: str = "restage"
 
 
 @runtime_checkable

@@ -833,6 +833,7 @@ MEME_FORMAT_SCHEMA: dict[str, Any] = {
         "source_kind": _STR,
         "mechanism": _STR,
         "form": _STR,
+        "make": {"type": "string", "enum": ["composite", "restage"]},
         "pages": {
             "type": "array",
             "items": {
@@ -865,6 +866,7 @@ MEME_FORMAT_SCHEMA: dict[str, Any] = {
         "source_kind",
         "mechanism",
         "form",
+        "make",
         "pages",
         "caption",
         "threads_text",
@@ -893,6 +895,12 @@ def meme_format_system(req: MemeFormatRequest) -> str:
    "캐릭터가 어떤 상황을 연기한다"는 여러 방식 중 하나일 뿐입니다.
 3) 표현 형식(form): 한 장 반응짤(표정 하나 + 짧은 글), 한 이미지 안 여러 컷, 여러 장 넘김 반전, 글이 주인공인 공감 문장 등.
    만화의 컷 수와 게시물 장수(pages)는 다릅니다. 한 장으로 완결되면 pages는 1개. 넘기는 맛이 웃음의 핵심일 때만 2~3장.
+4) 만드는 방법(make):
+   - composite: **이미 유명한 짤 원본(사진이어도 된다)을 그대로 두고, 그 안의 인물·대상 하나만 주인공 캐릭터로 바꾸거나 캐릭터를 끼워 넣는다.**
+     원본을 알아보는 순간 웃기는 짤(유명한 장면·표정·구도가 그 자체로 밈인 것)에 쓴다. 기본으로 먼저 고려한다.
+     scene에는 "원본에서 무엇을 그대로 두고, 누구(어느 위치의 어떤 인물·대상)를 캐릭터로 바꾸는지"를 적는다.
+     원본에 박힌 글자는 지우고, 글은 overlays로 새로 얹는다. 원본의 다른 인물은 그대로 두되 새로 그리거나 바꾸지 않는다.
+   - restage: 원본 그림이 약하거나 글이 주인공인 형식이면, 구조만 빌려 캐릭터 세계에서 새로 그린다.
 
 후보 고르기(ranking에 모든 후보 0~10점과 이유):
 - 확산 근거: <format>의 evidence와 latest(페이지에 적힌 가장 최근 날짜)만 근거로. era=recent만 "최근 확산 기록 있음"으로 말할 수 있고,
@@ -901,10 +909,11 @@ def meme_format_system(req: MemeFormatRequest) -> str:
 - 주제 적합성: 이 주제의 팬이 바로 알아보는가. 팬 사례(fan)는 이 주제에서 실제로 쓰인 소재라 적합성이 높을 수 있다.
 - 시각적 재미: 글을 안 읽어도 그림만으로 상황이 전달되는가.
 - 최근과 다르게: recent_formats·최근 농담·최근 웃음 방식과 소재·웃음 방식이 겹치면 낮게.
-- 실존 인물의 얼굴·몸이 핵심인 밈은 구조만 쓰고 실존 인물을 그리지 않는다.
+- 실존 인물을 새로 그리지 않는다. composite에서 원본 사진 속 인물은 원본 그대로 남기거나 그 자리를 캐릭터로 바꾼다.
 
 재해석 규칙:
-- 원 밈의 그림·글자를 베끼지 않는다. 구조(카메라 거리·컷 나눔·시선·표정 대비·텍스트 위치)만 가져온다.
+- restage면 원 밈의 그림·글자를 베끼지 않는다. 구조(카메라 거리·컷 나눔·시선·표정 대비·텍스트 위치)만 가져온다.
+  composite면 원본 짤 그림을 바탕으로 쓰되 원본 글자는 지운다(원본 사용 여부는 검토에서 사람이 확인한다).
 - 사용자가 처음 예로 보여 준 2컷("치이카와 역 월급 225만원" 라벨 + "시러~" + 야경 소파)의 상황·구도를 반복하지 않는다.
 - pages[].scene: 그 장 그림의 생성 지시(카메라 거리·컷 나눔·표정·동작·배경·조명). **그림 안에는 글자를 넣지 않는다**.
   글자가 들어갈 자리(overlays 위치)는 비워 두라고 적고, 얼굴·손·핵심 동작과 떨어진 자리로 정한다.
@@ -1007,6 +1016,7 @@ def format_plan_from_output(out: dict[str, Any], req: MemeFormatRequest) -> Meme
         source_kind=str(out.get("source_kind", "")).strip()[:60],
         mechanism=str(out.get("mechanism", "")).strip()[:120],
         form=str(out.get("form", "")).strip()[:80],
+        make="composite" if out.get("make") == "composite" else "restage",
         pages=pages,
         caption=str(out["caption"]).strip(),
         threads_text=str(out["threads_text"]).strip(),

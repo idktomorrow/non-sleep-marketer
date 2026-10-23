@@ -326,7 +326,12 @@ class ReviewActions:
         if cover_k is not None and usable(cover_k):
             cover_dest, _ = copy(int(cover_k), "slide-01")
             g = set_background(g, 0, str(cover_dest), media_dir)
-        slides = list(g.deck.slides)
+        # 다시 적용하면 예전 배치로 넣은 장 사진은 비우고 새 배치만 쓴다(실호출: 같은 사진이 표지와 본문에 두 번).
+        # 장 사진(photo)은 이 동작만 넣는다. 사람이 올린 배경·상품 그림은 건드리지 않는다
+        slides = [
+            s.model_copy(update={"photo": None}) if getattr(s, "photo", None) is not None else s
+            for s in g.deck.slides
+        ]
         notes = placement.get("notes") or {}
         for key, k in (placement.get("slides") or {}).items():
             i, k = int(key), int(k)

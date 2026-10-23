@@ -434,6 +434,10 @@ def format_reasons(ctx, plan, cand, topic, gen, persona, info_titles=None) -> li
     )
     if overlap >= 0.5:
         reasons.append(f"정보 소재와 겹침 {int(overlap * 100)}%(검토 참고)")
+    if (
+        plan.make == "composite"
+    ):  # 출처 표기는 사용 허락이 아니다: 원본 짤을 쓰는 게시는 사람이 판단
+        reasons.append("원본 짤 합성: 원본 사진의 권리·실존 인물 확인 필요")
     return reasons
 
 
@@ -459,6 +463,7 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
         "source_kind": plan.source_kind,
         "mechanism": plan.mechanism,
         "form": plan.form,
+        "make": plan.make,
         "pages": len(plan.pages) or 1,
         # 팬 사례 후보는 다시 만들 때 같은 글을 가리키도록 계획에 저장한다(재검색하면 순서가 바뀐다, S18 리뷰)
         "fan_candidates": [

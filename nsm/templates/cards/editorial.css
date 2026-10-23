@@ -216,7 +216,7 @@
   background: color-mix(in srgb, var(--primary) 12%, #f4f1ea);
 }
 .style-editorial .product-pic .product-img {
-  position: relative; width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; background: transparent; border-radius: 0;
+  position: relative; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; background: transparent; border-radius: 0;
 }
 .style-editorial .products.item-photos .product-name { font-size: 32px; font-weight: 800; padding: 0 8px; }
 .style-editorial .products.item-photos .product-note { font-size: 22px; padding: 0 8px; }
@@ -231,10 +231,6 @@
 .style-editorial .facts.has-photo .photo-fig,
 .style-editorial .list.has-photo .photo-fig,
 .style-editorial .compare.has-photo .photo-fig { height: min(560px, calc(904px / var(--ar, 1.5))); }
-/* 상품 사진 여백은 같은 사진을 흐리게(빈 베이지 띠가 남지 않게) */
-.style-editorial .product-pic .photo-blur {
-  position: absolute; inset: -30px; background-size: cover; background-position: center; filter: blur(24px) brightness(.9) saturate(1.1);
-}
 /* 상품 2개: 세로로 길게 늘이지 않고 사진 비율에 가깝게(가운데 정렬) */
 .style-editorial .products.item-photos .grid.items-2 { flex: 0 1 auto; grid-auto-rows: minmax(0, 720px); align-content: center; }
 /* 정보 줄이 4줄 이상이면 사진을 줄여 글이 잘리지 않게(사진 위주라도 내용을 자르지 않는다) */
@@ -243,3 +239,18 @@
 .style-editorial .facts.has-photo .rows.layout-rows .fact { padding: 14px 26px 16px; }
 .style-editorial .facts.has-photo .rows.layout-rows dd { font-size: 34px; }
 .style-editorial .facts.has-photo .rows.layout-rows dt { font-size: 22px; }
+/* 사진 없는 상품 칸(S18 실호출 2026-10-23): 사진 칸 사이에서 빈 흰 상자로 남지 않게 이름을 크게, 색 면으로 */
+.style-editorial .products.item-photos .product:not(.with-img) {
+  align-items: flex-start; padding: 28px 26px; gap: 14px;
+  background: color-mix(in srgb, var(--primary) 14%, #fff);
+}
+.style-editorial .products.item-photos .product:not(.with-img) .product-name { font-size: 46px; line-height: 1.15; }
+.style-editorial .products.item-photos .product:not(.with-img) .product-note { font-size: 26px; }
+/* 상품 사진이 하나도 없는 장: 위에 작게 몰리지 않게 장 가운데에 크게 */
+.style-editorial .products:not(.item-photos):not(.has-photo) .content { justify-content: center; gap: 34px; }
+.style-editorial .products:not(.item-photos):not(.has-photo) h2 { font-size: 68px; }
+.style-editorial .products:not(.item-photos) .grid { gap: 20px; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) { min-height: 300px; gap: 14px; padding: 34px 30px; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-name { font-size: 44px; line-height: 1.15; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-note { font-size: 26px; }
+.style-editorial .products:not(.item-photos) .product-price { font-size: 30px; }

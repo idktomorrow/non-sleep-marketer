@@ -430,6 +430,9 @@ def run_slots_retry(ctx: JobContext) -> JobResult:
     return run_picks(ctx, retry_only=True)
 
 
+_NO_PHOTO = "소재 사진 없음: 직접 올리거나 다른 자료로 보강하세요"
+
+
 def deck_shape(deck) -> list | None:
     """배치를 계산한 때의 덱 모양(장 종류·상품 이름). 그 뒤 덱이 바뀌면 어긋난 자리에 사진을 넣지 않게(S18 리뷰)."""
     if deck is None:
@@ -476,12 +479,17 @@ def _attach_photo(
                             None,
                             [
                                 c.review_reason,
-                                "소재 사진 없음: 직접 올리거나 다른 자료로 보강하세요",
+                                _NO_PHOTO,
                             ],
                         )
                     ),
                 )
         return
+    # 예전에 붙은 "소재 사진 없음"은 사진을 찾았으면 지운다(실호출: 다시 모은 뒤에도 검토 사유에 남았다)
+    content = ctx.repo.get_content(cid)
+    if content is not None and content.review_reason and _NO_PHOTO in content.review_reason:
+        rest = [x for x in content.review_reason.split("; ") if x != _NO_PHOTO]
+        ctx.repo.set_review_reason(cid, "; ".join(rest))
     rows = [
         {
             "path": str(c.path),

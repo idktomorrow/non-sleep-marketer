@@ -6,6 +6,10 @@ import base64
 import io
 
 THUMB = 512
+# photo: 실물·현장 사진, official: 공식 포스터·키 비주얼·공식 상품 이미지(글자가 원래 작품의 일부),
+# designed: 블로그·기사가 제목·막대·꼬리표·스티커를 얹어 만든 썸네일·배너, screenshot: 글자 목록·표·앱 화면 캡처
+PHOTO_KINDS = ("photo", "official", "designed", "screenshot")
+USABLE_KINDS = frozenset({"photo", "official"})
 ESTIMATE_USD = 0.02
 MAX_TOKENS = 3000
 
@@ -16,8 +20,13 @@ SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"photo": {"type": "integer"}, "shows": {"type": "string"}},
-                "required": ["photo", "shows"],
+                "properties": {
+                    "photo": {"type": "integer"},
+                    "shows": {"type": "string"},
+                    # 사진 종류(사용자 피드백 2026-10-23): 남이 글자·막대·꼬리표를 얹어 만든 썸네일·배너·캡처는 쓰지 않는다
+                    "kind": {"type": "string", "enum": list(PHOTO_KINDS)},
+                },
+                "required": ["photo", "shows", "kind"],
                 "additionalProperties": False,
             },
         },
@@ -62,7 +71,15 @@ SYSTEM = (
     "cover: the photo that best represents the whole story's subject (the work, character, product or event the "
     "story is about — an official poster or key visual is ideal). The cover only needs to match the overall subject, "
     "not a specific detail; use -1 only when no photo shows that subject at all. "
-    "Slides without a fitting photo get photo -1. It is fine to leave most slides without photos."
+    "Slides without a fitting photo get photo -1. It is fine to leave most slides without photos. "
+    "Classify every photo's kind: 'photo' = a real photo of products/scene/people; 'official' = an official poster, "
+    "key visual or official product image (its text is part of the original artwork); 'designed' = a thumbnail or "
+    "banner that a blog or news site made by adding its own title text, bars, update tags or stickers on top; "
+    "'screenshot' = a capture of text lists, tables, store lists or app screens. "
+    "Use ONLY 'photo' and 'official' anywhere. Our card draws its own title, so a designed thumbnail would show "
+    "two titles and foreign graphics. "
+    "The cover is the most important slide: if any usable photo shows the story's subject, the cover gets one "
+    "(prefer a clean product or scene photo with room for a title)."
 )
 
 

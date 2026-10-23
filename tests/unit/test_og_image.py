@@ -208,3 +208,12 @@ def test_pillow_global_limit_is_untouched(tmp_path: Path) -> None:
         "https://news.example.com/a/1", tmp_path, client=client, resolver=_resolver(PUBLIC)
     )
     assert before == Image.MAX_IMAGE_PIXELS
+
+
+def test_wide_body_photos_are_kept_but_thumbnails_are_not() -> None:
+    """블로그의 가로로 긴 상품 사진(800×420)은 받고, 작은 썸네일은 버린다(S18 실호출)."""
+    from nsm.adapters.sources.og_image import big_enough
+
+    assert big_enough(800, 420, "body") and big_enough(600, 500, "body")
+    assert not big_enough(697, 220, "body") and not big_enough(400, 400, "body")
+    assert not big_enough(800, 420, "og")  # 대표 이미지 기준은 그대로

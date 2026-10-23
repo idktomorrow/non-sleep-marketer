@@ -119,21 +119,21 @@
 </div>
 {%- endmacro %}
 
-{#- 배경 사진(S18): 카드 비율(4:5)과 많이 다르면 자르지 않는다. 흐린 같은 사진을 깔고 원본 비율 그대로 위에 둔다
-    (포스터 글자·상품·얼굴이 잘리지 않게). 비율이 비슷하면 예전처럼 꽉 채운다 -#}
+{#- 배경 사진(S18): 세로·정사각·조금 가로인 사진은 카드를 꽉 채운다(가장자리를 조금 자른다).
+    아주 가로로 긴 사진(1.3:1 초과)만 위에 원본 비율로 두고 아래는 진한 색 면. 흐린 같은 사진으로 채우지 않는다
+    (사용자 피드백 2026-10-23: 흐린 배경 위 사진이 싸 보인다) -#}
 {% macro open(cls, s, bg) -%}
 {%- set ar = bg | aspect if bg else 0 -%}
-{%- set fit = bg and (ar < 0.66 or ar > 0.95) -%}
+{%- set fit = bg and ar > 1.3 -%}
 <section class="slide {{ cls }}{% if bg %} has-bg{% endif %}{% if fit %} bg-fit{% endif %}" data-kind="{{ s.kind }}"{% if bg and not fit %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
-{%- if fit %}<div class="bg-blur" style="background-image: url('{{ bg | file_uri }}')"></div><img class="bg-fit-img{% if ar > 0.95 %} wide{% endif %}" src="{{ bg | file_uri }}" alt="">{% endif %}
+{%- if fit %}<img class="bg-fit-img wide" src="{{ bg | file_uri }}" alt="" style="--ar: {{ ar }}">{% endif %}
 {{- deco(s, bg) }}
 {%- endmacro %}
 
-{#- 장 내용과 맞는 실제 사진(S18): 원본 비율 그대로(자르지 않음), 사진 출처를 작게 -#}
+{#- 장 내용과 맞는 실제 사진(S18): 칸에 맞춰 꽉 채운다(높이 상한에 걸리면 가장자리를 조금 자른다) -#}
 {% macro photo(s) -%}
 {%- if s.photo %}{% set ar = s.photo.path | aspect %}
 <figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}" style="--ar: {{ ar }}">
-  {%- if ar < 1.2 %}<div class="photo-blur" style="background-image: url('{{ s.photo.path | file_uri }}')"></div>{% endif %}
   <img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}">
 </figure>
 {%- endif %}
@@ -216,7 +216,7 @@
     <div class="grid items-{{ s.items | length }}">
       {% for it in s.items %}
       <div class="product{% if it.image %} with-img{% endif %}">
-        {% if it.image %}<div class="product-pic"><div class="photo-blur" style="background-image: url('{{ it.image | file_uri }}')"></div><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
+        {% if it.image %}<div class="product-pic"><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
         <div class="product-name" data-fit="22">{{ it.name }}</div>
         {% if it.note %}<div class="product-note" data-fit="16">{{ it.note }}</div>{% endif %}
         {% if it.price %}<div class="product-price" data-fit="20">{{ it.price }}</div>{% endif %}

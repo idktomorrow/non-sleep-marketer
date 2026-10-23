@@ -123,10 +123,14 @@ def current_slots(
         raise AdapterError("원고가 없습니다")
     cast = ensure_cast(ctx, prod, cid, persist)
     _raw, scenes = prod.get_production(cid)
+    from nsm.store.slots import SlotStore
+
+    sl = SlotStore(ctx.repo.db, ctx.clock).by_content(cid)
+    make = str((sl.plan or {}).get("make", "restage")) if sl else "restage"
     return (
         c.generated,
         cast,
-        image_slots(c.generated.deck, cast, scenes, meme_ref_path(ctx.media_dir, cid)),
+        image_slots(c.generated.deck, cast, scenes, meme_ref_path(ctx.media_dir, cid), make),
     )
 
 

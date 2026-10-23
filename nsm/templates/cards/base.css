@@ -210,23 +210,19 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 /* 말풍선 모양 층: 그림 위, 글자 아래 */
 svg.bubbles { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; }
 
-/* 장 내용과 맞는 실제 사진(S18, ADR 0062): 원본 비율 그대로(자르지 않음). 세로로 긴 사진은 높이 상한 안에서 가운데 */
+/* 장 내용과 맞는 실제 사진(S18, ADR 0062): 칸 높이는 사진 비율을 따르고, 높이 상한에 걸리면 꽉 채우며 가장자리를 자른다 */
 .photo-fig {
   position: relative; margin: 0; width: 100%; flex: 0 0 auto; border-radius: 28px; overflow: hidden;
   height: min(600px, calc(904px / var(--ar, 1.5))); background: color-mix(in srgb, var(--primary) 14%, #f4f1ea);
   display: flex; align-items: center; justify-content: center;
 }
-.photo-fig img { position: relative; width: 100%; height: 100%; object-fit: contain; display: block; }
-/* 세로 사진: 자르지 않고, 양옆은 같은 사진을 흐리게 깔아 빈 회색 띠가 남지 않게 */
-.photo-fig .photo-blur { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(30px) brightness(.85) saturate(1.1); }
+.photo-fig img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-fig figcaption {
   position: absolute; right: 12px; bottom: 10px; font-size: 16px; color: #fff; background: rgba(0,0,0,.5);
   padding: 2px 10px; border-radius: 8px;
 }
-/* 카드 비율과 많이 다른 배경 사진: 흐린 같은 사진 위에 원본 비율 그대로 */
-.slide.bg-fit { isolation: isolate; }
-.slide > .bg-blur { position: absolute; inset: -60px; z-index: -2; background-size: cover; background-position: center; filter: blur(34px) brightness(.72) saturate(1.1); }
-.slide > .bg-fit-img { position: absolute; left: 0; top: 0; z-index: -1; width: 100%; height: 74%; object-fit: contain; object-position: center top; }
-.slide > .bg-fit-img.wide { height: 60%; top: 8%; }
+/* 아주 가로로 긴 배경 사진: 위에 원본 비율 그대로(카드 폭), 아래는 진한 색 면 */
+.slide.bg-fit { isolation: isolate; background: var(--primary-deep); }
+.slide > .bg-fit-img { position: absolute; left: 0; top: 0; z-index: -1; width: 100%; height: min(62%, calc(1080px / var(--ar, 1.6))); object-fit: cover; }
 /* 마무리 장이 없을 때 마지막 장 아래 작은 출처 표기(S18) */
 .deck-sources { font-size: 18px; opacity: .78; margin-right: auto; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
