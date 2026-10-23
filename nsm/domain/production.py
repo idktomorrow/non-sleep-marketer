@@ -252,7 +252,12 @@ def compose_prompt(slot: SlotPlan, ref: CharacterRef, chained: bool) -> str:
                 "same position, size and pose, drawn in the character's own cute illustration style and lit to sit "
                 "naturally in the photo. Remove any text baked into the original image."
             )
-            frame = " Vertical 4:5 crop of the original meme picture."
+            # 가로 원본이면 위아래를 빈 여백으로 채워 띠처럼 작아졌다(실호출) → 장면을 이어 그려 세로 칸을 꽉 채운다
+            frame = (
+                " Fill the whole vertical 4:5 frame edge to edge with the photo: if the original is wider, keep the"
+                " main subjects large and extend the same scene naturally above and below (more of the street, sky,"
+                " ground). No borders, no blank or solid-color margins, no letterboxing."
+            )
             zones = (
                 " Typeset text will be added later at: " + "; ".join(slot.text_zones) + "."
                 if slot.text_zones
@@ -326,8 +331,8 @@ def build_spec(
         },
         "refs": [file_sha(r)[:16] for r in refs],
         "meme_ref": file_sha(slot.meme_ref)[:16] if slot.meme_ref else None,
-        # 합성일 때만 넣는다: 예전 그림의 지문(해시)이 바뀌어 다시 만들어지지 않게
-        **({"composite": True} if slot.composite else {}),
+        # 합성일 때만 넣는다(예전 그림의 지문이 바뀌지 않게). 합성 지시를 바꾸면 숫자를 올린다
+        **({"composite": 2} if slot.composite else {}),
         "text_zones": list(slot.text_zones),
         "size": [slot.width, slot.height],
         "transparent": slot.transparent,

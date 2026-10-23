@@ -449,6 +449,8 @@ def test_composite_meme_keeps_original_picture_and_swaps_in_character(tmp_path) 
     re = image_slots(deck, Cast(hero=hero), meme_ref=str(ref))[0]
     assert comp.composite and not re.composite
     assert "BASE image" in compose_prompt(comp, hero, chained=False)
+    # 가로 원본도 세로 칸을 꽉 채운다
+    assert "no letterboxing" in compose_prompt(comp, hero, chained=False)
     assert "Do NOT copy its people" in compose_prompt(re, hero, chained=False)
     # 원본 그림이 없으면 합성할 수 없다
     assert not image_slots(deck, Cast(hero=hero), meme_make="composite")[0].composite

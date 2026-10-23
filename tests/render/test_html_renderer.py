@@ -318,27 +318,22 @@ def test_cover_title_blank_lines_collapse(tmp_path: Path) -> None:
     assert _cover_sizes(deck, tmp_path)["titleLines"] == 2
 
 
-def test_wide_or_tall_background_is_not_cropped(tmp_path: Path) -> None:
-    """카드 비율과 많이 다른 사진(가로 포스터·세로 긴 이미지)은 자르지 않고 원본 비율로 배치(S18)."""
+def test_cover_photo_always_fills_the_card(tmp_path: Path) -> None:
+    """표지 사진은 비율과 상관없이 카드를 꽉 채운다(가로 사진은 양옆을 자름). 흐린 채움·위에 작게 두기 없음
+    (사용자 피드백 2026-10-23: 첫 장은 풀사진에 그라데이션 글)."""
     from PIL import Image
 
     from nsm.render.html_renderer import build_html
 
-    wide = tmp_path / "wide.png"
-    Image.new("RGB", (1600, 900), (10, 20, 30)).save(wide)
     deck = load("info")
-    slides = list(deck.slides)
-    slides[0] = slides[0].model_copy(update={"background": str(wide)})
-    html = build_html(deck.model_copy(update={"slides": slides}), "editorial")
-    assert 'class="bg-fit-img wide"' in html and "bg-blur" not in html
-    assert f"background-image: url('{wide.resolve().as_uri()}')\" data" not in html
-    # 정사각·세로 사진은 흐린 배경 없이 카드를 꽉 채운다(사용자 피드백 2026-10-23)
-    square = tmp_path / "square.png"
-    Image.new("RGB", (900, 900), (10, 20, 30)).save(square)
-    slides[0] = slides[0].model_copy(update={"background": str(square)})
-    html = build_html(deck.model_copy(update={"slides": slides}), "editorial")
-    assert "bg-fit" not in html and f"background-image: url('{square.resolve().as_uri()}')" in html
-    assert "blur" not in html.split("<body")[1].split("<script>")[0]
+    for size in ((1600, 900), (900, 900), (800, 1400)):
+        img = tmp_path / f"{size[0]}x{size[1]}.png"
+        Image.new("RGB", size, (10, 20, 30)).save(img)
+        slides = list(deck.slides)
+        slides[0] = slides[0].model_copy(update={"background": str(img)})
+        html = build_html(deck.model_copy(update={"slides": slides}), "editorial")
+        assert f"background-image: url('{img.resolve().as_uri()}')" in html
+        assert "bg-fit" not in html and "blur" not in html.split("<body")[1].split("<script>")[0]
 
 
 def test_editorial_renders_list_and_compare_with_their_own_layout() -> None:
