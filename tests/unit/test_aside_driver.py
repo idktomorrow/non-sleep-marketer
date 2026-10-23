@@ -130,3 +130,47 @@ def test_aside_collect_driver_reads_page_once() -> None:
     d.goto("https://search.example/?q=1")
     assert [link.href for link in d.links()] == ["https://x/1"] and d.page_text() == "본문"
     assert len(fake.calls) == 1 and fake.calls[0][1]["url"] == "https://search.example/?q=1"
+
+
+def test_find_aside_cli_accepts_unix_binary_but_not_windows_wrappers(tmp_path, monkeypatch) -> None:
+    """macOS·리눅스 Aside CLI는 확장자 없는 실행 파일이다(실측: ~/.local/bin/aside). Windows는 .exe만(.cmd 거부)."""
+    import os
+    import shutil
+
+    from nsm.adapters import drivers as D
+
+    exe = tmp_path / "aside"
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: str(exe))
+    monkeypatch.setattr(os, "name", "posix")
+    assert D.find_aside_cli() == exe
+    cmd = tmp_path / "aside.cmd"
+    cmd.write_text("@echo off")
+    monkeypatch.setattr(shutil, "which", lambda name: str(cmd))
+    monkeypatch.setattr(os, "name", "nt")
+    assert D.find_aside_cli() is None
+
+
+def test_live_adapters_use_configured_aside_account(app_config) -> None:
+    """Aside 계정이 여럿이면 게시 계정이 로그인된 쪽을 쓴다(실측: 인스타그램은 u1에만 로그인)."""
+    from nsm.domain.clock import SystemClock
+    from nsm.runtime import make_live_adapters
+
+    s = app_config.settings.model_copy(
+        update={
+            "enabled_platforms": ["instagram"],
+            "accounts": {"instagram": "@cikawa21"},
+            "aside_account": "u1",
+        }
+    )
+    adapters = make_live_adapters(app_config.model_copy(update={"settings": s}), SystemClock())
+    assert adapters["instagram"].repl.account == "u1"
+    s2 = s.model_copy(update={"aside_account": None})
+    assert (
+        make_live_adapters(app_config.model_copy(update={"settings": s2}), SystemClock())[
+            "instagram"
+        ].repl.account
+        is None
+    )

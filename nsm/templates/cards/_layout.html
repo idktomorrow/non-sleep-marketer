@@ -6,6 +6,8 @@
 {#- 스타일(S8): clean은 base.css만, photo·illust는 그 위에 스타일 파일을 얹는다 -#}
 {% if style != 'clean' %}<link rel="stylesheet" href="{{ css_uri | replace('base.css', style ~ '.css') }}">
 {% endif %}
+{%- if skin %}<link rel="stylesheet" href="{{ css_uri | replace('base.css', skin ~ '.css') }}">
+{% endif %}
 <style>
 :root {
   --primary: {{ c.primary }}; --primary-deep: {{ c.primary_deep }}; --accent: {{ c.accent }};
@@ -23,7 +25,7 @@
 }
 </style>
 </head>
-<body class="style-{{ style }}">
+<body class="style-{{ style }}{% if skin %} skin-{{ skin }}{% endif %}">
 {%- import "cards/_parts.html" as parts with context -%}
 {%- set n = deck.slides | length -%}
 {%- for s in deck.slides %}
@@ -68,23 +70,46 @@ window.nsmFit = function () {
       if (outside(el)) bad = true;
     });
     if (bad) { const n = [...document.querySelectorAll('.slide')].indexOf(slide) + 1; if (!overflowing.includes(n)) overflowing.push(n); }
-    const svg = slide.querySelector('.mo-tails');
-    slide.querySelectorAll('.mo-bubble[data-tx]').forEach((b) => {
+  });
+  // 말풍선(S18): 몸통과 꼬리를 SVG 경로 하나로 그린다. 따로 그리면 몸통 테두리가 꼬리 밑변을 가르거나
+  // 꼬리 선이 삐져나온다(S16·S17 렌더 확대로 확인). 글자 상자는 투명, 모양은 이 경로가 전부다
+  document.querySelectorAll('.mo-bubble, .panel .bubble').forEach((b) => {
+      // 말풍선이 든 칸(밈 한 장이면 장, 2컷이면 그 컷)마다 SVG 층 하나. 글자 상자와 같은 쌓임 맥락이라 글자가 위에 온다
+      const box = b.parentElement;
+      const sr = box.getBoundingClientRect();
+      const W = box.offsetWidth, H = box.offsetHeight, k = W / sr.width;
+      let svg = box.querySelector(':scope > svg.bubbles');
+      if (!svg) {
+        svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('class', 'bubbles'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+        box.appendChild(svg);
+      }
       const r = b.getBoundingClientRect();
-      const x0 = (r.left - sr.left) * scale, y0 = (r.top - sr.top) * scale, w = r.width * scale, h = r.height * scale;
-      const tx = parseFloat(b.dataset.tx) / 100 * 1080, ty = parseFloat(b.dataset.ty) / 100 * 1350;
-      const cx = x0 + w / 2, cy = y0 + h / 2;
-      if (tx > x0 && tx < x0 + w && ty > y0 && ty < y0 + h) return;  // 화자가 말풍선 안이면 꼬리 없음
-      // 꼬리 밑변: 말풍선 가장자리 중 화자 쪽, 중심에서 화자 방향으로 조금 치우친 곳
-      const dx = tx - cx, dy = ty - cy;
-      let bx, by, ox, oy;
-      if (Math.abs(dy) * w >= Math.abs(dx) * h) { by = dy > 0 ? y0 + h - 10 : y0 + 10; bx = Math.min(x0 + w - 60, Math.max(x0 + 60, cx + dx * 0.35)); ox = 30; oy = 0; }
-      else { bx = dx > 0 ? x0 + w - 10 : x0 + 10; by = Math.min(y0 + h - 40, Math.max(y0 + 40, cy + dy * 0.35)); ox = 0; oy = 24; }
-      // 끝점은 화자까지 다 가지 않고 70%만(입을 찌르지 않게)
-      const ex = bx + (tx - bx) * 0.7, ey = by + (ty - by) * 0.7;
-      const d = `M ${bx - ox} ${by - oy} Q ${(bx + ex) / 2} ${(by + ey) / 2 - 4} ${ex} ${ey} L ${bx + ox} ${by + oy} Z`;
-      svg.insertAdjacentHTML('beforeend', `<path d="${d}" fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`);
-    });
+      const x = (r.left - sr.left) * k, y = (r.top - sr.top) * k, w = r.width * k, h = r.height * k;
+      let tx = null, ty = null;
+      if (b.dataset.tx) { tx = parseFloat(b.dataset.tx) / 100 * W; ty = parseFloat(b.dataset.ty) / 100 * H; }
+      else if (b.closest('.panel')) { tx = W / 2; ty = H * 0.55; }  // 2컷: 화자 좌표가 없으면 컷 가운데(캐릭터 자리) 쪽
+      const rad = Math.min(46, h / 2, w / 2);
+      let side = null, base = 0, tip = [0, 0];
+      if (tx !== null && !(tx > x && tx < x + w && ty > y && ty < y + h)) {
+        const dx = tx - (x + w / 2), dy = ty - (y + h / 2);
+        side = Math.abs(dy) * w >= Math.abs(dx) * h ? (dy > 0 ? 'bottom' : 'top') : (dx > 0 ? 'right' : 'left');
+        const along = side === 'top' || side === 'bottom';
+        const lo = (along ? x : y) + rad + 26, hi = (along ? x + w : y + h) - rad - 26;
+        base = Math.min(hi, Math.max(lo, along ? x + w / 2 + dx * 0.4 : y + h / 2 + dy * 0.4));
+        const ex = along ? base : (side === 'right' ? x + w : x), ey = along ? (side === 'bottom' ? y + h : y) : base;
+        // 꼬리 끝: 화자 쪽으로 가되 최대 90px(입을 찌르거나 얼굴을 가로지르지 않게)
+        const len = Math.hypot(tx - ex, ty - ey), reach = Math.min(90, len * 0.6);
+        tip = [ex + (tx - ex) / len * reach, ey + (ty - ey) / len * reach];
+      }
+      const hw = 22;
+      const T = (s, a, b) => side === s ? ` L ${a[0]} ${a[1]} L ${tip[0]} ${tip[1]} L ${b[0]} ${b[1]}` : '';
+      const d = `M ${x + rad} ${y}` + T('top', [base - hw, y], [base + hw, y]) +
+        ` L ${x + w - rad} ${y} A ${rad} ${rad} 0 0 1 ${x + w} ${y + rad}` + T('right', [x + w, base - hw], [x + w, base + hw]) +
+        ` L ${x + w} ${y + h - rad} A ${rad} ${rad} 0 0 1 ${x + w - rad} ${y + h}` + T('bottom', [base + hw, y + h], [base - hw, y + h]) +
+        ` L ${x + rad} ${y + h} A ${rad} ${rad} 0 0 1 ${x} ${y + h - rad}` + T('left', [x, base + hw], [x, base - hw]) +
+        ` L ${x} ${y + rad} A ${rad} ${rad} 0 0 1 ${x + rad} ${y} Z`;
+      svg.insertAdjacentHTML('beforeend', `<path class="bubble-shape" d="${d}" fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round"/>`);
   });
   return overflowing;
 };

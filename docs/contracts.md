@@ -332,9 +332,10 @@ class Clock(Protocol):
 - 템플릿 3종: `info`(cover + body… + outro), `list`(cover + list… + outro), `compare`(cover + compare + outro). 템플릿은 `kind`별 슬라이드 레이아웃을 가져야 함.
 - **S14 제안(ADR 0055, 합의 전 미적용)**: `ImageAsset{path, ai, alt}`; `comic` 장(`panels` 정확히 2개: `image` ImageAsset|null, `label` ≤30자, `bubble` ≤40자, `bubble_side`, `scene`); body·products·facts에 `sticker` ImageAsset|null; 템플릿 `meme`(첫 장 cover **또는** comic, 중간 comic·body, 마지막 outro), `editorial` 중간에 comic 허용. `labels.ai_slides: list[int] | null` — null이면 레거시 규칙(`ai_generated_image` + background), 목록이면 그 장에만 "AI 생성 이미지"(빈 목록 = 없음). 기존 JSON은 그대로 읽힌다.
 - **S12 제안(ADR 0052, 합의 전 미적용)**: 템플릿 `editorial`(cover + body·products·facts 섞어서 + outro). `products`는 항목 2~4개(`name`, `price` 표기 그대로, `note`, `image` 로컬 경로 또는 null), `facts`는 2~6줄(`label`, `value`). 기존 세 템플릿·기존 JSON은 그대로 읽힌다. 상품 이름·가격이 자료에 없으면 자동 승인하지 않는다.
+- **S18 제안(ADR 0062·0063, 합의 전 미적용)**: `ImageAsset.source`(사진을 가져온 기사 주소); body·list·compare·products·facts에 `photo` ImageAsset|null·`photo_hint`; `FactsSlide.layout`(`rows`|`timeline`|`conditions`|`figures`, 생성기가 데이터로 검증); `CardDeck.sources`(덱 출처, 마무리 장이 없어도 남음); `editorial`은 가운데에 list·compare도 허용하고 outro는 선택. 포트 `MemeFormatPlan.make`(`composite`|`restage`, 기본 restage). 기존 JSON은 그대로 읽힌다.
 - 폰트: Pretendard(SIL OFL)를 `nsm/templates/fonts/`에 동봉. 한글은 항상 HTML 텍스트로 그림(AI 이미지에 글자 넣지 않음).
 - `background`가 null이면 브랜드 색 기반 그라디언트/패턴으로 대체(이미지 생성을 끈 경우에도 완성도 유지).
-- 스타일(S8, ADR 0036 · S10 제안, ADR 0050): `clean`·`photo`·`illust`·`editorial`. 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
+- 스타일(S8, ADR 0036 · S10 제안, ADR 0050 · S18 제안, ADR 0063): `clean`·`photo`·`illust`·`editorial`·`kitsch`(소식형 구성 + 장식 CSS, 표기 슬롯 같음). 덱 JSON이 아니라 설정 `brand.card_style`(렌더러 옵션)로 고르므로 이 계약은 그대로다. 스타일은 장식(코드로 그린 배경·캐릭터)만 바꾸고 텍스트·표기 슬롯은 같다. 코드로 그린 배경은 `background`가 아니므로 `ai-generated` 캡션 대상이 아니다. 원고별 스타일(덱 `style` 필드)은 2차 계약 변경 제안(ADR 0037).
 - **표기 슬롯(필수)**: 아래 요소가 DOM에 존재해야 하고 렌더 테스트가 이를 검사함.
   - `[data-label="virtual-person"]`: 텍스트 "가상인물" 배지. `labels.virtual_person`이 true면 페르소나 이름 바로 옆에 배경과 대비되는 색으로 표시. 이름(인물)과 배지는 cover·outro 슬라이드에만 함께 두고, 가운데 슬라이드에는 둘 다 두지 않음(ADR 0043, 그 전에는 모든 슬라이드). 덱 JSON은 그대로.
   - `[data-label="ai-generated"]`: "AI 생성 이미지" 작은 캡션. `labels.ai_generated_image`가 true일 때 배경 이미지가 있는 슬라이드에 표시.
@@ -343,6 +344,7 @@ class Clock(Protocol):
   - `[data-label="ad"]`: "광고" 배지. `labels.ad`가 true면 cover 슬라이드 상단에 크게 표시.
   - `[data-sources]`: outro 슬라이드의 출처 목록.
   - `[data-page]`: "n / N" 페이지 표시.
+  - **S18 제안(사용자 결정 2026-10-23, 합의 전)**: 카드에서 페르소나 이름·`virtual-person` 배지·`[data-page]`·`[data-sources]`를 뺀다. 가상인물 표기는 게시 글 첫 줄 문구(아래)로만 하고, 출처는 게시 글 끝 "출처" 블록에 실제 주소로 붙인다. `ad`는 카드에 남는다. `ai-generated`도 카드에서 빼고 게시 글 둘째 줄 "AI 생성 이미지가 포함된 게시물입니다"로 옮긴다(같은 날 사용자 결정, 기준은 `labels.ai_slides` 그대로). 이미지 안 "가상인물과 근접한 위치" 표기가 필요한지 메인과 법규 근거(ADR 0019)를 다시 확인해야 하며, 합의 전에는 이 PR을 머지하지 않는다.
 - 텍스트 표기 규칙(생성기·정책이 적용, 템플릿 밖):
   - 인스타그램 캡션·스레드 본문 **첫 줄**: `인공지능(AI)을 기반으로 생성된 가상인물이 포함된 게시물입니다` (공정위 예규 제499호 Ⅴ.5 예시 문구 그대로, ADR 0019). 광고면 그 앞에 `#광고 ` 추가(첫 부분이자 첫 번째 해시태그).
   - 카드의 `virtual-person` 배지는 페르소나 이름 바로 옆("가상인물과 근접한 위치").

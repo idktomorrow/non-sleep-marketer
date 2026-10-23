@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from nsm.app.review_actions import ReviewActions
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.policy import local
 from nsm.domain.topics import account_topic_conflict
 from nsm.store.picks import Pick
@@ -48,7 +49,19 @@ KIND_LABELS = {"info": "정보", "meme": "밈"}
 PRODUCTION_BLOCKING = ("images_pending", "producing", "failed_image", "unknown_image")
 
 
-def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[str, Any]:
+def _has_real_photo(content) -> bool:
+    # 상품마다 넣은 사진도 실제 사진이다(S18 리뷰: 상품 사진만 있는 덱을 "사진 없음"으로 띄웠다)
+    return any(
+        getattr(s, "background", None)
+        or getattr(s, "photo", None)
+        or any(it.image for it in getattr(s, "items", None) or [])
+        for s in content.generated.deck.slides
+    )
+
+
+def pick_view(
+    p: Pick, content, now, tz: str, slot: Slot | None = None, photos_expected: bool = False
+) -> dict[str, Any]:
     """카드 한 장에 보일 값. 상태 배지는 슬롯 제작 단계·사진 준비·렌더 확인·재확인 여부를 함께 본다(S14)."""
     age = now - content.created_at
     needs_recheck = ReviewActions.needs_recheck(content.created_at, p.rechecked_at, now)
@@ -59,6 +72,9 @@ def pick_view(p: Pick, content, now, tz: str, slot: Slot | None = None) -> dict[
         readiness = ("ok", "게시 준비 완료")
     elif p.photo_status == "candidate":
         readiness = ("warn", "사진 확인 대기")
+    elif (p.kind or "info") == "info" and photos_expected and not _has_real_photo(content):
+        # 소재 사진이 없는 정보 원고를 조용히 완성으로 보이지 않게(S18): 직접 올리거나 다른 자료로
+        readiness = ("warn", "소재 사진 없음 · 직접 올리기 필요")
     else:
         readiness = ("gray", "미리보기 확인 전")
     kind = p.kind or "info"
@@ -117,10 +133,15 @@ def install_picks_routes(
         }
         items = state.repo.get_source_items(sorted({i for ids in src_ids.values() for i in ids}))
         zone = tz()
+        cfg = state.get_config()
+        # 사진 우선형이고 사진 후보를 모으는 설정일 때만 "소재 사진 없음"을 띄운다(다른 스타일은 원래 사진이 없다, S18 리뷰)
+        photos_expected = (
+            cfg.brand.card_style in PHOTO_FIRST_STYLES and cfg.settings.picks.photo_candidates
+        )
         for p in picks:
             c = contents[p.content_id]
             if c is not None:
-                v = pick_view(p, c, now, zone, by_key.get(p.slot_key or ""))
+                v = pick_view(p, c, now, zone, by_key.get(p.slot_key or ""), photos_expected)
                 v["topic"] = topics.get(c.id) or v["plan"].get("topic") or ""
                 v["sources"] = [items[i] for i in src_ids[c.id] if i in items][:4]
                 out.append(v)
@@ -232,6 +253,16 @@ def install_picks_routes(
         if not re.fullmatch(r"[a-z0-9\-]{1,80}", key):
             raise HTTPException(400, "밈 후보 이름 형식이 아닙니다")
         state.run_job_now("meme_remake", f"{cid}|{key}")
+        return back("/picks")
+
+    @app.post("/picks/{cid}/reedit", dependencies=[Depends(check_csrf)])
+    def reedit_info(cid: str) -> RedirectResponse:
+        """사진 보고 다시 편집(S18 편집 밀도): 같은 자료·사진으로 관찰 → 관점 → 장 편집(작업 스레드에서, AI 호출 2회)."""
+        if state.run_job_now is None:
+            raise HTTPException(503, "작업 실행기가 없습니다")
+        if not re.fullmatch(r"[0-9A-Z]{26}", cid):
+            raise HTTPException(400, "원고 id 형식이 아닙니다")
+        state.run_job_now("info_reedit", cid)
         return back("/picks")
 
     @app.post("/picks/{cid}/recheck", dependencies=[Depends(check_csrf)])

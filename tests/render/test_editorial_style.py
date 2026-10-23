@@ -95,13 +95,13 @@ def test_label_slots_match_clean_and_no_ai_caption_without_flag() -> None:
     ours = _slots_with_style(deck, STYLE)
     assert [x["labels"] for x in ours] == [x["labels"] for x in slots(deck)]
     assert all("ai-generated" not in x["labels"] for x in ours)  # 사진이 있어도 AI 배경이 아니다
-    assert [x["labels"].count("virtual-person") for x in ours] == [1, 0, 0, 1]
+    assert all("virtual-person" not in x["labels"] for x in ours)  # S18: 카드에 없음
     assert all("ad" not in x["labels"] for x in ours)
-    assert [x["sources"] for x in ours] == [0, 0, 0, 1]
-    # 페르소나 이름·핸들은 가상인물 배지 옆(.who)에만 2번(ADR 0019·0043). 팔로우 카드는 브랜드 이름만
+    assert all(x["sources"] == 0 for x in ours)  # 출처는 게시 글 끝(S18)
+    # 이름·핸들·가상인물 배지는 카드에 없다(S18). 팔로우 카드는 브랜드 이름만
     html = build_html(deck, STYLE)
-    assert html.count('<div class="who">') == 2 == html.count('data-label="virtual-person"')
-    assert html.count(deck.persona.handle) == 2
+    assert html.count('<div class="who">') == 0 == html.count('data-label="virtual-person"')
+    assert html.count(deck.persona.handle) == 0
     assert f'<div class="follow-name">{deck.brand.name}</div>' in html
 
 
@@ -109,7 +109,7 @@ def test_label_slots_match_clean_and_no_ai_caption_without_flag() -> None:
 def test_cover_readable_at_threads_thumbnail_with_photo(extreme: bool, tmp_path) -> None:
     """사진 위 표지도 ADR 0035 최소 크기: 제목 88px, 키커(부제 슬롯) 48px, 이름 38, 배지 34."""
     sizes = _cover_sizes(photo_deck(True, extreme), tmp_path, STYLE)
-    for key, minimum in {"title": 18.0, "subtitle": 9.9, "who": 7.5, "badge": 7.0}.items():
+    for key, minimum in {"title": 18.0, "subtitle": 9.9}.items():
         assert sizes[key] * THUMB_SCALE >= minimum, f"{key} {sizes[key]}px"
     assert sizes["titleLines"] <= 2 or extreme
 
@@ -215,7 +215,7 @@ def test_cover_text_readable_on_bright_photo(extreme: bool, tmp_path) -> None:
                   const s = document.querySelector('section.slide[data-kind="cover"]');
                   const rgba = (c) => { const n = (c.match(/[\\d.]+/g) || []).map(Number); return (c.startsWith('color(') ? n.map(v => v * 255) : n).slice(0, 3); };
                   const out = {};
-                  for (const [k, sel] of [['title','h1'], ['kicker','.subtitle'], ['who','.who'], ['page','[data-page]']]) {
+                  for (const [k, sel] of [['title','h1'], ['kicker','.subtitle']]) {
                     const el = s.querySelector(sel); const r = el.getBoundingClientRect();
                     out[k] = [[r.left, r.top, r.right, r.bottom], rgba(getComputedStyle(el).color)];
                   }

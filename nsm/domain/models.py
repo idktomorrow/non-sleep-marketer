@@ -139,12 +139,24 @@ class DeckLabels(_Model):
     ai_slides: list[int] | None = None
 
 
+class PhotoMark(_Model):
+    """사진 위 짧은 주석(S18 편집 밀도): 관찰한 디테일 한 곳을 가리킨다. 좌표는 보여 주는 영역 기준 %."""
+
+    text: str = Field(max_length=24)
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+
+
 class ImageAsset(_Model):
     """장에 붙는 그림 하나(S14 제안): 경로 + 출처. 글자는 절대 그림에 넣지 않는다(ADR 0007)."""
 
     path: str
     ai: bool = False  # AI로 만든 그림이면 그 장에 "AI 생성 이미지" 표기
     alt: str = ""
+    source: str = ""  # 실제 사진의 출처(기사 URL 등, S18). 출처 표기는 사용 허락이 아니다
+    # S18 편집 밀도: 관찰한 디테일을 크게 보여 줄 때 원본의 이 영역만([x, y, w, h], 원본 기준 %)
+    crop: list[float] | None = Field(default=None, min_length=4, max_length=4)
+    marks: list[PhotoMark] = Field(default_factory=list, max_length=3)
 
 
 class CoverSlide(_Model):
@@ -152,6 +164,8 @@ class CoverSlide(_Model):
     title: str
     subtitle: str = ""
     background: str | None = None
+    # 배경 사진에서 꼭 보여야 할 영역([x, y, w, h], 원본 기준 %, S18 프로세스). 표지를 자를지·얼마나 키울지를 이걸로 정한다
+    subject: list[float] | None = Field(default=None, min_length=4, max_length=4)
 
 
 class BodySlide(_Model):
@@ -161,6 +175,9 @@ class BodySlide(_Model):
     bullets: list[str] = Field(default_factory=list)
     background: str | None = None
     sticker: ImageAsset | None = None  # 메모 상자에 걸친 보조 캐릭터(S14 제안)
+    # S18 제안(ADR 0062): 이 장 내용과 맞는 실제 사진(비율 그대로, 자르지 않음)과 그 사진을 고를 때 쓰는 힌트
+    photo: ImageAsset | None = None
+    photo_hint: str = ""
 
 
 class ListSlide(_Model):
@@ -168,6 +185,9 @@ class ListSlide(_Model):
     heading: str
     bullets: list[str] = Field(min_length=1)
     background: str | None = None
+    # S18 제안(ADR 0062): 이 장 내용과 맞는 실제 사진(비율 그대로, 자르지 않음)과 그 사진을 고를 때 쓰는 힌트
+    photo: ImageAsset | None = None
+    photo_hint: str = ""
 
 
 class CompareSide(_Model):
@@ -181,6 +201,9 @@ class CompareSlide(_Model):
     left: CompareSide
     right: CompareSide
     background: str | None = None
+    # S18 제안(ADR 0062): 이 장 내용과 맞는 실제 사진(비율 그대로, 자르지 않음)과 그 사진을 고를 때 쓰는 힌트
+    photo: ImageAsset | None = None
+    photo_hint: str = ""
 
 
 class OutroSlide(_Model):
@@ -206,6 +229,9 @@ class ProductsSlide(_Model):
     items: list[ProductItem] = Field(min_length=2, max_length=4)
     background: str | None = None
     sticker: ImageAsset | None = None
+    # S18 제안(ADR 0062): 이 장 내용과 맞는 실제 사진(비율 그대로, 자르지 않음)과 그 사진을 고를 때 쓰는 힌트
+    photo: ImageAsset | None = None
+    photo_hint: str = ""
 
 
 class FactRow(_Model):
@@ -219,6 +245,11 @@ class FactsSlide(_Model):
     rows: list[FactRow] = Field(min_length=2, max_length=6)
     background: str | None = None
     sticker: ImageAsset | None = None
+    # 정보 줄의 시각 배치(S18): 데이터 종류와 배치는 다르다. timeline은 모든 줄에 날짜가 있을 때만(생성기가 검증)
+    layout: Literal["rows", "timeline", "conditions", "figures"] = "rows"
+    # S18 제안(ADR 0062): 이 장 내용과 맞는 실제 사진(비율 그대로, 자르지 않음)과 그 사진을 고를 때 쓰는 힌트
+    photo: ImageAsset | None = None
+    photo_hint: str = ""
 
 
 # ---- S14 제안(ADR 0055): 2컷 만화. 같은 캐릭터가 두 장면에 나오고 라벨(검은 상자)·말풍선은 HTML 글자다
@@ -291,6 +322,8 @@ class CardDeck(_Model):
     persona: DeckPersona
     labels: DeckLabels = Field(default_factory=DeckLabels)
     slides: list[Slide] = Field(min_length=1, max_length=10)
+    # 덱의 출처(S18): 마무리 장이 없어도 캡션 출처 줄·작은 표기로 보존한다. 마무리 장이 있으면 그 장의 출처가 우선
+    sources: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _shape(self) -> CardDeck:
@@ -308,15 +341,18 @@ class CardDeck(_Model):
             raise ValueError(
                 "첫 슬라이드는 cover" + ("(밈은 comic도 가능)" if self.template == "meme" else "")
             )
-        if self.slides[-1].kind != "outro":
+        # 소식형(S18): 마무리 장은 필요할 때만. 없으면 마지막 내용 장으로 끝난다(출처는 덱 출처로)
+        optional_outro = self.template == "editorial"
+        if self.slides[-1].kind != "outro" and not optional_outro:
             raise ValueError("마지막 슬라이드는 outro")
-        middle = {s.kind for s in self.slides[1:-1]}
+        rest = self.slides[1:-1] if self.slides[-1].kind == "outro" else self.slides[1:]
+        middle = {s.kind for s in rest}
         allowed = {
             "info": {"body"},
             "list": {"list"},
             "compare": {"compare"},
             # 소식형: 개요(body) + 상품 그리드 + 일정·구매처 패널(S12) + 만화 한 장(혼합 표현, S14)
-            "editorial": {"body", "products", "facts", "comic"},
+            "editorial": {"body", "products", "facts", "comic", "list", "compare"},
             "meme": {"comic", "body", "meme_image"},
         }[self.template]
         if not middle <= allowed:
@@ -332,11 +368,37 @@ class Claim(_Model):
     source_item_id: str
 
 
+class PhotoDetail(_Model):
+    """사진에서 눈에 띄는 부분 하나(관찰, S18): 무엇이 보이는지 + 위치([x, y, w, h], 원본 기준 %)."""
+
+    what: str
+    box: list[float] = Field(min_length=4, max_length=4)
+
+
+class ObservedPhoto(_Model):
+    """원고를 쓰기 전에 실제로 확보한 사진과 그 사진에 보이는 것(S18 편집 밀도). 보이는 것만, 설정·감상은 넣지 않는다."""
+
+    path: str
+    source_url: str = ""
+    kind: str = "photo"  # photo | official | designed | screenshot
+    shows: str = ""
+    details: list[PhotoDetail] = Field(default_factory=list)
+    # 일반 자산 처리(S18 프로세스): 실제 픽셀 크기, 꼭 보여야 할 영역(원본 기준 %), 읽혀야 하는 글자 유무
+    size: list[int] = Field(default_factory=list)
+    subject: list[float] | None = None
+    has_text: bool = False
+    on_topic: bool = True  # 이 게시물 소재를 실제로 보여 주나(아니면 쓰지 않는다)
+
+
 class ContentBrief(_Model):
     topic: str
     template: TemplateKind
     sources: list[SourceItem] = Field(min_length=1)
     is_ad: bool = False
+    photos: list[ObservedPhoto] = Field(default_factory=list)  # S18: 기획 전에 관찰한 실제 사진
+    feedback: list[str] = Field(
+        default_factory=list
+    )  # S18 프로세스: 지난 결과의 완성 카드 검토(다시 편집할 때 고칠 점)
 
 
 class GeneratedContent(_Model):
@@ -348,6 +410,8 @@ class GeneratedContent(_Model):
     blog_title: str
     blog_markdown: str
     claims: list[Claim]
+    # S18 편집 밀도: 검토하는 사람에게 보일 편집 메모(중심 관점, 부족한 자료). 카드·글에는 나가지 않는다
+    editor_notes: list[str] = Field(default_factory=list)
 
 
 class Content(_Model):

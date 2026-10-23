@@ -32,10 +32,7 @@
 /* 띠가 카드 바닥까지 내려가므로 페이지 번호·AI 캡션 줄은 띠 위에 */
 .style-editorial .cover .bottombar { z-index: 2; }
 .style-editorial .cover .titles { display: flex; flex-direction: column; gap: 22px; align-items: flex-start; }
-/* 표지 꼬리표(장식 글자, 레퍼런스의 "What's New") */
-.style-editorial .cover .titles::before {
-  content: "WHAT'S NEW"; font-size: 26px; font-weight: 700; letter-spacing: .16em; opacity: .85; margin-bottom: -6px;
-}
+/* 표지 꼬리표(WHAT'S NEW)는 쓰지 않는다(S18, 사용자 결정 2026-10-23) */
 /* 키커: 칩 없이 짧은 글자(레퍼런스 "치이카와 × ANA 항공 콜라보 총정리"). 사진 위에서는 띠가 대비를 만든다 */
 .style-editorial .cover .subtitle { opacity: .92; }
 /* 사진 위 글 묶음 뒤에 글 높이만큼 따라가는 어두운 띠(순백 사진에서도 흰 글자 대비 ≥3). 가로는 카드 끝까지.
@@ -99,16 +96,19 @@
 .style-editorial .outro.has-bg .sources { color: #fff; opacity: .92; align-self: stretch; }
 .style-editorial .outro:not(.has-bg) .cta { color: var(--primary-ink); }
 
-/* 본문(사진 없음): 여백 큰 점선 메모(레퍼런스의 메모 카드). 제목은 잉크색, 밑줄 막대는 가늘게 */
-/* 메모는 글 길이만큼(세로를 꽉 채운 빈 상자 금지, 2026-10-21 실키 결과), 카드 가운데쯤에 */
-.style-editorial .body:not(.has-bg) .content {
-  flex: 0 1 auto; margin: auto 0; padding: 60px 64px; border: 3px dashed color-mix(in srgb, var(--ink) 34%, transparent);
-  border-radius: 36px; background: rgba(255,255,255,.72); justify-content: flex-start; gap: 30px;
+/* 본문(사진 없음, S18): 점선 메모 대신 굵은 타이포 블록. 왼쪽 굵은 색 막대 + 큰 제목 + 큰 본문, 요점은 칩 */
+.style-editorial .body:not(.has-bg):not(.has-photo) .content {
+  flex: 0 1 auto; margin: auto 0; padding: 8px 0 8px 44px; border-left: 14px solid var(--primary);
+  justify-content: flex-start; gap: 34px;
 }
-.style-editorial .body:not(.has-bg) h2 { font-size: 64px; color: var(--ink); }
-.style-editorial .body:not(.has-bg) h2::after { width: 64px; height: 6px; margin-top: 16px; background: var(--primary); }
-.style-editorial .body:not(.has-bg) .text { font-size: 44px; line-height: 1.55; }
-.style-editorial .body:not(.has-bg) li { font-size: 36px; }
+.style-editorial .body:not(.has-bg) h2 { font-size: 72px; line-height: 1.16; color: var(--ink); }
+.style-editorial .body:not(.has-bg) h2::after { display: none; }
+.style-editorial .body:not(.has-bg) .text { font-size: 46px; line-height: 1.5; font-weight: 600; }
+.style-editorial .body:not(.has-bg) ul { flex-direction: row; flex-wrap: wrap; gap: 14px; }
+.style-editorial .body:not(.has-bg) li {
+  font-size: 32px; padding: 12px 24px 12px 24px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 16%, #fff);
+}
+.style-editorial .body:not(.has-bg) li::before { display: none; }
 /* 스티커가 메모 테두리에 걸치려면 위 여백이 필요하다(스티커는 base.css) */
 .style-editorial .body:not(.has-bg) .sticker { top: -92px; left: 36px; }
 .style-editorial .body:not(.has-bg) .content.has-sticker { padding-top: 112px; }
@@ -124,3 +124,146 @@
 }
 .style-editorial .products h2, .style-editorial .facts h2, .style-editorial .fact dt { color: var(--ink); }
 .style-editorial .slide.has-bg .product, .style-editorial .slide.has-bg .fact { background: #fff; }
+
+/* ---------------- S18(ADR 0062): 사진이 있는 장, 정보 줄 배치 ---------------- */
+/* 사진 있는 장: 사진이 위에서 먼저 보이고, 글은 아래 짧게 */
+.style-editorial .has-photo .content { justify-content: flex-start; gap: 30px; }
+.style-editorial .body.has-photo h2 { font-size: 58px; line-height: 1.18; }
+.style-editorial .body.has-photo h2::after { display: none; }
+.style-editorial .body.has-photo .text { font-size: 38px; line-height: 1.5; }
+.style-editorial .has-photo ul li, .style-editorial .has-photo ol li { font-size: 30px; }
+.style-editorial .has-photo .photo-fig { box-shadow: 0 14px 34px rgba(0,0,0,.14); }
+/* 사진 띠가 있는 상품·정보·비교 장은 사진 높이를 줄여 표·카드 자리를 남긴다 */
+.style-editorial .products.has-photo .photo-fig,
+.style-editorial .facts.has-photo .photo-fig,
+.style-editorial .compare.has-photo .photo-fig,
+.style-editorial .list.has-photo .photo-fig { --cap: 380px; }
+
+/* 정보 줄 배치: 데이터 종류에 맞춰(생성기가 검증한 layout만 온다) */
+/* timeline: 모든 줄에 날짜가 있고 순서가 있을 때. 세로 선 + 점, 날짜가 먼저 */
+.style-editorial .rows.layout-timeline { gap: 0; position: relative; padding-left: 40px; }
+.style-editorial .rows.layout-timeline::before {
+  content: ""; position: absolute; left: 12px; top: 18px; bottom: 18px; width: 6px; border-radius: 3px; background: var(--primary);
+}
+.style-editorial .rows.layout-timeline .fact {
+  background: transparent; border: none; padding: 16px 0 16px 28px; position: relative; grid-template-columns: 1fr; gap: 6px;
+}
+.style-editorial .rows.layout-timeline .fact::before {
+  content: ""; position: absolute; left: -38px; top: 26px; width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; border: 6px solid var(--primary);
+}
+.style-editorial .rows.layout-timeline dd { font-size: 44px; font-weight: 800; color: var(--ink); order: -1; }
+.style-editorial .rows.layout-timeline dt { font-size: 30px; font-weight: 600; color: var(--primary-ink); }
+/* conditions: 조건 묶음. 체크 표시 + 한 줄씩 또렷하게 */
+.style-editorial .rows.layout-conditions .fact { grid-template-columns: 56px 200px 1fr; align-items: center; }
+.style-editorial .rows.layout-conditions .fact::before {
+  content: "✓"; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%;
+  background: var(--primary); color: var(--on-primary); font-size: 30px; font-weight: 800;
+}
+/* figures: 핵심 수치 2~4개. 숫자를 크게, 무엇의 수치인지 작게 */
+.style-editorial .rows.layout-figures { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.style-editorial .rows.layout-figures .fact { grid-template-columns: 1fr; gap: 8px; padding: 30px 30px 34px; }
+.style-editorial .rows.layout-figures dd { font-size: 66px; font-weight: 800; line-height: 1.1; color: var(--primary-ink); order: -1; letter-spacing: -0.03em; }
+.style-editorial .rows.layout-figures dt { font-size: 28px; font-weight: 600; color: var(--ink); opacity: .8; }
+.style-editorial .rows .fact { display: grid; }
+
+/* 기본 정보 줄(rows, S18 실키 결과 반영): 보고서 표처럼 작게 늘어서지 않게, 종류 이름은 작게 위에·값은 크게.
+   묶음은 장 가운데에. 사진 없는 장에서 빈 바탕만 남지 않도록 글을 키운다 */
+.style-editorial .facts:not(.has-photo) .content { justify-content: center; gap: 34px; }
+.style-editorial .facts h2 { font-size: 68px; line-height: 1.16; }
+.style-editorial .rows.layout-rows { gap: 20px; }
+.style-editorial .rows.layout-rows .fact {
+  grid-template-columns: 1fr; gap: 6px; padding: 26px 34px 30px; border-radius: 28px;
+  border: none; border-left: 12px solid var(--primary); background: #fff;
+}
+.style-editorial .rows.layout-rows dt { font-size: 28px; font-weight: 700; color: var(--primary-ink); opacity: .9; }
+.style-editorial .rows.layout-rows dd { font-size: 48px; font-weight: 800; line-height: 1.25; color: var(--ink); letter-spacing: -0.02em; }
+.style-editorial .rows.layout-conditions dt { font-size: 30px; }
+.style-editorial .rows.layout-conditions dd { font-size: 38px; font-weight: 700; }
+/* 사진 없는 본문: 더 크게, 첫 문장이 눈에 들어오게 */
+.style-editorial .body:not(.has-bg):not(.has-photo) h2 { font-size: 88px; line-height: 1.12; letter-spacing: -0.035em; }
+.style-editorial .body:not(.has-bg):not(.has-photo) .text { font-size: 54px; line-height: 1.45; font-weight: 600; }
+/* 비교(S18): 요점이 적으면 글을 키워 빈 바탕이 남지 않게 */
+.style-editorial .compare .content { justify-content: center; }
+.style-editorial .compare h2 { font-size: 64px; }
+.style-editorial .compare .col { padding: 44px 40px; gap: 26px; }
+.style-editorial .compare .col h3 { font-size: 42px; }
+.style-editorial .compare .col li { font-size: 36px; line-height: 1.4; }
+/* 정보 줄이 5줄 이상이면 촘촘하게(긴 6줄도 한 장에 들어가게) */
+.style-editorial .rows.layout-rows:has(> :nth-child(5)) { gap: 12px; }
+.style-editorial .rows.layout-rows:has(> :nth-child(5)) .fact { padding: 14px 26px 16px; gap: 2px; border-left-width: 10px; }
+.style-editorial .rows.layout-rows:has(> :nth-child(5)) dt { font-size: 24px; }
+.style-editorial .rows.layout-rows:has(> :nth-child(5)) dd { font-size: 32px; }
+.style-editorial .facts:has(.rows > :nth-child(5)) h2 { font-size: 56px; }
+/* 상품 칸(S18 실호출): 상품별 사진이 없으면 빈 회색 상자를 두지 않고 이름·설명을 크게(없는 사진을 채우지 않는다) */
+.style-editorial .product-img.placeholder { display: none; }
+.style-editorial .product:not(:has(img.product-img)) { justify-content: center; padding: 30px 26px; }
+.style-editorial .product:not(:has(img.product-img)) .product-name { font-size: 34px; }
+.style-editorial .product:not(:has(img.product-img)) .product-note { font-size: 24px; }
+
+/* ---------------- 사진 위주 라인업(S18, 실제 치이카와 굿즈 정리 카드 참고) ----------------
+   상품마다 실제 사진이 카드 대부분을 차지하고, 이름·가격 칩은 아래에 작게. 사진은 자르지 않는다(흐린 같은 사진으로 여백) */
+.style-editorial .products.item-photos .content { gap: 22px; justify-content: flex-start; }
+.style-editorial .products.item-photos h2 { font-size: 60px; }
+.style-editorial .products.item-photos .grid { flex: 1 1 auto; min-height: 0; gap: 18px; grid-auto-rows: 1fr; }
+.style-editorial .products.item-photos .grid.items-3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1.25fr 1fr; }
+.style-editorial .products.item-photos .grid.items-3 .product:first-child { grid-column: 1 / -1; }
+.style-editorial .products.item-photos .product {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 18px; border-radius: 28px; min-height: 0; background: #fff;
+}
+.style-editorial .product-pic {
+  position: relative; flex: 1 1 auto; min-height: 0; border-radius: 20px; overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 12%, #f4f1ea);
+}
+.style-editorial .product-pic .product-img {
+  position: relative; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; background: transparent; border-radius: 0;
+}
+.style-editorial .products.item-photos .product-name { font-size: 32px; font-weight: 800; padding: 0 8px; }
+.style-editorial .products.item-photos .product-note { font-size: 22px; padding: 0 8px; }
+/* 가격·조건은 동그란 칩(참고: "1회 ¥1,100" 같은 분홍 칩) */
+.style-editorial .products .product-price {
+  align-self: flex-start; margin: 0 8px; padding: 6px 18px; border-radius: 999px;
+  background: var(--primary); color: var(--on-primary); font-size: 26px; font-weight: 800;
+}
+.style-editorial .products.item-photos .product:not(.with-img) { justify-content: center; }
+/* 본문 사진은 크게(사진 위주): 글이 짧은 장은 사진이 장의 대부분 */
+.style-editorial .body.has-photo .photo-fig { --cap: 820px; }
+.style-editorial .facts.has-photo .photo-fig,
+.style-editorial .list.has-photo .photo-fig,
+.style-editorial .compare.has-photo .photo-fig { --cap: 560px; }
+/* 상품 2개: 세로로 길게 늘이지 않고 사진 비율에 가깝게(가운데 정렬) */
+.style-editorial .products.item-photos .grid.items-2 { flex: 0 1 auto; grid-auto-rows: minmax(0, 720px); align-content: center; }
+/* 정보 줄이 4줄 이상이면 사진을 줄여 글이 잘리지 않게(사진 위주라도 내용을 자르지 않는다) */
+.style-editorial .facts.has-photo:has(.rows > :nth-child(4)) .photo-fig { --cap: 380px; }
+.style-editorial .facts.has-photo:has(.rows > :nth-child(5)) .photo-fig { --cap: 300px; }
+.style-editorial .facts.has-photo .rows.layout-rows .fact { padding: 14px 26px 16px; }
+.style-editorial .facts.has-photo .rows.layout-rows dd { font-size: 34px; }
+.style-editorial .facts.has-photo .rows.layout-rows dt { font-size: 22px; }
+/* 사진 없는 상품 칸(S18 실호출 2026-10-23): 사진 칸 사이에서 빈 흰 상자로 남지 않게 이름을 크게, 색 면으로 */
+.style-editorial .products.item-photos .product:not(.with-img) {
+  align-items: flex-start; padding: 28px 26px; gap: 14px;
+  background: color-mix(in srgb, var(--primary) 14%, #fff);
+}
+.style-editorial .products.item-photos .product:not(.with-img) .product-name { font-size: 46px; line-height: 1.15; }
+.style-editorial .products.item-photos .product:not(.with-img) .product-note { font-size: 26px; }
+/* 상품 사진이 하나도 없는 장: 위에 작게 몰리지 않게 장 가운데에 크게 */
+.style-editorial .products:not(.item-photos):not(.has-photo) .content { justify-content: center; gap: 34px; }
+.style-editorial .products:not(.item-photos):not(.has-photo) h2 { font-size: 68px; }
+.style-editorial .products:not(.item-photos) .grid { gap: 20px; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) { min-height: 300px; gap: 14px; padding: 34px 30px; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-name { font-size: 44px; line-height: 1.15; }
+.style-editorial .products:not(.item-photos) .product:not(:has(img.product-img)) .product-note { font-size: 26px; }
+.style-editorial .products:not(.item-photos) .product-price { font-size: 30px; }
+
+/* ---------------- 화질·잘림(S18 실호출 2026-10-23): 사진의 역할에 맞춰 배치 ----------------
+   전체 상품 사진은 자르지 않는다: 칸이 사진 비율을 따르고(contain = 꽉), 가로로 긴 단체 사진은 한 줄에 하나씩 크게 */
+.style-editorial .products.item-photos .grid { grid-auto-rows: auto; align-content: start; flex: 0 1 auto; }
+.style-editorial .products.item-photos .grid.items-3 { grid-template-rows: auto; }
+.style-editorial .products.item-photos .grid.wide-items { grid-template-columns: 1fr; }
+.style-editorial .product-pic { flex: 0 0 auto; width: 100%; aspect-ratio: var(--ar, 1); }
+.style-editorial .product-pic .product-img { object-fit: contain; }
+/* 가로 단체 사진을 쌓을 때 장을 넘지 않게: 사진 높이 상한 안에서 폭을 비율로(자르지 않고 가운데) */
+.style-editorial .products.item-photos .grid.wide-items .product-pic { width: min(100%, calc(var(--pic-cap, 300px) * var(--ar, 2))); margin: 0 auto; }
+.style-editorial .products.item-photos .grid.wide-items.items-3 .product-pic { --pic-cap: 250px; }
+.style-editorial .products.item-photos .grid.wide-items.items-4 .product-pic { --pic-cap: 180px; }
+.style-editorial .products.item-photos .grid.wide-items .product { padding: 12px 12px 14px; gap: 8px; }

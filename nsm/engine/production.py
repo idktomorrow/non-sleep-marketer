@@ -123,10 +123,21 @@ def current_slots(
         raise AdapterError("원고가 없습니다")
     cast = ensure_cast(ctx, prod, cid, persist)
     _raw, scenes = prod.get_production(cid)
+    from nsm.store.slots import SlotStore
+
+    sl = SlotStore(ctx.repo.db, ctx.clock).by_content(cid)
+    plan = (sl.plan or {}) if sl else {}
     return (
         c.generated,
         cast,
-        image_slots(c.generated.deck, cast, scenes, meme_ref_path(ctx.media_dir, cid)),
+        image_slots(
+            c.generated.deck,
+            cast,
+            scenes,
+            meme_ref_path(ctx.media_dir, cid),
+            str(plan.get("make", "restage")),
+            str(plan.get("core", "")),
+        ),
     )
 
 
@@ -404,11 +415,17 @@ def apply_saved_result(ctx: JobContext, job_id: str) -> str:
             _sync_slot_stage(ctx, prod, job.content_id)
         return "apply_failed"
     if job.content_id:
-        if status == "succeeded" and job.target.endswith(".panel0"):
-            # 1번째 컷이 확정됐다: 그 결과를 참조로 2번째 컷을 만든다(아직 2번째가 없으면)
-            enqueue_production(
-                ctx, job.content_id, targets=[job.target[: -len("panel0")] + "panel1"]
-            )
+        if status == "succeeded" and job.role == "meme":
+            review_meme_image(ctx, prod, job)
+        if status == "succeeded":
+            # 이 그림을 참조로 기다리던 자리(2번째 컷, 여러 장 밈의 다음 장)를 이어서 만든다(S18: 컷 이름에 묶지 않음)
+            try:
+                _g, _c, slots = current_slots(ctx, prod, job.content_id)
+                waiting = [x.target for x in slots if x.chain_from == job.target]
+            except AdapterError:
+                waiting = []
+            if waiting:
+                enqueue_production(ctx, job.content_id, targets=waiting)
         _sync_slot_stage(ctx, prod, job.content_id)
     return status
 
@@ -591,3 +608,60 @@ def recover_image_jobs(ctx: JobContext) -> tuple[int, int]:
     """재시작 복구: 안 보낸 작업은 다시 대기, 보냈는데 결과를 모르는 작업은 응답 불명(자동 재시도 금지)."""
     prod = ProductionStore(ctx.repo.db, ctx.clock)
     return prod.recover()
+
+
+MEME_REVIEW_TAG = "완성 그림 검토"
+_PART_LABEL = {"scene": "구도", "composite": "합성", "text": "글자", "idea": "발상"}
+
+
+def review_meme_image(ctx: JobContext, prod: ProductionStore, job) -> None:
+    """완성된 밈 그림을 보고 재미의 핵심이 살아 있는지 검토한다(S18). 문제는 검토 사유에 단계별로 남기고,
+    그림 쪽 문제(구도·합성)면 그 지적을 장면 지시에 붙여 **한 번만** 다시 만든다. 글·발상 문제는 사람이 고친다.
+    검토 공급자가 없거나 실패하면 조용히 넘어간다(사람 검토는 그대로)."""
+    from nsm.ports import MemeImageReviewer
+    from nsm.store.slots import SlotStore
+
+    gen, cid = ctx.text_generator, job.content_id
+    if not isinstance(gen, MemeImageReviewer) or not cid or not job.result_path:
+        return
+    sl = SlotStore(ctx.repo.db, ctx.clock).by_content(cid)
+    plan = (sl.plan or {}) if sl else {}
+    try:
+        _g, _cast, slots = current_slots(ctx, prod, cid)
+        slot = next(s for s in slots if s.target == job.target)
+        c = ctx.repo.get_content(cid)
+        page = c.generated.deck.slides[slot.slide] if c else None
+        overlays = "; ".join(
+            f"{o.kind} '{o.text}' at ({int(o.x)}%,{int(o.y)}%, w {int(o.w)}%)"
+            for o in getattr(page, "overlays", [])
+        )
+        brief = (
+            f"재미의 핵심(core): {plan.get('core') or '-'}\n웃음 방식: {plan.get('mechanism') or '-'}\n"
+            f"형식: {plan.get('form') or '-'} · 만드는 방법: {plan.get('make', 'restage')}\n"
+            f"장면 지시: {slot.scene}\n얹을 글: {overlays or '없음'}"
+        )
+        out = gen.review_meme_image(job.result_path, brief)
+        problems = [
+            (str(p.get("part")), str(p.get("note", "")).strip()[:120])
+            for p in out.get("problems") or []
+            if p.get("part") in _PART_LABEL and str(p.get("note", "")).strip()
+        ][:3]
+    except Exception as e:  # noqa: BLE001  검토는 있으면 좋고 없으면 사람이 본다
+        log.info("완성 밈 그림 검토 실패(넘어감): %s", e)
+        return
+    c = ctx.repo.get_content(cid)
+    if c is None:
+        return
+    kept = [
+        x for x in (c.review_reason or "").split("; ") if x and not x.startswith(MEME_REVIEW_TAG)
+    ]
+    if out.get("ok") and not problems:
+        ctx.repo.set_review_reason(cid, "; ".join(kept))
+        return
+    note = " / ".join(f"{_PART_LABEL[p]}: {n}" for p, n in problems) or "핵심이 잘 안 보임"
+    ctx.repo.set_review_reason(cid, "; ".join([*kept, f"{MEME_REVIEW_TAG}: {note}"]))
+    fix = [n for p, n in problems if p in ("scene", "composite")]
+    # 같은 자리에 그림이 이미 둘 이상이면(자동 수정을 한 번 했으면) 더 만들지 않는다: 비용·반복 방지
+    if fix and len(prod.images(cid, job.target)) < 2:
+        prod.set_scene(cid, job.target, f"{slot.scene} (고칠 점: {' / '.join(fix)})"[:900])
+        enqueue_production(ctx, cid, targets=[job.target], force=True)

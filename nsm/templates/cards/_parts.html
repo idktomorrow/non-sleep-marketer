@@ -57,13 +57,12 @@
 {% macro meme_image(s, i, n, deck) -%}
 <section class="slide meme-image{% if not s.image %} missing{% endif %}" data-kind="meme_image">
   {%- if s.image %}<img class="meme-img" src="{{ s.image.path | file_uri }}" alt="{{ s.image.alt }}">{% else %}<div class="panel-empty">그림 없음</div>{% endif %}
-  <svg class="mo-tails" viewBox="0 0 1080 1350" aria-hidden="true"></svg>
   {%- for o in s.overlays %}
   <div class="mo mo-{{ o.kind }} mo-{{ o.size }} mo-{{ o.align }}" style="left: {{ o.x }}%; top: {{ o.y }}%; width: {{ o.w }}%; --w: {{ o.w }}%;"
        data-fit="{{ {'s': 22, 'm': 26, 'l': 32, 'xl': 40}[o.size] }}"{% if o.kind == 'bubble' and o.tail_x is not none %} data-tx="{{ o.tail_x }}" data-ty="{{ o.tail_y }}"{% endif %}>{{ o.text }}</div>
   {%- endfor %}
   {{ chrome(s, i, n, deck, s.image) }}
-  {%- if s.credits %}<div class="mo-credits" data-sources>{{ s.credits | join(' · ') }}</div>{% endif %}
+  {#- 밈의 캐릭터 참조·참고 밈 출처도 카드에는 그리지 않는다(S18): 캡션 끝에 실제 주소 -#}
 </section>
 {%- endmacro %}
 
@@ -71,7 +70,11 @@
     배경 사진이 있는 장은 장식 없이 사진 + 어두운 그라디언트(.has-bg)로 그린다(아래 띠의 흰 글자가 읽히게). -#}
 {% macro deco(s, bg) -%}
 {%- if style == 'editorial' %}
-{#- 사진 우선형(S14): 코드로 그린 캐릭터·소품을 더 얹지 않는다. 그림은 사람이 고른 사진과 스티커(ImageAsset)뿐 -#}
+{#- 사진 우선형(S14): 코드로 그린 캐릭터·소품을 더 얹지 않는다. 그림은 사람이 고른 사진과 스티커(ImageAsset)뿐.
+    키치형(S18 제안, ADR 0063)은 사진 없는 바탕에 반짝이 무늬만 코드로 그린다(그림·캐릭터는 여전히 실제 자료만) -#}
+{%- if skin == 'kitsch' and not bg %}
+<div class="deco sparkles" aria-hidden="true">{% for k in range(7) %}<i class="spark sp{{ k }}"></i>{% endfor %}</div>
+{%- endif %}
 {%- elif bg %}
 {%- elif style == 'photo' %}
 <div class="deco" aria-hidden="true"><i class="ring"></i><i class="band"></i><i class="dots"></i></div>
@@ -99,15 +102,10 @@
 {%- endmacro %}
 
 {% macro chrome(s, i, n, deck, bg) -%}
+{#- 카드 위 표기(S18, 사용자 결정 2026-10-23): 계정 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다.
+    가상인물·AI 생성 이미지 표기는 게시 글 첫 부분(apply_labels)에 붙는다. 광고 배지만 카드에 남긴다 -#}
 <div class="topbar">
-  {#- 가상인물 배지는 인물(페르소나 이름) 바로 옆: 심사지침 "가상인물과 근접한 위치" (ADR 0019).
-      이름(인물)과 배지는 표지와 마지막 장에만 함께 둔다. 중간 장에는 둘 다 없다(ADR 0043) -#}
-  {%- if s.kind in ('cover', 'outro') or (s.kind in ('comic', 'meme_image') and i == 1) %}
-  <div class="ident">
-    <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
-    {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}
-  </div>
-  {%- else %}<div class="ident"></div>{% endif %}
+  <div class="ident"></div>
   <div class="badges">
     {%- if s.kind == 'cover' and deck.labels.ad %}<span class="badge ad" data-label="ad">광고</span>{% endif -%}
   </div>
@@ -117,14 +115,56 @@
       (덱 플래그 + 그 장에 background). AI로 만든 캐릭터 그림이 들어간 일러스트 장도 같은 표기(C17, ADR 0046) -#}
   {%- set ai_slides = deck.labels.ai_slides -%}
   {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
-  {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
-  <span class="page" data-page>{{ i }} / {{ n }}</span>
+  {#- AI 생성 이미지 표기는 카드에 그리지 않는다(S18, 사용자 결정 2026-10-23): 게시 글 첫 부분에 붙는다(apply_labels) -#}
 </div>
 {%- endmacro %}
 
+{#- 배경 사진(S18): 비율과 상관없이 카드를 꽉 채운다(가로 사진은 양옆을 자른다). 글은 아래 그라데이션 위에.
+    흐린 같은 사진으로 채우거나 위에 작게 두지 않는다(사용자 피드백 2026-10-23: "첫 장은 풀사진에 그라데이션 글") -#}
+{#- 배경 사진 배치(S18 프로세스): 사진의 크기와 꼭 보여야 할 영역(subject, 관찰)으로 정한다. 고정 규칙 하나로 정하지 않는다.
+    - 카드를 꽉 채워도 주인공이 잘리지 않고 1.6배 안에서 늘어나면: 꽉 채우되 주인공이 보이게 자르는 위치를 옮긴다
+    - 아니면: 주인공이 잘리지 않고 1.6배를 넘지 않는 만큼 크게(카드 높이 64%까지) 위에 두고, 아래로 진한 색에 그라데이션으로 이어
+      제목이 사진 끝에 겹치게 한다(빈 띠를 두지 않는다). 흐린 같은 사진으로 채우지 않는다 -#}
 {% macro open(cls, s, bg) -%}
-<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}" data-kind="{{ s.kind }}"{% if bg %} style="background-image: url('{{ bg | file_uri }}')"{% endif %}>
+{%- set wh = bg | pixels if bg else (0, 0) -%}
+{%- set subj = s.subject if (s.subject is defined and s.subject) else none -%}
+{%- set band = false -%}{%- set px = 50 -%}{%- set py = 50 -%}
+{%- if bg and wh[0] -%}
+  {%- set ar = wh[0] / wh[1] -%}
+  {%- set scale = [1080 / wh[0], 1350 / wh[1]] | max -%}
+  {%- set vis_w = [100, 100 * 0.8 / ar] | min -%}
+  {%- set vis_h = [100, 100 * ar / 0.8] | min -%}
+  {%- set fits = (not subj) or (subj[2] <= vis_w + 1 and subj[3] <= vis_h + 1) -%}
+  {%- set band = scale > 1.6 or not fits -%}
+  {%- set cx = (subj[0] + subj[2] / 2) if subj else 50 -%}
+  {%- set cy = (subj[1] + subj[3] / 2) if subj else 50 -%}
+  {%- set px = ([0, [cx - vis_w / 2, 100 - vis_w] | min] | max) / (100 - vis_w) * 100 if vis_w < 100 else 50 -%}
+  {%- set py = ([0, [cy - vis_h / 2, 100 - vis_h] | min] | max) / (100 - vis_h) * 100 if vis_h < 100 else 50 -%}
+  {%- set k = [[1.6 * wh[0] / 1080, (100 / subj[2]) if subj else 1, 0.64 * 1350 * ar / 1080] | min, 1] | max -%}
+  {%- set band_h = 1080 * k / ar -%}
+  {%- set band_left = [[0, 50 - cx * k] | min, 100 - 100 * k] | max -%}
+{%- endif -%}
+<section class="slide {{ cls }}{% if bg %} has-bg{% endif %}{% if band %} bg-band{% endif %}" data-kind="{{ s.kind }}"{% if bg and not band %} style="background-image: url('{{ bg | file_uri }}'); background-position: {{ '%.1f' % px }}% {{ '%.1f' % py }}%"{% endif %}>
+{%- if band %}<img class="bg-band-img" src="{{ bg | file_uri }}" alt="" style="width: {{ '%.1f' % (100 * k) }}%; left: {{ '%.1f' % band_left }}%;"><div class="bg-band-fade" style="top: {{ '%.0f' % (band_h - 280) }}px"></div>{% endif %}
 {{- deco(s, bg) }}
+{%- endmacro %}
+
+{#- 장 내용과 맞는 실제 사진(S18): 칸에 맞춰 꽉 채운다(높이 상한에 걸리면 가장자리를 조금 자른다).
+    편집 밀도(S18): crop이 있으면 관찰한 디테일 영역만 크게, marks는 그 디테일을 짚는 짧은 주석(점 + 글자) -#}
+{% macro photo(s) -%}
+{%- if s.photo %}{% set ar = s.photo.path | aspect %}{% set c = s.photo.crop %}
+{%- if c %}{% set ar = ar * c[2] / c[3] %}{% endif %}
+<figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}{% if c %} zoom{% endif %}" style="--ar: {{ ar }}">
+  {%- if c %}
+  <div class="zoom-box"><img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}" style="width: {{ 10000 / c[2] }}%; height: {{ 10000 / c[3] }}%; left: {{ -c[0] * 100 / c[2] }}%; top: {{ -c[1] * 100 / c[3] }}%;"></div>
+  {%- else %}
+  <img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}">
+  {%- endif %}
+  {%- for m in s.photo.marks %}
+  <span class="photo-mark{% if m.x > 60 %} left{% endif %}{% if m.y < 22 %} below{% endif %}" style="left: {{ m.x }}%; top: {{ m.y }}%;"><i></i><b data-fit="22">{{ m.text }}</b></span>
+  {%- endfor %}
+</figure>
+{%- endif %}
 {%- endmacro %}
 
 {% macro cover(s, i, n, deck) -%}
@@ -149,10 +189,10 @@
 
 {% macro body(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('body', s, bg) }}
+{{ open('body' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{{ photo(s) }}
     {%- set panel = style == 'editorial' and bg %}
     {%- if panel %}<div class="caption-panel">{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
@@ -165,9 +205,9 @@
 
 {% macro listing(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('list', s, bg) }}
+{{ open('list' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content">{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <ol>{% for b in s.bullets %}<li data-fit="26">{{ b }}</li>{% endfor %}</ol>
   </div>
@@ -176,9 +216,9 @@
 
 {% macro compare(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('compare', s, bg) }}
+{{ open('compare' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
-  <div class="content">
+  <div class="content">{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <div class="cols">
       {% for side, cls in [(s.left, 'left'), (s.right, 'right')] %}
@@ -195,15 +235,18 @@
 {#- S12 제안(ADR 0052): 상품 그리드. 그림은 장별 background처럼 사람이 올린 로컬 파일이고 이름·가격은 HTML 글자다 -#}
 {% macro products(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('products', s, bg) }}
+{%- set item_photos = s.items | selectattr('image') | list | length -%}
+{#- 가로로 긴 단체 사진만 있으면 한 줄에 하나씩 크게(자르지 않음, S18 화질) -#}
+{%- set wide = item_photos and (s.items | selectattr('image') | map(attribute='image') | map('aspect') | min) >= 1.25 -%}
+{{ open('products' ~ (' has-photo' if s.photo and not item_photos else '') ~ (' item-photos' if item_photos else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{% if not item_photos %}{{ photo(s) }}{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
-    <div class="grid items-{{ s.items | length }}">
+    <div class="grid items-{{ s.items | length }}{% if wide %} wide-items{% endif %}">
       {% for it in s.items %}
-      <div class="product">
-        {% if it.image %}<img class="product-img" src="{{ it.image | file_uri }}" alt="">{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
+      <div class="product{% if it.image %} with-img{% endif %}">
+        {% if it.image %}<div class="product-pic" style="--ar: {{ it.image | aspect }}"><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
         <div class="product-name" data-fit="22">{{ it.name }}</div>
         {% if it.note %}<div class="product-note" data-fit="16">{{ it.note }}</div>{% endif %}
         {% if it.price %}<div class="product-price" data-fit="20">{{ it.price }}</div>{% endif %}
@@ -217,12 +260,12 @@
 {#- S12 제안: 일정·구매처 같은 확인 가능한 정보 줄 -#}
 {% macro facts(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('facts', s, bg) }}
+{{ open('facts' ~ (' has-photo' if s.photo else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}
+    {{- sticker(s) }}{{ photo(s) }}
     <h2 data-fit="44">{{ s.heading }}</h2>
-    <dl class="rows">
+    <dl class="rows layout-{{ s.layout }}">
       {% for r in s.rows %}
       <div class="fact"><dt data-fit="20">{{ r.label }}</dt><dd data-fit="22">{{ r.value }}</dd></div>
       {% endfor %}
@@ -245,9 +288,7 @@
     {%- else %}
     <p class="cta" data-fit="48">{{ s.cta }}</p>
     {%- endif %}
-    {% if s.sources %}
-    <ul class="sources" data-sources><b>출처</b>{% for src in s.sources %}<li data-fit="16">{{ src }}</li>{% endfor %}</ul>
-    {% endif %}
+    {#- 출처는 카드에 그리지 않는다(S18 사용자 결정): 게시 글 끝에 실제 주소 -#}
   </div>
 </section>
 {%- endmacro %}

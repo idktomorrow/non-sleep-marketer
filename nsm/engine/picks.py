@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from nsm.adapters.sources.og_image import PhotoCandidate, fetch_photo_candidate
+from nsm.adapters.sources.og_image import PhotoCandidate
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content
 from nsm.domain.picks_policy import (
@@ -45,7 +47,17 @@ log = logging.getLogger(__name__)
 RECENT_DAYS = 14  # 최근 이 기간에 다룬 사건은 다시 추천하지 않는다
 DISMISSED_DAYS = 30  # '관심 없음'으로 버린 사건을 기억하는 기간
 MAX_CANDIDATES = 10  # 생성까지 시도할 사건 수 상한(비용)
-PhotoFetcher = Callable[[str, Path], PhotoCandidate | None]
+# 사진 수집기: 원문 URL → 후보 한 장(예전 형태) 또는 여러 장(S18 기본: 대표·본문 이미지)
+PhotoFetcher = Callable[[str, Path], "PhotoCandidate | list[PhotoCandidate] | None"]
+
+
+MAX_PHOTOS = 10  # 원고당 사진 후보(사진 위주 카드: 상품마다 사진이 필요할 수 있다, S18)
+
+
+def fetch_photo_candidates(url: str, dest: Path) -> list[PhotoCandidate]:
+    from nsm.adapters.sources.og_image import fetch_article_images
+
+    return fetch_article_images(url, dest, max_images=8)
 
 
 def picks_dir(ctx: JobContext) -> Path:
@@ -149,20 +161,41 @@ def _fill_info_slot(
         if made_titles is not None and _same_event_as_made(ctx, lead.title, lead.text, made_titles):
             result.counts["same_event_skipped"] = result.counts.get("same_event_skipped", 0) + 1
             continue
-        d = build_draft(ctx, (cluster.topic, chosen), result, with_background=False)
+        cid = new_id()
+        urls = [i.url for i, _ in chosen if i.url]
+        # S18 편집 밀도: 사진 우선형이면 원고를 쓰기 **전에** 사진을 모으고 관찰한다. 원고는 실제로 보이는 것을 보고
+        # 관점·장·확대·주석을 고른다(예전에는 글만 보고 쓴 뒤 사진을 붙였다)
+        rows: list[dict] | None = None
+        observed: list = []
+        if s.picks.photo_candidates and ctx.config.brand.card_style in PHOTO_FIRST_STYLES:
+            rows, observed = gather_photos(ctx, cid, [i for i, _ in chosen], fetch_photo)
+        d = build_draft(
+            ctx, (cluster.topic, chosen), result, with_background=False, photos=observed
+        )
+        if isinstance(d, str):  # 장애·자료 문제(둘 다 문자열 표식)
+            shutil.rmtree(
+                picks_dir(ctx) / cid, ignore_errors=True
+            )  # 쓰지 않을 후보 사진은 남기지 않는다
         if d == _RETRY_LATER:
             return "retry", "AI API 장애로 중단(다음 실행에 다시)"
         if d == _SKIP_MATERIAL or isinstance(d, str):
             continue
+        gen, placement = d.gen, None
+        if observed and rows:
+            from nsm.engine.photo_match import split_photos
+
+            # 사진은 사람이 "이 사진 쓰기"로 확인한 뒤에만 카드에 들어간다(S11): 원고가 고른 배치·확대·주석은 후보 파일에
+            deck, placement = split_photos(gen.deck, rows)
+            gen = gen.model_copy(update={"deck": deck})
         fresh = freshness(cluster.published_at, now, s.picks.fresh_hours)
         content = Content(
-            id=new_id(),
+            id=cid,
             status="pending_review",  # 추천은 늘 사람이 고른다
-            generated=d.gen,
+            generated=gen,
             relevance_confidence=d.relevance,
             is_ad=d.is_ad,
             created_at=now,
-            review_reason="; ".join(filter(None, ["오늘의 추천", d.reason])),
+            review_reason="; ".join(filter(None, ["오늘의 추천", d.reason, *d.gen.editor_notes])),
         )
         pick = Pick(
             content_id=content.id,
@@ -183,7 +216,9 @@ def _fill_info_slot(
             made_titles.append(lead.title)
         result.counts.setdefault("templates", []).append(d.template)
         if s.picks.photo_candidates:
-            _attach_photo(ctx, store, content.id, chosen[0][0].url, fetch_photo)
+            _attach_photo(
+                ctx, store, content.id, urls, fetch_photo, gen.deck, rows=rows, placement=placement
+            )
         return "made", ""
     return "empty", "쓸 만한 새 자료가 없음" if not ranked else "서로 다른 소재가 모자람"
 
@@ -191,7 +226,7 @@ def _fill_info_slot(
 def run_picks(
     ctx: JobContext,
     manual: bool = False,
-    fetch_photo: PhotoFetcher = fetch_photo_candidate,
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
     retry_only: bool = False,
 ) -> JobResult:
     """오늘의 추천(S14: 슬롯 기반). retry_only=True면 계획·수집 없이 재시도 시각이 된 슬롯만 채운다."""
@@ -311,6 +346,8 @@ def run_picks(
 
     result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
     result.counts["made"] = made["info"] + made["meme"]
+    if made["meme"]:
+        produce_now(ctx)
     if failed:
         result.counts["failed"] = failed
     if empty:
@@ -418,18 +455,310 @@ def run_slots_retry(ctx: JobContext) -> JobResult:
     return run_picks(ctx, retry_only=True)
 
 
+_NO_PHOTO = "소재 사진 없음: 직접 올리거나 다른 자료로 보강하세요"
+
+
+def deck_shape(deck) -> list | None:
+    """배치를 계산한 때의 덱 모양(장 종류·상품 이름). 그 뒤 덱이 바뀌면 어긋난 자리에 사진을 넣지 않게(S18 리뷰)."""
+    if deck is None:
+        return None
+    return [[s.kind, [it.name for it in getattr(s, "items", None) or []]] for s in deck.slides]
+
+
+def collect_photo_rows(
+    ctx: JobContext, cid: str, urls, fetch_photo: PhotoFetcher, folder: str = "src"
+) -> list[dict]:
+    """자료 기사마다 대표·본문 이미지를 모아 후보 목록으로(S11·S18). 원고를 쓰기 전에도 부른다(편집 밀도)."""
+    if isinstance(urls, str):
+        urls = [urls]
+    urls = [u for u in urls if u and not u.startswith("file:")][:3]
+    dest = picks_dir(ctx) / cid
+    cands = []
+    for k, u in enumerate(urls):
+        try:
+            # 수집기는 한 장(예전 형태) 또는 여러 장(S18 기본)을 돌려준다. 자료마다 폴더를 나눠 파일 이름이 겹치지 않게
+            here = dest if k == 0 and folder == "src" else dest / f"{folder}{k}"
+            got = fetch_photo(u, here)
+            cands += [c for c in (got if isinstance(got, list) else [got]) if c is not None]
+        except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
+            log.info("사진 후보 수집 실패(%s): %s", u, e)
+        if len(cands) >= MAX_PHOTOS:
+            break
+    for extra in cands[MAX_PHOTOS:]:  # 쓰지 않을 후보 파일은 남기지 않는다(S18 리뷰)
+        Path(extra.path).unlink(missing_ok=True)
+    return [
+        {
+            "path": str(c.path),
+            "image_url": c.image_url,
+            "source_url": c.source_url,
+            "alt": getattr(c, "alt", ""),
+            "kind": getattr(c, "kind", "og"),
+            "size": [c.width, c.height],
+        }
+        for c in cands[:MAX_PHOTOS]
+    ]
+
+
+MIN_USABLE_PHOTOS = (
+    3  # 쓸 수 있는 사진(실물·공식)이 이보다 적으면 같은 소재의 다른 글에서 사진만 더 모은다
+)
+RELATED_JACCARD = 0.3
+
+
+def _related_urls(ctx: JobContext, items: list, limit: int = 2) -> list[str]:
+    """같은 소재를 다룬 다른 글(이미 수집한 자료) 주소. 사진이 모자랄 때 **사진만** 더 모은다(사실은 원래 자료에서만)."""
+    from nsm.domain.picks_policy import jaccard, normalize_tokens
+
+    aliases = ctx.config.workspace.aliases
+    lead = normalize_tokens(" ".join(i.title for i in items), aliases)
+    used = {i.url for i in items}
+    out: list[str] = []
+    for it, _rel, _topic in ctx.repo.unused_relevant_items(ctx.config.settings.relevance_threshold):
+        if (
+            it.url
+            and it.url not in used
+            and jaccard(normalize_tokens(it.title, aliases), lead) >= RELATED_JACCARD
+        ):
+            out.append(it.url)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def gather_photos(
+    ctx: JobContext,
+    cid: str,
+    items: list,
+    fetch_photo: PhotoFetcher,
+    rows: list[dict] | None = None,
+) -> tuple[list[dict], list]:
+    """원고를 쓰기 전 사진 확보·관찰(S18 편집 밀도): 자료 사진을 모아 관찰하고, 쓸 수 있는 사진이 모자라면
+    같은 소재의 다른 글에서 사진만 더 모아 관찰한다. 관찰 기록은 후보 목록에도 남긴다(무엇을 보고 골랐는지)."""
+    from nsm.engine.photo_match import observe
+
+    topic = " / ".join(
+        i.title for i in items[:2]
+    )  # 사진이 이 소재를 실제로 보여 주는지 판단하는 기준
+    if rows is None:
+        rows = collect_photo_rows(ctx, cid, [i.url for i in items if i.url], fetch_photo)
+    observed = observe(ctx, rows, topic) if rows else []
+    usable = sum(1 for p in observed if p.kind in ("photo", "official") and p.on_topic)
+    if (observed or not rows) and usable < MIN_USABLE_PHOTOS:
+        more = collect_photo_rows(ctx, cid, _related_urls(ctx, items), fetch_photo, folder="more")
+        known = {r["path"] for r in rows}
+        more = [
+            m for m in more if m["path"] not in known
+        ]  # 다시 편집할 때 같은 파일을 두 번 넣지 않는다
+        if more:
+            rows = rows + more
+            observed = observed + observe(ctx, more, topic)
+    for r, p in zip(rows, observed, strict=False):
+        r["observed"] = {
+            "kind": p.kind,
+            "shows": p.shows,
+            "details": [d.model_dump() for d in p.details],
+            "size": p.size,
+            "subject": p.subject,
+            "has_text": p.has_text,
+            "on_topic": p.on_topic,
+        }
+    return rows, observed
+
+
 def _attach_photo(
-    ctx: JobContext, store: PicksStore, cid: str, url: str | None, fetch_photo: PhotoFetcher
+    ctx: JobContext,
+    store: PicksStore,
+    cid: str,
+    urls,
+    fetch_photo: PhotoFetcher,
+    deck=None,
+    rows: list[dict] | None = None,
+    placement: dict | None = None,
 ) -> None:
-    if not url or url.startswith("file:"):
+    """사진 후보(S11) → 여러 장 + 장별 배치 제안(S18). 원고가 사진을 보고 고른 배치(placement)가 있으면 그것을,
+    없으면 내용으로 짝지은 배치를 candidates.json에 둔다. 사진이 하나도 없으면 검토 사유에 남긴다(조용히 완성 처리 안 함)."""
+    import json
+
+    if rows is None:
+        rows = collect_photo_rows(ctx, cid, urls, fetch_photo)
+    if not rows:
+        if urls:
+            c = ctx.repo.get_content(cid)
+            if c is not None:
+                ctx.repo.set_review_reason(
+                    cid, "; ".join(filter(None, [c.review_reason, _NO_PHOTO]))
+                )
         return
-    try:
-        cand = fetch_photo(url, picks_dir(ctx) / cid)
-    except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
-        log.info("사진 후보 수집 실패(%s): %s", url, e)
-        return
-    if cand is None:
-        return
-    store.set_photo(
-        cid, "candidate", image_url=cand.image_url, source_url=cand.source_url, path=str(cand.path)
+    # 예전에 붙은 "소재 사진 없음"은 사진을 찾았으면 지운다(실호출: 다시 모은 뒤에도 검토 사유에 남았다)
+    content = ctx.repo.get_content(cid)
+    if content is not None and content.review_reason and _NO_PHOTO in content.review_reason:
+        rest = [x for x in content.review_reason.split("; ") if x != _NO_PHOTO]
+        ctx.repo.set_review_reason(cid, "; ".join(rest))
+    if placement is None and deck is not None:
+        from nsm.engine.photo_match import match_photos
+
+        try:
+            p = match_photos(ctx, deck, rows)
+            placement = {
+                "cover": p.cover,
+                "slides": {str(k): v for k, v in p.slides.items()},
+                "items": {f"{i}.{j}": v for (i, j), v in p.items.items()},
+                "notes": {str(k): v for k, v in p.notes.items()},
+                "method": p.method,
+            }
+        except Exception as e:  # noqa: BLE001
+            log.info("사진 배치 제안 실패: %s", e)
+    dest = picks_dir(ctx) / cid
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "candidates.json").write_text(
+        json.dumps(
+            {"candidates": rows, "placement": placement, "shape": deck_shape(deck)},
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
     )
+    cover = placement.get("cover") if placement else None
+    first = rows[cover] if cover is not None and 0 <= cover < len(rows) else rows[0]
+    store.set_photo(
+        cid,
+        "candidate",
+        image_url=first["image_url"],
+        source_url=first["source_url"],
+        path=first["path"],
+    )
+    if placement:
+        apply_placement_now(ctx, store, cid)
+
+
+def apply_placement_now(ctx: JobContext, store: PicksStore, cid: str) -> None:
+    """원고가 고른 사진·확대·주석을 바로 카드에 넣는다(사용자 피드백 2026-10-23: 사진은 고른 대로 나와야 한다).
+    사람은 검토 상세에서 미리보기를 보고 장마다 바꾸거나 뺀다. 승인 전 사람 확인은 그대로다(검토 대기)."""
+    from nsm.app.review_actions import ActionError, ReviewActions
+
+    try:
+        ReviewActions(ctx.repo, store, ctx.clock).photo_use(
+            cid, ctx.media_dir, recolor=ctx.config.workspace.color_from_photo
+        )
+    except (ActionError, OSError) as e:  # 사진 넣기는 있으면 좋고, 실패하면 사진 확인 대기로 남는다
+        log.info("사진 자동 적용 실패(사진 확인 대기로 남김): %s", e)
+
+
+def produce_now(ctx: JobContext) -> None:
+    """방금 만든 밈의 그림 작업을 바로 처리한다(예약 작업이 꺼져 있어도 카드에 그림이 나오게, 실측 2026-10-23)."""
+    if ctx.config.workspace.production_mode != "full" or ctx.image_studio is None:
+        return
+    from nsm.engine.production import run_images
+
+    try:
+        run_images(ctx)
+    except Exception as e:  # noqa: BLE001  그림은 images 잡이 다시 시도한다
+        log.info("그림 바로 만들기 실패(다음 그림 작업에서): %s", e)
+
+
+def reedit_info(
+    ctx: JobContext,
+    cid: str,
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
+    feedback: list[str] | None = None,
+) -> str:
+    """같은 자료·같은 사진으로 정보 원고를 다시 편집한다(S18 편집 밀도): 사진을 관찰하고, 관점을 정하고, 장마다
+    보여 줄 사진·디테일·주석을 고른다. 사진은 예전처럼 "이 사진 쓰기"로 사람이 확인한 뒤에 들어간다."""
+    import json
+
+    from nsm.engine.photo_match import split_photos
+
+    c = ctx.repo.get_content(cid)
+    if c is None or c.status != "pending_review":
+        raise ValueError("검토 대기 중인 원고만 다시 편집할 수 있습니다")
+    if c.generated.template == "meme":
+        raise ValueError("밈은 '다른 밈으로 다시 만들기'를 쓰세요")
+    items = ctx.repo.sources_for_content(cid)
+    if not items:
+        raise ValueError("이 원고의 자료를 찾을 수 없습니다")
+    rows_db = ctx.repo.db.execute("SELECT persona_topic FROM contents WHERE id = ?", [cid])
+    topic = (rows_db[0][0] if rows_db and rows_db[0][0] else None) or c.generated.topic
+    urls = [i.url for i in items if i.url]
+    manifest = picks_dir(ctx) / cid / "candidates.json"
+    rows: list[dict] = []
+    if manifest.is_file():  # 이미 모은 사진을 다시 받지 않는다(같은 소재 비교)
+        raw = json.loads(manifest.read_text(encoding="utf-8"))
+        rows = [r for r in raw.get("candidates") or [] if Path(r["path"]).is_file()]
+    rows, observed = gather_photos(ctx, cid, items, fetch_photo, rows or None)
+    result = JobResult("info_reedit")
+    d = build_draft(
+        ctx,
+        (topic, [(i, 1.0) for i in items]),
+        result,
+        with_background=False,
+        photos=observed,
+        feedback=feedback,
+    )
+    if isinstance(d, str):
+        raise ValueError("; ".join(result.errors) or "다시 편집하지 못했습니다")
+    gen, placement = d.gen, None
+    if observed:
+        deck, placement = split_photos(gen.deck, rows)
+        gen = gen.model_copy(update={"deck": deck})
+    ctx.repo.update_generated(cid, gen)
+    ctx.repo.set_review_reason(
+        cid,
+        "; ".join(
+            filter(None, ["오늘의 추천", "다시 편집(사진 관찰)", d.reason, *gen.editor_notes])
+        ),
+    )
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    _attach_photo(ctx, store, cid, urls, fetch_photo, gen.deck, rows=rows, placement=placement)
+    for p in (ctx.media_dir / "previews" / cid).glob("slide-*.png"):  # 예전 미리보기는 버린다
+        p.unlink()
+    return gen.deck.slides[0].title
+
+
+def make_from_material(
+    ctx: JobContext,
+    topic: str,
+    chosen: list,
+    kinds: tuple[str, ...],
+    fetch_photo: PhotoFetcher = fetch_photo_candidates,
+) -> JobResult:
+    """사람이 고른 소재(키워드 검색 결과 등)로 오늘의 추천과 **같은 제작 흐름**을 탄다(S18 프로세스).
+
+    입구(관심 주제 자동 추천·키워드)가 달라도 정보는 사진 수집·관찰 → 관점 → 장 편집 → 사람 사진 확인,
+    밈은 형식 탐색·기획 → 그림 → 완성 그림 검토로 같다. 결과는 계획 밖 슬롯으로 저장돼 추천 목록에 같은 카드로 나온다."""
+    from nsm.domain.picks_policy import normalize_tokens
+
+    result = JobResult("keyword")
+    now = ctx.clock.now()
+    store = PicksStore(ctx.repo.db, ctx.clock)
+    slots = SlotStore(ctx.repo.db, ctx.clock)
+    today = local(now, ctx.tz).date()
+    run_id = new_id()
+    cluster = Cluster(
+        topic=topic,
+        items=list(chosen),
+        tokens=normalize_tokens(" ".join(i.title for i, _ in chosen), ctx.config.workspace.aliases),
+    )
+    info_titles = [i.title for i, _ in chosen[:3]]
+    made = {"info": 0, "meme": 0}
+    for kind in kinds:
+        slot = slots.add_extra(today, kind, ctx.config.settings.preset, run_id)
+        outcome, reason = _guarded_fill(
+            ctx, slot, kind, [cluster], [], store, slots,
+            result, fetch_photo, now, info_titles, [topic], {}, [],
+        )  # fmt: skip
+        if outcome == "made":
+            made[kind] += 1
+        elif outcome in ("retry", "failed"):
+            slots.fail(slot, "failed_text", reason, RETRY_IN)
+            result.errors.append(f"{'정보' if kind == 'info' else '밈'}: {reason}")
+        else:
+            slots.set_stage(slot, "empty", error=reason)
+            result.errors.append(
+                f"{'정보' if kind == 'info' else '밈'}: {reason or '만들 수 없음'}"
+            )
+    result.counts["made_info"], result.counts["made_meme"] = made["info"], made["meme"]
+    result.counts["made"] = made["info"] + made["meme"]
+    result.ok = result.counts["made"] > 0
+    if made["meme"]:
+        produce_now(ctx)
+    return result

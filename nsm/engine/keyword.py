@@ -26,10 +26,7 @@ from nsm.engine.collect import (
 )
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.generate import (
-    _RETRY_LATER,
-    _SKIP_MATERIAL,
     SOURCES_PER_CONTENT,
-    _make_one,
 )
 
 log = logging.getLogger(__name__)
@@ -61,7 +58,21 @@ def keyword_sources(ctx: JobContext) -> list:
     return out
 
 
-def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
+KINDS = {"info": ("info",), "meme": ("meme",), "both": ("info", "meme")}
+
+
+def parse_keyword_arg(arg: str) -> tuple[tuple[str, ...], str]:
+    """'종류|키워드'(S18: 정보·밈·둘 다). 종류가 없으면 예전처럼 정보."""
+    kind, sep, kw = arg.partition("|")
+    if sep and kind in KINDS:
+        return KINDS[kind], kw
+    return KINDS["info"], arg
+
+
+def run_keyword_draft(ctx: JobContext, arg: str, fetch_photo=None) -> JobResult:
+    """키워드로 최근 글을 찾아, 오늘의 추천과 같은 제작 흐름으로 정보·밈 원고를 만든다(S18 프로세스).
+    결과는 추천 목록에 같은 카드로 나온다(정보는 사진 관찰·사진 확인, 밈은 형식 기획·그림)."""
+    kinds, keyword = parse_keyword_arg(arg)
     result = JobResult("keyword")
     keyword = clean_keyword(keyword)
     result.counts["keyword"] = keyword
@@ -108,16 +119,19 @@ def run_keyword_draft(ctx: JobContext, keyword: str) -> JobResult:
         result.skipped = _nothing_text(keyword, len(hashes))
         return result
 
-    made_today = ctx.repo.count_contents_between(start, end)
-    cid = _make_one(ctx, (keyword, chosen), made_today, now, result, manual=True)
-    if cid in (_RETRY_LATER, _SKIP_MATERIAL):
-        result.ok = False
-        return result
-    content = ctx.repo.get_content(cid)
-    pending = content is not None and content.status == "pending_review"
-    result.counts.update(created=1, pending_review=int(pending), approved=int(not pending))
-    if pending:
-        ctx.notifier.notify("검토 대기 콘텐츠", f"'{keyword}' 원고가 검토를 기다립니다", "info")
+    from nsm.engine.picks import fetch_photo_candidates, make_from_material
+
+    made = make_from_material(ctx, keyword, chosen, kinds, fetch_photo or fetch_photo_candidates)
+    result.counts.update(made.counts)
+    result.errors.extend(made.errors)
+    result.ok = made.ok
+    if made.ok:
+        ctx.notifier.notify(
+            "키워드 원고",
+            f"'{keyword}'(으)로 정보 {made.counts['made_info']}·밈 {made.counts['made_meme']}건을 "
+            "오늘의 추천에 만들었습니다",
+            "info",
+        )
     return result
 
 

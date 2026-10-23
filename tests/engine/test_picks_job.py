@@ -180,3 +180,46 @@ def test_dismissed_event_is_not_recommended_again(ctx: JobContext, clock) -> Non
     assert (
         r.counts["made"] >= 1 and title not in titles
     )  # 풀린 자료로 같은 사건을 다시 추천하지 않는다
+
+
+def test_photo_first_style_observes_photos_before_writing(ctx: JobContext) -> None:
+    """편집 밀도(S18): 사진 우선형이면 원고를 쓰기 전에 사진을 모으고 관찰해 원고에 넘긴다(예전에는 쓴 뒤 붙였다)."""
+
+    class Observing(FakeTextGenerator):
+        def observe_photos(self, photos, topic=""):
+            return [
+                {"photo": k, "kind": "photo", "shows": f"사진 {k}", "details": []}
+                for k in range(len(photos))
+            ]
+
+    ctx.text_generator = Observing()
+    ctx.config = ctx.config.model_copy(
+        update={"brand": ctx.config.brand.model_copy(update={"card_style": "kitsch"})}
+    )
+    run_picks(ctx, fetch_photo=_fake_photo)
+    briefs = ctx.text_generator.briefs
+    assert briefs and all(b.photos and b.photos[0].shows == "사진 0" for b in briefs)
+    assert all(Path(b.photos[0].path).is_file() for b in briefs)
+
+
+def test_reedit_uses_same_sources_and_photos_with_observation(ctx: JobContext) -> None:
+    """사진 보고 다시 편집(S18): 같은 자료·같은 사진 파일로 관찰 → 원고. 사진은 다시 사람 확인 대기로."""
+    from nsm.engine.picks import reedit_info
+
+    run_picks(ctx, fetch_photo=_fake_photo)
+    pick = PicksStore(ctx.repo.db, ctx.clock).list(run_date=ctx.clock.now().date())[0]
+    before = ctx.repo.sources_for_content(pick.content_id)
+
+    class Observing(FakeTextGenerator):
+        def observe_photos(self, photos, topic=""):
+            return [{"photo": 0, "kind": "photo", "shows": "같은 사진", "details": []}]
+
+    ctx.text_generator = Observing()
+    calls = []
+    reedit_info(ctx, pick.content_id, fetch_photo=lambda u, d: calls.append(u))
+    brief = ctx.text_generator.briefs[-1]
+    assert [s.id for s in brief.sources] == [s.id for s in before]
+    assert brief.photos[0].shows == "같은 사진" and calls == []  # 이미 모은 사진을 다시 받지 않는다
+    c = ctx.repo.get_content(pick.content_id)
+    assert "다시 편집(사진 관찰)" in c.review_reason
+    assert PicksStore(ctx.repo.db, ctx.clock).get(pick.content_id).photo_status == "candidate"

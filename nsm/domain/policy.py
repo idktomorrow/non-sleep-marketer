@@ -176,12 +176,15 @@ def under_cost_cap(spent_today: float, cap: float) -> bool:
 # ------------------------------------------------------------------ 표기 (ADR 0007)
 
 
-def apply_labels(text: str, is_ad: bool) -> str:
-    """게시물 첫 줄에 가상인물 문구, 협찬이면 그 앞에 #광고. 이미 붙어 있으면 다시 붙이지 않는다."""
+def apply_labels(text: str, is_ad: bool, ai_image: bool = False) -> str:
+    """게시물 첫 줄에 가상인물 문구, 협찬이면 그 앞에 #광고. AI로 만든 그림이 있으면 둘째 줄에 AI 이미지 표기
+    (S18: 카드 위 표기 대신 글에). 이미 붙어 있으면 다시 붙이지 않는다."""
     body = text.lstrip()
     while True:  # 이미 붙은 표기(공백·줄바꿈 변형 포함)를 모두 걷어낸다
         if body.startswith(L.AD_HASHTAG):
             body = body[len(L.AD_HASHTAG) :].lstrip()
+        elif body.startswith(L.AI_IMAGE_TEXT):
+            body = body[len(L.AI_IMAGE_TEXT) :].lstrip()
         elif old := next(
             (
                 x
@@ -194,7 +197,16 @@ def apply_labels(text: str, is_ad: bool) -> str:
         else:
             break
     head = f"{L.AD_HASHTAG} {L.VIRTUAL_PERSON_TEXT}" if is_ad else L.VIRTUAL_PERSON_TEXT
+    if ai_image:
+        head += f"\n{L.AI_IMAGE_TEXT}"
     return f"{head}\n\n{body}"
+
+
+def has_ai_image(deck) -> bool:
+    """덱에 AI로 만든 그림이 들어갔나(S14 ai_slides 기준, 없으면 예전 규칙: 덱 플래그 + 배경 있는 장)."""
+    if deck.labels.ai_slides is not None:
+        return bool(deck.labels.ai_slides)
+    return bool(deck.labels.ai_generated_image) and any(s.background for s in deck.slides)
 
 
 # 플랫폼 본문 글자 수 상한(표기 포함). 네이버 블로그는 사실상 제한이 없어 넉넉히 둔다.

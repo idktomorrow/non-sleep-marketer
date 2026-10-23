@@ -81,16 +81,20 @@ def test_markup_text_labels_and_missing_panel() -> None:
     assert html.count('<figure class="panel') == 2 and html.count("panel-img") == 1
     assert "그림 없음" in html and "<svg" not in html  # 도형으로 대체하지 않는다
     assert "카페 알바 루나" in html and "시러~" in html  # 라벨·말풍선은 HTML 글자
-    assert (
-        'data-label="virtual-person"' in html.split("</section>")[0]
-    )  # 첫 장이 만화면 이름·배지가 거기
+    # 카드에는 이름·가상인물 배지를 그리지 않는다(S18 사용자 결정: 표기는 게시 글 첫 줄)
+    assert 'data-label="virtual-person"' not in html and 'class="who"' not in html
 
 
-def test_ai_caption_follows_ai_slides_list() -> None:
-    s = slots(deck(ai_slides=(0,)))
-    assert ["ai-generated" in x["labels"] for x in s] == [True, False]
-    s = slots(deck(ai_slides=()))  # 빈 목록 = AI 없음(레거시 플래그로 돌아가지 않는다)
-    assert ["ai-generated" in x["labels"] for x in s] == [False, False]
+def test_ai_label_follows_ai_slides_list_in_post_text() -> None:
+    """AI 표기는 카드 대신 게시 글에(S18, 사용자 결정 2026-10-23). 기준은 그대로 ai_slides(None이면 레거시)."""
+    from nsm.domain.policy import has_ai_image
+
+    assert has_ai_image(deck(ai_slides=(0,))) and not any(
+        "ai-generated" in x["labels"] for x in slots(deck(ai_slides=(0,)))
+    )
+    assert not has_ai_image(
+        deck(ai_slides=())
+    )  # 빈 목록 = AI 없음(레거시 플래그로 돌아가지 않는다)
     legacy = deck(ai_slides=None).model_copy(
         update={
             "labels": deck().labels.model_copy(
@@ -98,10 +102,7 @@ def test_ai_caption_follows_ai_slides_list() -> None:
             )
         }
     )
-    assert ["ai-generated" in x["labels"] for x in slots(legacy)] == [
-        False,
-        False,
-    ]  # 레거시: background 있는 장만
+    assert not has_ai_image(legacy)  # 레거시: background 있는 장이 없으면 표기 없음
 
 
 def test_labels_and_bubbles_stay_inside_panels(tmp_path: Path) -> None:

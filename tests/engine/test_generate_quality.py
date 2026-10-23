@@ -110,7 +110,9 @@ def test_sns_post_ends_with_sources_line(db, clock, app_config, platform) -> Non
     run_generate(ctx)
     post = build_post(_first(ctx), platform, [])
     last = post.text.splitlines()[-1]
-    assert last.startswith("출처: ") and 1 <= len(last.removeprefix("출처: ").split(", ")) <= 2
+    # 게시 글 끝은 "출처" 다음 줄부터 실제 주소(S18 사용자 결정: 카드가 아니라 글에 진짜 주소)
+    tail = post.text.rsplit("\n\n출처\n", 1)
+    assert len(tail) == 2 and tail[1].splitlines()[0].startswith("http") and last
 
 
 def test_prompt_states_rules_checked_in_code(app_config) -> None:

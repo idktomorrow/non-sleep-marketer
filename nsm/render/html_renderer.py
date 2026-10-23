@@ -162,6 +162,30 @@ def palette(primary: str, accent: str) -> dict[str, str]:
 # ---------------------------------------------------------------- HTML
 
 
+def _aspect(path: str | Path | None) -> float:
+    """그림 가로/세로 비율(S18): 사진을 자르지 않고 배치하려고 쓴다. 못 읽으면 4:5."""
+    if not path:
+        return 0.8
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return round(im.width / max(1, im.height), 4)
+    except Exception:  # noqa: BLE001
+        return 0.8
+
+
+def _pixels(path: str | Path | None) -> tuple[int, int]:
+    """그림의 실제 픽셀 크기(S18 화질: 늘려야 하는 배율로 배치를 고른다). 못 읽으면 (0, 0)."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.width, im.height
+    except Exception:  # noqa: BLE001
+        return 0, 0
+
+
 def _file_uri(path: str | Path | None) -> str:
     if not path:
         return ""
@@ -183,6 +207,8 @@ def _env() -> Environment:
     )
     env.filters["file_uri"] = _file_uri
     env.filters["one_break"] = _one_break
+    env.filters["aspect"] = _aspect
+    env.filters["pixels"] = _pixels
     return env
 
 
@@ -259,6 +285,8 @@ def build_html(
             ]
         if getattr(s, "sticker", None) is not None:  # 보조 캐릭터(S14)
             update["sticker"] = _asset(s.sticker)
+        if getattr(s, "photo", None) is not None:  # 장 내용과 맞는 실제 사진(S18)
+            update["photo"] = _asset(s.photo)
         if s.kind == "comic":  # 만화 컷(S14)
             update["panels"] = [
                 pn.model_copy(update={"image": _asset(pn.image)}) for pn in s.panels
@@ -274,7 +302,9 @@ def build_html(
         .render(
             deck=deck,
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
-            style=style,
+            # 키치형(S18 제안, ADR 0063)은 소식형 구성을 그대로 쓰고 장식만 얹는다(kitsch.css)
+            style="editorial" if style == "kitsch" else style,
+            skin=style if style == "kitsch" else None,
             character=character,
             title_style=title_style,
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),

@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from nsm.domain.models import CardDeck
 from nsm.render.html_renderer import HtmlCardRenderer, build_html
 from tests.render.test_card_styles import STYLES
-from tests.render.test_html_renderer import FIXTURES, _cover_sizes, png_size, slots
+from tests.render.test_html_renderer import FIXTURES, Slots, _cover_sizes, png_size, slots
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE = ROOT / "nsm" / "templates" / "samples" / "sample-photo.jpg"
@@ -86,8 +86,9 @@ def test_renders_in_every_style_without_overflow(
 def test_label_slots_text_and_images() -> None:
     d = deck(item_image=str(SAMPLE))
     s = slots(d)
-    assert [x["labels"].count("virtual-person") for x in s] == [1, 0, 0, 0, 1]
-    assert all(x["page"] == 1 for x in s) and [x["sources"] for x in s] == [0, 0, 0, 0, 1]
+    # 이름·가상인물 배지·쪽 번호는 카드에 없다(S18). 출처는 마무리 장에
+    assert all("virtual-person" not in x["labels"] and x["page"] == 0 for x in s)
+    assert all(x["sources"] == 0 for x in s)  # 출처는 카드가 아니라 게시 글 끝(S18)
     html = build_html(d, "editorial")
     for it in d.slides[2].items:  # 이름·가격은 HTML 글자
         assert it.name in html and it.price in html
@@ -104,3 +105,21 @@ def test_label_slots_text_and_images() -> None:
 def test_cover_still_readable_at_thumbnail(tmp_path: Path) -> None:
     sizes = _cover_sizes(deck(), tmp_path, "editorial")
     assert sizes["title"] * (224 / 1080) >= 18 and sizes["subtitle"] * (224 / 1080) >= 9.9
+
+
+def test_kitsch_is_editorial_layout_with_its_own_skin() -> None:
+    """키치형(S18 제안, ADR 0063): 소식형과 같은 장 구성·표기 슬롯에 장식만 얹는다."""
+    d = deck(with_bg=False, item_image=str(SAMPLE))
+    k, e = build_html(d, "kitsch"), build_html(d, "editorial")
+    assert 'class="style-editorial skin-kitsch"' in k and "kitsch.css" in k
+    assert "kitsch.css" not in e and "sparkles" not in e
+    assert k.count('class="product-img"') == e.count('class="product-img"') == 4
+    pk, pe = Slots(), Slots()
+    pk.feed(k)
+    pe.feed(e)
+    assert pk.slides == pe.slides  # 표기 슬롯(광고·AI 표기)은 스타일과 무관
+    # 반짝이는 사진 없는 장의 코드 장식뿐: 사진이 깔린 장에는 그리지 않는다
+    assert k.count("deco sparkles") == len(d.slides)
+    assert (
+        "deco sparkles" not in build_html(deck(with_bg=True), "kitsch").split('data-kind="body"')[0]
+    )

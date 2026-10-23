@@ -149,17 +149,6 @@ def test_site_label(src: str, label: str) -> None:
     assert Q.site_label(src) == label
 
 
-def test_sources_line_dedupes_and_caps() -> None:
-    srcs = [
-        "https://blog.naver.com/a/1",
-        "https://blog.naver.com/b/2",
-        "https://n.news.naver.com/x/article/1",
-        "https://example.com/z",
-    ]
-    assert Q.sources_line(srcs) == "출처: 네이버 블로그, 네이버 뉴스"
-    assert Q.sources_line([]) == ""
-
-
 def test_fixture_deck_is_loadable() -> None:
     assert load_deck("info").slides
 

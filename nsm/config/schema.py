@@ -19,8 +19,10 @@ class _Model(BaseModel):
 
 # 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. clean·photo·illust는 배경을 코드(CSS·SVG)로 그린다.
 # editorial(S10 제안, ADR 0050): 사람이 확인한 사진을 크게 깔고 글은 그 위 패널에 올리는 사진 우선 레이아웃.
-CardStyle = Literal["clean", "photo", "illust", "editorial"]
+# kitsch(S18 제안, ADR 0063): editorial과 같은 구성·같은 장 표현에 굵은 장식 제목·스티커 사진·손글씨 이름표를 얹는다.
+CardStyle = Literal["clean", "photo", "illust", "editorial", "kitsch"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
+PHOTO_FIRST_STYLES: frozenset[str] = frozenset({"editorial", "kitsch"})
 
 
 # 일러스트형 카드 캐릭터(C17·C20, ADR 0046): 없음(기본), 직접 올린 그림, 코드로 그린 캐릭터
@@ -147,6 +149,9 @@ class Settings(_Model):
     # 게시 계정 핸들(예: {"threads": "@nonsleepmarketer"}). 실계정 어댑터(배치 G)는 로그인된
     # 계정이 여기 적힌 핸들과 다르면 게시하지 않는다. 비어 있으면 실계정 게시를 하지 않는다.
     accounts: dict[Platform, str] = Field(default_factory=dict)
+    # Aside 계정(예: "u1"). Aside에 계정이 여럿이면 게시할 SNS에 로그인된 계정을 고른다(`aside account list`).
+    # 비우면 Aside의 활성 계정(실측 2026-10-23: 인스타그램이 u1에만 로그인돼 있어 기본 u0에서 "로그인 필요"로 실패)
+    aside_account: str | None = Field(default=None, pattern=r"^u\d{1,2}$")
     browser_profile_dir: str | None = None  # 기본: <NSM_HOME>/browser-profile
     collect_profile_dir: str | None = (
         None  # 수집 전용 계정 프로필. 기본: <NSM_HOME>/collect-profile

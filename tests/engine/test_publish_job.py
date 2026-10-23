@@ -251,7 +251,9 @@ def test_long_threads_text_fits_limit(ctx: JobContext, db) -> None:
     assert len(post.text) == TEXT_LIMITS["threads"]
     # 앞에 표기 문구, 끝에 출처 줄(배치 Q1)은 그대로 두고 가운데 본문만 줄인다
     assert post.text.startswith(VIRTUAL_PERSON_TEXT)
-    assert post.text.endswith("\n\n출처: example.com") and "…\n\n출처:" in post.text
+    assert (
+        post.text.endswith("\n\n출처\nhttps://example.com/brew-temp") and "…\n\n출처\n" in post.text
+    )
 
 
 def test_overflowing_card_goes_to_review_not_published(ctx: JobContext) -> None:
@@ -336,3 +338,17 @@ def test_manual_publish_ignores_gap_but_keeps_quota(ctx: JobContext) -> None:
     assert any("인스타그램 오늘 1건 다 올림" in w for w in r.counts.get("waits", []))
     run_job("publish", ctx, manual=True)
     assert len(_published(ctx, "threads")) == 2  # 스레드 하루 2건도 그대로
+
+
+def test_post_now_publishes_only_that_content_even_if_failed(ctx: JobContext) -> None:
+    """카드의 "지금 올리기"(S18 실측: 대기열 전체를 돌리면 다른 승인 원고가 먼저 올라갔다).
+    그 원고만, 재시도를 기다리던 실패 게시도 바로."""
+    run_generate(ctx, manual=True)
+    older, newer = [c.id for c in sorted(ctx.repo.list_contents(), key=lambda c: c.created_at)][:2]
+    ctx.adapters["instagram"].fail_next_publish = 1
+    run_publish(ctx, manual=True, only_content=newer)  # 실패 → 재시도 대기
+    pub = next(p for p in ctx.repo.publications_for_content(newer) if p.platform == "instagram")
+    assert pub.status == "failed" and pub.next_attempt_at > ctx.clock.now()
+    run_publish(ctx, manual=True, only_content=newer)  # 재시도 시각 전이라도 바로
+    done = {p.content_id for p in ctx.repo.publications_in_status("published")}
+    assert newer in done and older not in done

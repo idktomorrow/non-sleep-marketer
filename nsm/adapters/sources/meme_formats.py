@@ -77,6 +77,45 @@ def _meta(page: str, prop: str) -> str:
     return htmlmod.unescape(c.group(1)).strip() if c else ""
 
 
+_MONTHS = {
+    m: i + 1
+    for i, m in enumerate(
+        (
+            "january",
+            "february",
+            "march",
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+        )
+    )
+}
+_EN_DATE = re.compile(
+    r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?,\s*(20\d{2})"
+)
+RECENT_DAYS = 120
+
+
+def latest_date(text: str) -> str:
+    """페이지에 적힌 날짜 중 가장 최근(YYYY-MM-DD). 확산 시점 판단에 쓴다(실렸다는 사실만으로 '최근'이라 하지 않음, S18)."""
+    from datetime import date
+
+    best = None
+    for m, d, y in _EN_DATE.findall(text):
+        try:
+            dt = date(int(y), _MONTHS[m.lower()], int(d))
+        except ValueError:
+            continue
+        best = dt if best is None or dt > best else best
+    return best.isoformat() if best else ""
+
+
 class MemeFormatSource:
     def __init__(
         self,
@@ -135,6 +174,16 @@ class MemeFormatSource:
         spread = _section(page, "spread", 900)
         image_url = _meta(page, "og:image") or extract_og_image(page, url) or ""
         image = self._image(image_url, folder / slug)
+        latest = latest_date(origin + " " + spread)
+        if era == "recent":
+            # 인기 목록에 있다는 것만으로 '최근 확산'이라 하지 않는다: 페이지의 최근 날짜가 RECENT_DAYS 안일 때만
+            from datetime import date
+
+            fresh = (
+                latest
+                and (self.clock.now().date() - date.fromisoformat(latest)).days <= RECENT_DAYS
+            )
+            era = "recent" if fresh else "listed"
         return MemeFormatCandidate(
             key=slug,
             title=title.replace(" | Know Your Meme", "").strip(),
@@ -146,6 +195,7 @@ class MemeFormatSource:
             about=about,
             site="Know Your Meme",
             checked_at=self.clock.now().isoformat(),
+            latest_evidence=latest,
         )
 
     def _kym_popular(self) -> list[str]:

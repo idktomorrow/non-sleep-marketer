@@ -1,3 +1,3 @@
-{#- 소식형(S12 제안): 표지 → 개요(body)·상품 그리드(products)·일정 패널(facts)을 섞어 → 마무리 -#}
+{#- 소식형(S12·S18 제안): 표지 → 장마다 내용에 맞는 표현(body·list·compare·products·facts) → (마무리, 필요할 때만) -#}
 {% extends "cards/_layout.html" %}
-{% block middle %}{% import "cards/_parts.html" as parts with context %}{% if s.kind == 'products' %}{{ parts.products(s, i, n, deck) }}{% elif s.kind == 'facts' %}{{ parts.facts(s, i, n, deck) }}{% elif s.kind == 'comic' %}{{ parts.comic(s, i, n, deck) }}{% else %}{{ parts.body(s, i, n, deck) }}{% endif %}{% endblock %}
+{% block middle %}{% import "cards/_parts.html" as parts with context %}{% if s.kind == 'products' %}{{ parts.products(s, i, n, deck) }}{% elif s.kind == 'facts' %}{{ parts.facts(s, i, n, deck) }}{% elif s.kind == 'comic' %}{{ parts.comic(s, i, n, deck) }}{% elif s.kind == 'list' %}{{ parts.listing(s, i, n, deck) }}{% elif s.kind == 'compare' %}{{ parts.compare(s, i, n, deck) }}{% else %}{{ parts.body(s, i, n, deck) }}{% endif %}{% endblock %}

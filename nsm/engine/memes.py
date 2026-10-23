@@ -323,6 +323,54 @@ def discover_formats(ctx: JobContext):
         return FormatDiscovery(access={"밈 형식 탐색": f"실패: {type(e).__name__}: {str(e)[:80]}"})
 
 
+ERA_LABELS = {
+    "recent": "최근 확산 기록 있는 밈",
+    "listed": "인기 목록 밈(최근 기록 미확인)",
+    "classic": "오래됐지만 유명한 형식",
+    "local": "국내 해설 사이트 유행 표시",
+    "fan": "팬 커뮤니티 사례(근거 부족)",
+    "original": "창작",
+}
+
+
+def with_fan_and_original(candidates, mc) -> list:
+    """후보 = 밈 형식(Know Your Meme·캐릿) + 이 주제 팬 커뮤니티 사례(S16 탐색) + 창작(S18).
+    팬 사례는 반응 수치를 못 가져와 '근거 부족'으로, 창작은 근거 없음으로 둔다."""
+    from nsm.ports import MemeFormatCandidate
+
+    out = list(candidates)
+    for k, c in enumerate((mc.found if mc else [])[:4]):
+        sg = c.sightings[0]
+        out.append(
+            MemeFormatCandidate(
+                key=f"fan-{k}",
+                title=c.key[:60],
+                url=sg.url,
+                era="fan",
+                evidence=(
+                    f"{sg.platform} 게시 {(sg.posted_at.date().isoformat() if sg.posted_at else '날짜 미상')}, "
+                    f"서로 다른 작성자 {c.authors}명, 반응 수치 미확인, 검색 결과 요약만 봄"
+                ),
+                about=sg.snippet[:300],
+                site=sg.platform,
+                checked_at=sg.observed_at.isoformat(),
+                latest_evidence=sg.posted_at.date().isoformat() if sg.posted_at else "",
+            )
+        )
+    out.append(
+        MemeFormatCandidate(
+            key="original",
+            title="새로 만드는 창작 밈",
+            url="",
+            era="original",
+            evidence="",
+            about="참고 사례 없이 이 주제의 팬이 공감할 소재와 웃음 방식을 새로 고른다",
+            site="창작",
+        )
+    )
+    return out
+
+
 def format_request(ctx, topic, hero, candidates, plans, mc, force_key="") -> MemeFormatRequest:
     tone = ctx.config.workspace.meme_tone or ctx.config.persona.tone
     return MemeFormatRequest(
@@ -343,6 +391,7 @@ def format_request(ctx, topic, hero, candidates, plans, mc, force_key="") -> Mem
         hook_sources=mc.hook_sources if mc else (),
         caution=CAUTION,
         force_key=force_key,
+        recent_mechanisms=tuple(str(p["mechanism"]) for p in plans if p.get("mechanism"))[:10],
     )
 
 
@@ -352,8 +401,11 @@ def _credits(hero, cand) -> tuple[list[str], list[str]]:
     if hero is not None and hero.sources:
         small.append(f"캐릭터 참조 {_host(hero.sources[0])}")
         lines.append("캐릭터 참조 출처: " + " · ".join(hero.sources[:2]))
-    small.append(f"참고 밈 {cand.title[:28]}({cand.site})")
-    lines.append(f"참고 밈: {cand.title} — {cand.url}")
+    if cand.era == "original":
+        return small, lines  # 참고한 밈 없음(창작)
+    label = "참고 사례" if cand.era == "fan" else "참고 밈"
+    small.append(f"{label} {cand.title[:28]}({cand.site})")
+    lines.append(f"{label}: {cand.title} — {cand.url}")
     return small, lines
 
 
@@ -382,6 +434,10 @@ def format_reasons(ctx, plan, cand, topic, gen, persona, info_titles=None) -> li
     )
     if overlap >= 0.5:
         reasons.append(f"정보 소재와 겹침 {int(overlap * 100)}%(검토 참고)")
+    if (
+        plan.make == "composite"
+    ):  # 출처 표기는 사용 허락이 아니다: 원본 짤을 쓰는 게시는 사람이 판단
+        reasons.append("원본 짤 합성: 원본 사진의 권리·실존 인물 확인 필요")
     return reasons
 
 
@@ -403,11 +459,32 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
         "topic": topic,
         # 형식 재해석은 사례 탐색 분류(A~D)와 다른 축이라 category를 두지 않고 시기만 남긴다(S17 리뷰)
         "era": cand.era,
-        "category_label": {
-            "recent": "최근 확산 밈",
-            "classic": "유명 형식 밈",
-            "local": "국내 유행 밈",
-        }.get(cand.era, "밈"),
+        "category_label": ERA_LABELS.get(cand.era, "밈"),
+        "source_kind": plan.source_kind,
+        "mechanism": plan.mechanism,
+        "form": plan.form,
+        "make": plan.make,
+        "core": plan.core,
+        "pages": len(plan.pages) or 1,
+        # 팬 사례 후보는 다시 만들 때 같은 글을 가리키도록 계획에 저장한다(재검색하면 순서가 바뀐다, S18 리뷰)
+        "fan_candidates": [
+            {
+                k: getattr(c, k)
+                for k in (
+                    "key",
+                    "title",
+                    "url",
+                    "era",
+                    "evidence",
+                    "about",
+                    "site",
+                    "checked_at",
+                    "latest_evidence",
+                )
+            }
+            for c in candidates
+            if c.era == "fan"
+        ],
         "format": {
             "key": cand.key,
             "title": cand.title,
@@ -415,6 +492,7 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
             "site": cand.site,
             "era": cand.era,
             "evidence": cand.evidence[:700],
+            "latest_evidence": cand.latest_evidence,
             "image_url": cand.image_url,
             "checked_at": cand.checked_at,
         },
@@ -449,7 +527,8 @@ def format_plan_json(plan, cand, candidates, topic, access, cast, mc) -> dict:
         },
         "sources": {
             "character": list(cast.hero.sources) if cast.hero else [],
-            "meme_ref": [cand.url] + ([cand.image_url] if cand.image_url else []),
+            "meme_ref": ([cand.url] if cand.url else [])
+            + ([cand.image_url] if cand.image_url else []),
             "facts": [s.url for s in (mc.hook_sources if mc else ()) if s.url],
         },
         "overlays": [o.__dict__ for o in plan.overlays],
@@ -484,21 +563,19 @@ def run_format_meme(
 
     topic = mc.topic if mc else (ctx.config.persona.topics or [""])[0]
     fd = discover_formats(ctx)
-    if not fd.candidates:
-        if mc is not None:
-            mc.access.update(fd.access)
-        return None
+    # 후보 = 밈 형식 + 팬 커뮤니티 사례 + 창작(S18). 탐색이 다 막혀도 창작으로 기획은 계속한다
+    cands = with_fan_and_original(fd.candidates, mc)
     plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
     cid = new_id()
     cast = default_cast(ctx, cid, copy=False)
-    req = format_request(ctx, topic, cast.hero, fd.candidates, plans, mc)
+    req = format_request(ctx, topic, cast.hero, cands, plans, mc)
     try:
         plan = writer.plan_meme_format(req)
     except AdapterError as e:
         return MemeOutcome(False, reason=f"밈 형식 기획 실패: {e}")
     except Exception as e:  # noqa: BLE001  장애: 나중에
         return MemeOutcome(False, reason=f"AI API 장애: {e}", retry_later=True)
-    cand = next(c for c in fd.candidates if c.key == plan.key)
+    cand = next(c for c in cands if c.key == plan.key)
     persona = ctx.config.persona.model_copy(update={"tone": req.tone})
     final_cast = default_cast(ctx, cid) if (cast.hero or cast.sidekick) else Cast()
     try:
@@ -529,7 +606,7 @@ def run_format_meme(
         slot_key=slot.key,
     )
     plan_json = json.dumps(
-        format_plan_json(plan, cand, fd.candidates, topic, access, final_cast, mc),
+        format_plan_json(plan, cand, cands, topic, access, final_cast, mc),
         ensure_ascii=False,
     )
     store.save(
@@ -573,20 +650,32 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
     if c is None or sl is None or writer is None or not isinstance(writer, MemeFormatPlanner):
         raise AdapterError("다시 만들 수 있는 밈 원고가 아닙니다")
     fd = discover_formats(ctx)
-    if key not in {x.key for x in fd.candidates}:
-        raise AdapterError("그 밈 후보를 오늘 탐색 결과에서 찾지 못했습니다")
     old = sl.plan or {}
     topic = old.get("topic") or (ctx.config.persona.topics or [""])[0]
+    found: list = []  # 팬 사례는 다시 검색하지 않고 계획에 저장된 그대로 쓴다(S18 리뷰)
     prod = ProductionStore(ctx.repo.db, ctx.clock)
     cast = ensure_cast(ctx, prod, cid)
     plans = slots.recent_meme_plans(ctx.clock.now() - timedelta(days=RECENT_MEME_DAYS))
     hook_sources = tuple(ctx.repo.sources_for_content(cid)) if old.get("hook") else ()
     mc = MemeContext(
-        topic=topic, hook_title=(old.get("hook") or {}).get("title", ""), hook_sources=hook_sources
+        topic=topic,
+        hook_title=(old.get("hook") or {}).get("title", ""),
+        hook_sources=hook_sources,
+        found=found,
     )
-    req = format_request(ctx, topic, cast.hero, fd.candidates, plans, mc, force_key=key)
+    from nsm.ports import MemeFormatCandidate
+
+    stored_fans = [MemeFormatCandidate(**f) for f in old.get("fan_candidates") or []]
+    cands = [
+        *fd.candidates,
+        *stored_fans,
+        *[c for c in with_fan_and_original([], mc) if c.era == "original"],
+    ]
+    if key not in {x.key for x in cands}:
+        raise AdapterError("그 밈 후보를 오늘 탐색 결과에서 찾지 못했습니다")
+    req = format_request(ctx, topic, cast.hero, cands, plans, mc, force_key=key)
     plan = writer.plan_meme_format(req)
-    cand = next(x for x in fd.candidates if x.key == plan.key)
+    cand = next(x for x in cands if x.key == plan.key)
     persona = ctx.config.persona.model_copy(update={"tone": req.tone})
     gen = build_format_content(ctx, plan, cand, topic, cast.hero, persona, hook_sources)
     ctx.repo.update_generated(cid, gen)
@@ -598,7 +687,7 @@ def remake_with_format(ctx: JobContext, cid: str, key: str) -> str:
         prod.archive_active(cid, s_)
         prod.clear_scene(cid, s_)
     plan_json = format_plan_json(
-        plan, cand, fd.candidates, topic, {**old.get("access", {}), **fd.access}, cast, mc
+        plan, cand, cands, topic, {**old.get("access", {}), **fd.access}, cast, mc
     )
     slots.set_stage(sl, "images_pending", error=None, plan=plan_json)
     store.set_render_checked(cid, None)

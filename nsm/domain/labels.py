@@ -13,6 +13,8 @@ LEGACY_VIRTUAL_PERSON_TEXTS: tuple[str, ...] = (
 )
 VIRTUAL_PERSON_BADGE = "가상인물"
 AI_IMAGE_CAPTION = "AI 생성 이미지"
+# 카드 대신 게시 글 첫 부분에 적는 AI 이미지 표기(S18, 사용자 결정 2026-10-23: 카드 위 표기를 빼고 글에)
+AI_IMAGE_TEXT = "AI 생성 이미지가 포함된 게시물입니다"
 AD_HASHTAG = "#광고"
 AD_BADGE = "광고"
 BLOG_TITLE_SUFFIX = " [가상인물 포함]"

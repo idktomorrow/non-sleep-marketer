@@ -62,10 +62,40 @@ def run_meme_remake(ctx: JobContext, arg: str) -> JobResult:
     return result
 
 
+def run_info_reedit(ctx: JobContext, cid: str) -> JobResult:
+    """'사진 보고 다시 편집'(S18 편집 밀도): 같은 자료·같은 사진으로 관찰 → 관점 → 장 편집."""
+    from nsm.engine.picks import reedit_info
+
+    result = JobResult("info_reedit")
+    try:
+        result.counts["title"] = reedit_info(ctx, cid)
+    except Exception as e:  # noqa: BLE001  사람에게 이유를 보인다
+        result.ok = False
+        result.errors.append(str(e)[:200])
+    return result
+
+
 ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "keyword": run_keyword_draft,
     "meme_remake": run_meme_remake,
+    "info_reedit": run_info_reedit,
+    "card_review": lambda ctx, cid: _card_review(ctx, cid),
+    # 카드의 "지금 올리기": 그 원고만(대기열의 다른 원고가 먼저 올라가지 않게, S18)
+    "publish_one": lambda ctx, cid: run_publish(ctx, manual=True, only_content=cid),
 }
+
+
+def _card_review(ctx: JobContext, cid: str) -> JobResult:
+    """완성 카드 검토(S18 프로세스): 미리보기를 그린 뒤 저절로 돈다."""
+    from nsm.engine.card_review import run_card_review
+
+    result = JobResult("card_review")
+    try:
+        result.counts["result"] = run_card_review(ctx, cid)
+    except Exception as e:  # noqa: BLE001
+        result.ok = False
+        result.errors.append(str(e)[:200])
+    return result
 
 
 def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = None) -> JobResult:

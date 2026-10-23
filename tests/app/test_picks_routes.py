@@ -103,15 +103,14 @@ def test_pages_show_pick_with_photo_candidate(env) -> None:
     assert _post(env, "/picks/pk1/save", csrf="wrong").status_code == 403
 
 
-def test_photo_use_sets_cover_and_outro_background_and_resets_render_check(env) -> None:
+def test_photo_use_sets_cover_without_reusing_it_on_last_slide(env) -> None:
     store, repo = env["store"], env["repo"]
     r = _post(env, "/picks/pk1/photo/use")
     assert r.status_code == 303
     deck = repo.get_content("pk1").generated.deck
-    # 표지·마지막 장은 같은 사진을 **다른 파일**로 받는다(한 장의 배경을 지워도 다른 장이 깨지지 않게, S13 리뷰)
-    cover_bg, outro_bg = deck.slides[0].background, deck.slides[-1].background
-    assert cover_bg and outro_bg and cover_bg != outro_bg
-    assert Path(cover_bg).read_bytes() == Path(outro_bg).read_bytes()
+    # 표지에만 넣고 마지막 장에 표지 사진을 재탕하지 않는다(S18). 배치 제안이 없으면 본문 장도 비운다
+    assert deck.slides[0].background and not deck.slides[-1].background
+    assert all(getattr(s, "photo", None) is None for s in deck.slides)
     # 1×1 투명 PNG는 쓸 만한 색이 없어 브랜드 색 그대로(색을 못 뽑으면 바꾸지 않는다, S14)
     assert deck.brand.primary_color == env["holder"]["cfg"].brand.primary_color
     assert Path(deck.slides[0].background).is_file() and not deck.labels.ai_generated_image
@@ -298,3 +297,163 @@ def test_remake_meme_route_queues_job_with_valid_key(env) -> None:
     r = _post(env, "/picks/pk1/meme/remake", key="daily-struggle")
     assert r.status_code == 303 and calls == [("meme_remake", "pk1|daily-struggle")]
     assert _post(env, "/picks/pk1/meme/remake", key="../etc").status_code == 400
+
+
+def test_photo_use_places_photos_by_content_not_order(env) -> None:
+    """배치 제안(candidates.json)대로: 내용이 맞는 장에만 사진, 맞는 사진이 없는 장은 비운다(S18)."""
+    import json
+
+    repo = env["repo"]
+    pick = env["store"].get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    second = folder / "cand-01.png"
+    second.write_bytes(Path(pick.photo_candidate_path).read_bytes())
+    deck = repo.get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo"))
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {
+                        "path": pick.photo_candidate_path,
+                        "source_url": "https://a/1",
+                        "alt": "포스터",
+                    },
+                    {"path": str(second), "source_url": "https://b/2", "alt": "굿즈 사진"},
+                ],
+                "placement": {"cover": 1, "slides": {str(body): 0}, "notes": {"0": "공식 포스터"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    deck = repo.get_content("pk1").generated.deck
+    assert deck.slides[0].background  # 제안이 고른 표지(1번 후보)
+    photo = deck.slides[body].photo
+    assert photo is not None and photo.source == "https://a/1" and photo.alt == "공식 포스터"
+    others = [s for i, s in enumerate(deck.slides) if i not in (0, body)]
+    assert all(getattr(s, "photo", None) is None for s in others)
+
+
+def test_info_pick_without_real_photo_is_flagged_only_for_photo_style(env) -> None:
+    """사진 우선형에서 소재 사진이 없는 정보 원고는 조용히 완성으로 보이지 않는다. 다른 스타일은 원래 사진이 없다(S18 리뷰)."""
+    assert _post(env, "/picks/pk1/photo/drop").status_code == 303
+    assert "소재 사진 없음" not in env["client"].get("/picks").text  # 기본(clean) 스타일
+    cfg = env["holder"]["cfg"]
+    env["holder"]["cfg"] = cfg.model_copy(
+        update={"brand": cfg.brand.model_copy(update={"card_style": "editorial"})}
+    )
+    assert "소재 사진 없음" in env["client"].get("/picks").text
+
+
+def test_photo_use_skips_missing_candidate_files(env) -> None:
+    """배치가 가리키는 후보 파일이 사라졌으면 그 장은 건너뛰고 나머지는 넣는다(500 대신, S18 리뷰)."""
+    import json
+
+    pick = env["store"].get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    deck = env["repo"].get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo"))
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [
+                    {"path": pick.photo_candidate_path},
+                    {"path": str(folder / "gone.png")},
+                ],
+                "placement": {"cover": 0, "slides": {str(body): 1}},
+            }
+        ),  # fmt: skip
+        encoding="utf-8",
+    )
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    d = env["repo"].get_content("pk1").generated.deck
+    assert d.slides[0].background and d.slides[body].photo is None
+
+
+def test_photo_use_reads_manifest_above_source_folder_and_checks_deck_shape(env) -> None:
+    """두 번째 자료의 사진이 표지여도 원고 폴더의 배치를 쓴다. 배치 뒤 덱 모양이 바뀐 자리는 건너뛰고,
+    표지가 비어도 처음 넣은 사진으로 색을 맞춘다(S18 리뷰)."""
+    import json
+
+    from PIL import Image
+
+    repo, store = env["repo"], env["store"]
+    pick = store.get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    (folder / "src1").mkdir()
+    red = folder / "src1" / "cand-00.png"
+    Image.new("RGB", (64, 80), (220, 30, 40)).save(red)
+    store.set_photo(
+        "pk1", "candidate", image_url="https://b/x.png", source_url="https://b/2", path=str(red)
+    )
+    deck = repo.get_content("pk1").generated.deck
+    photo_slides = [i for i, s in enumerate(deck.slides) if hasattr(s, "photo") and i > 0]
+    first, *rest = photo_slides
+    assert rest  # 모양 검사를 볼 장이 있어야 한다
+    shape = [[s.kind, []] for s in deck.slides]
+    for i in rest:
+        shape[i][0] = "facts" if deck.slides[i].kind != "facts" else "body"  # 배치 뒤 바뀐 장
+    (folder / "candidates.json").write_text(
+        json.dumps(
+            {
+                "candidates": [{"path": str(red), "source_url": "https://b/2"}],
+                "placement": {"cover": None, "slides": {str(i): 0 for i in photo_slides}},
+                "shape": shape,
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = deck.brand.primary_color
+    assert _post(env, "/picks/pk1/photo/use").status_code == 303
+    d = repo.get_content("pk1").generated.deck
+    assert d.slides[first].photo is not None and d.slides[first].photo.source == "https://b/2"
+    assert all(d.slides[i].photo is None for i in rest)
+    assert not d.slides[0].background and d.brand.primary_color != before
+
+
+def test_product_photos_count_as_real_photos() -> None:
+    from types import SimpleNamespace
+
+    from nsm.app.picks_routes import _has_real_photo
+    from nsm.domain.models import ProductItem, ProductsSlide
+
+    s = ProductsSlide(
+        heading="h", items=[ProductItem(name="a", image="x.jpg"), ProductItem(name="b")]
+    )
+    content = SimpleNamespace(generated=SimpleNamespace(deck=SimpleNamespace(slides=[s])))
+    assert _has_real_photo(content)
+
+
+def test_reapplying_photos_drops_previous_slide_photos(env) -> None:
+    """두 번째 "이 사진 쓰기"는 새 배치만 남긴다(같은 사진이 표지와 본문에 두 번 나오지 않게)."""
+    import json
+
+    repo, store = env["repo"], env["store"]
+    pick = store.get("pk1")
+    folder = Path(pick.photo_candidate_path).parent
+    deck = repo.get_content("pk1").generated.deck
+    body = next(i for i, s in enumerate(deck.slides) if hasattr(s, "photo") and i > 0)
+    cands = [{"path": pick.photo_candidate_path, "source_url": "https://a/1"}]
+
+    def use(placement):
+        (folder / "candidates.json").write_text(
+            json.dumps({"candidates": cands, "placement": placement}), encoding="utf-8"
+        )
+        store.set_photo("pk1", "candidate", path=pick.photo_candidate_path)
+        assert _post(env, "/picks/pk1/photo/use").status_code == 303
+
+    use({"cover": None, "slides": {str(body): 0}})
+    assert repo.get_content("pk1").generated.deck.slides[body].photo is not None
+    use({"cover": 0, "slides": {}})
+    d = repo.get_content("pk1").generated.deck
+    assert d.slides[0].background and d.slides[body].photo is None
+
+
+def test_reedit_route_runs_job_for_info_picks(env) -> None:
+    calls: list[tuple] = []
+    env["state"].run_job_now = lambda *a: calls.append(a)
+    assert "사진 보고 다시 편집" in env["client"].get("/picks").text
+    cid = "01M5KWD8TNHVWSW5FXBRC2Y16W"
+    assert _post(env, f"/picks/{cid}/reedit").status_code == 303 and calls == [("info_reedit", cid)]
+    assert _post(env, "/picks/../etc/reedit").status_code in (400, 404)

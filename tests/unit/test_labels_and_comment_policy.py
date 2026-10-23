@@ -72,3 +72,14 @@ def test_apply_labels_strips_legacy_wording() -> None:
 
     pasted = f"{LEGACY_VIRTUAL_PERSON_TEXTS[0]}\n\n본문"  # 예전에 게시한 글을 붙여 넣은 경우
     assert apply_labels(pasted, is_ad=False) == apply_labels("본문", is_ad=False)
+
+
+def test_ai_image_label_goes_into_post_text_once() -> None:
+    """AI 생성 이미지 표기는 카드 대신 게시 글 첫 부분에(S18, 사용자 결정 2026-10-23). 다시 붙여도 한 번만."""
+    from nsm.domain import labels as L
+    from nsm.domain.policy import apply_labels
+
+    text = apply_labels("본문", is_ad=False, ai_image=True)
+    assert text.split("\n")[:2] == [L.VIRTUAL_PERSON_TEXT, L.AI_IMAGE_TEXT]
+    assert apply_labels(text, is_ad=False, ai_image=True) == text
+    assert L.AI_IMAGE_TEXT not in apply_labels("본문", is_ad=False)

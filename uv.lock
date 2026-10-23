@@ -466,7 +466,7 @@ wheels = [
 
 [[package]]
 name = "non-sleep-marketer"
-version = "0.4.9"
+version = "0.4.11"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },

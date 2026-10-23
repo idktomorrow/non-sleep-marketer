@@ -259,7 +259,15 @@ class ReviewActions:
         self.picks.set_render_checked(cid, None if overflow else self.clock.now())
 
     def photo_use(self, cid: str, media_dir: Path, recolor: bool = False) -> GeneratedContent:
-        """사진 후보를 표지와 마지막 장 배경으로. 검토 대기 중일 때만. recolor면 사진 색을 덱 색으로(S14)."""
+        """사진 후보를 원고에. 검토 대기 중일 때만. recolor면 사진 색을 덱 색으로(S14).
+
+        S18: 후보가 여러 장이고 배치 제안(candidates.json)이 있으면 **내용이 맞는 장에만** 넣는다(순서대로 채우지 않음).
+        표지는 이야기 전체를 대표하는 사진, 본문 장은 그 장이 말하는 상품·장면·포스터를 실제로 보여 주는 사진.
+        맞는 사진이 없는 장은 비워 두고, 마지막 장에 표지 사진을 다시 쓰지 않는다."""
+        import json
+
+        from nsm.domain.models import ImageAsset
+
         c = self._content(cid)
         pick = self._need_pick(cid)
         if c.status != "pending_review":
@@ -267,19 +275,144 @@ class ReviewActions:
         src = Path(pick.photo_candidate_path) if pick.photo_candidate_path else None
         if pick.photo_status != "candidate" or src is None or not src.is_file():
             raise ActionError(409, "쓸 수 있는 사진 후보가 없습니다")
+        # 후보 목록은 원고 폴더 맨 위에 있다. 두세 번째 자료의 사진이 표지면 src{k}/ 아래 파일이라 한 단계 위를 본다(S18 리뷰)
+        manifest = next(
+            (
+                d / "candidates.json"
+                for d in (src.parent, src.parent.parent)
+                if (d / "candidates.json").is_file()
+            ),
+            src.parent / "candidates.json",
+        )
+        raw = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
+        cands = raw.get("candidates") or [
+            {"path": str(src), "source_url": pick.photo_source_url or ""}
+        ]
+        placement = raw.get("placement") or {"cover": 0, "slides": {}}
         out = upload_dir(media_dir, cid)
         out.mkdir(parents=True, exist_ok=True)
-        # 표지와 마지막 장에 **각각 다른 파일**로 복사한다: 한 장의 배경을 지우면 올린 파일을 지우므로(drop_old_upload),
-        # 같은 파일을 두 장이 가리키면 다른 장의 배경이 사라진다(S13 리뷰)
-        dest = out / f"slide-01-{secrets.token_hex(4)}{src.suffix}"
-        shutil.copyfile(src, dest)
-        g = set_background(c.generated, 0, str(dest), media_dir)
-        last = len(g.deck.slides) - 1
-        dest_last = out / f"slide-{last + 1:02d}-{secrets.token_hex(4)}{src.suffix}"
-        shutil.copyfile(src, dest_last)
-        g = set_background(g, last, str(dest_last), media_dir)
-        if recolor:
-            g = apply_photo_colors(g, dest)
+
+        def usable(k) -> bool:
+            # 배치가 가리키는 후보 파일이 사라졌으면 그 자리는 건너뛴다(500 대신, S18 리뷰)
+            try:
+                k = int(k)
+            except (TypeError, ValueError):
+                return False
+            return 0 <= k < len(cands) and Path(cands[k]["path"]).is_file()
+
+        def copy(k: int, tag: str) -> tuple[Path, dict]:
+            cand = cands[k]
+            p = Path(cand["path"])
+            # 장마다 **다른 파일**로 복사한다: 한 장의 그림을 지우면 올린 파일을 지우므로(S13 리뷰)
+            dest = out / f"{tag}-{secrets.token_hex(4)}{p.suffix}"
+            shutil.copyfile(p, dest)
+            return dest, cand
+
+        # 배치를 계산한 뒤 덱이 바뀌었으면(장 삭제·상품 순서 변경) 종류·이름이 같은 자리에만 넣는다(S18 리뷰)
+        shape = raw.get("shape")
+
+        def same_slide(i: int, kind: str) -> bool:
+            return shape is None or (i < len(shape) and shape[i][0] == kind)
+
+        def same_item(i: int, j: int, name: str) -> bool:
+            return shape is None or (
+                i < len(shape) and j < len(shape[i][1]) and shape[i][1][j] == name
+            )
+
+        g = c.generated
+        cover_dest = None
+        first_dest = None
+        cover_k = placement.get("cover")
+        if cover_k is not None and usable(cover_k):
+            cover_dest, cover_cand = copy(int(cover_k), "slide-01")
+            g = set_background(g, 0, str(cover_dest), media_dir)
+            # 주인공 영역(관찰): 원고가 정한 것, 없으면 관찰 기록. 표지를 자를지·키울지를 렌더러가 이걸로 정한다
+            subj = placement.get("cover_subject") or (cover_cand.get("observed") or {}).get(
+                "subject"
+            )
+            if subj and g.deck.slides[0].kind == "cover":
+                cover = g.deck.slides[0].model_copy(update={"subject": subj})
+                g = g.model_copy(
+                    update={
+                        "deck": g.deck.model_copy(update={"slides": [cover, *g.deck.slides[1:]]})
+                    }
+                )
+        # 다시 적용하면 예전 배치로 넣은 장 사진은 비우고 새 배치만 쓴다(실호출: 같은 사진이 표지와 본문에 두 번).
+        # 장 사진(photo)은 이 동작만 넣는다. 사람이 올린 배경·상품 그림은 건드리지 않는다
+        slides = [
+            s.model_copy(update={"photo": None}) if getattr(s, "photo", None) is not None else s
+            for s in g.deck.slides
+        ]
+        notes = placement.get("notes") or {}
+        for key, k in (placement.get("slides") or {}).items():
+            i, k = int(key), int(k)
+            if not (0 < i < len(slides)) or not usable(k) or not hasattr(slides[i], "photo"):
+                continue
+            if not same_slide(i, slides[i].kind):
+                continue
+            dest, cand = copy(k, f"slide-{i + 1:02d}")
+            first_dest = first_dest or dest
+            # 원고가 사진을 보고 고른 확대 영역·주석(S18 편집 밀도)이 있으면 그대로 쓴다
+            asset = (placement.get("assets") or {}).get(str(i)) or {}
+            slides[i] = slides[i].model_copy(
+                update={
+                    "photo": ImageAsset.model_validate(
+                        {
+                            "alt": notes.get(str(k)) or cand.get("alt", ""),
+                            "source": cand.get("source_url", ""),
+                            **asset,
+                            "path": str(dest),
+                            "ai": False,
+                        }
+                    )
+                }
+            )
+        # 상품 하나하나의 사진(S18): 그 상품을 보여 주는 사진만
+        for key, k in (placement.get("items") or {}).items():
+            try:
+                i, j = (int(x) for x in key.split("."))
+            except ValueError:
+                continue
+            if not (0 < i < len(slides)) or slides[i].kind != "products" or not usable(k):
+                continue
+            items = list(slides[i].items)
+            if not (0 <= j < len(items)) or not same_item(i, j, items[j].name):
+                continue
+            dest, _cand = copy(int(k), f"slide-{i + 1:02d}-item{j}")
+            first_dest = first_dest or dest
+            items[j] = items[j].model_copy(update={"image": str(dest)})
+            slides[i] = slides[i].model_copy(update={"items": items})
+        # 표지·상품 사진의 출처도 게시 글 끝 출처에 남긴다(장 사진은 ImageAsset.source로 따로 모인다)
+        used_k = [placement.get("cover")] + list((placement.get("items") or {}).values())
+        photo_src = [
+            cands[int(k)].get("source_url", "")
+            for k in used_k
+            if k is not None and usable(k) and cands[int(k)].get("source_url")
+        ]
+        sources = list(dict.fromkeys([*g.deck.sources, *photo_src]))[:8]
+        g = g.model_copy(
+            update={"deck": g.deck.model_copy(update={"slides": slides, "sources": sources})}
+        )
+        # 화질(S18): 표지를 채우려면 1.6배 넘게 늘려야 하는 사진은 위쪽 띠로 배치된다. 검토하는 사람에게 알린다
+        if cover_dest is not None:
+            from PIL import Image
+
+            with Image.open(cover_dest) as im:
+                w, h = im.size
+            scale = max(1080 / w, 1350 / h)
+            if scale > 1.6:
+                note = f"사진 해상도: 표지 사진 {w}×{h}, 표지를 채우려면 {scale:.1f}배 → 위쪽 띠로 배치"
+                c = self._content(cid)
+                kept = [
+                    x
+                    for x in (c.review_reason or "").split("; ")
+                    if x and not x.startswith("사진 해상도:")
+                ]
+                self.repo.set_review_reason(cid, "; ".join([*kept, note]))
+        # 색은 표지 사진에서, 표지 사진이 없으면 처음 넣은 사진에서(S18 리뷰: 표지가 비면 요청이 조용히 무시됐다)
+        color_src = cover_dest or first_dest
+        if recolor and color_src is not None:
+            g = apply_photo_colors(g, color_src)
         try:
             self.repo.update_generated(cid, g)
         except InvalidTransitionError as e:

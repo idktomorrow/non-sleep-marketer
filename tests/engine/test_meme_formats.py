@@ -128,7 +128,8 @@ def test_auto_picks_format_and_builds_single_meme_with_separate_sources(fctx) ->
     assert plan["mode"] == "format" and plan["format"]["url"].endswith("this-is-fine")
     assert plan["sources"]["character"] == ["https://news.example.com/poster"]
     assert plan["sources"]["meme_ref"][0].endswith("this-is-fine")
-    assert [r["key"] for r in plan["ranking"]] == ["this-is-fine", "daily-struggle"]
+    # 순위에는 밈 형식 후보와 창작(S18)이 함께 오른다
+    assert [r["key"] for r in plan["ranking"]] == ["this-is-fine", "daily-struggle", "original"]
     assert "참고 밈: This Is Fine — https://knowyourmeme.com" in c.generated.instagram_caption
     # 캐릭터 참조와 밈 참조는 다른 폴더
     root = fctx.media_dir / "content" / c.id
@@ -166,11 +167,13 @@ def test_no_character_plans_but_does_not_enqueue(fctx) -> None:
     assert "고르세요" in sl.last_error and sl.plan["character"]["chosen"] is False
 
 
-def test_no_format_candidates_falls_back_to_two_panel_script(fctx) -> None:
+def test_no_format_candidates_still_plans_original_meme_not_fixed_two_panel(fctx) -> None:
+    """형식 탐색이 막혀도 2컷 고정 틀로 돌아가지 않고 창작 후보로 기획을 계속한다(S18)."""
     fctx.meme_formats.cands = []
     run_picks(fctx, fetch_photo=_fake_photo)
-    _pick, c, _sl = _meme(fctx)
-    assert c.generated.deck.slides[0].kind == "comic"
+    _pick, c, sl = _meme(fctx)
+    assert [s.kind for s in c.generated.deck.slides] == ["meme_image"]
+    assert sl.plan["format"]["key"] == "original" and sl.plan["sources"]["meme_ref"] == []
 
 
 def test_remake_with_other_candidate(fctx) -> None:
@@ -303,3 +306,70 @@ def test_format_source_is_off_without_web_collection(app_config, tmp_path, monke
             }
         )
         assert _meme_formats(on, None, st) is not None
+
+
+def test_mechanism_is_saved_and_fed_back_to_avoid_repeats(fctx) -> None:
+    """웃음 방식이 계획에 저장되고 다음 기획에 '최근 웃음 방식'으로 넘어간다(S18 리뷰: 저장이 빠져 늘 비어 있었다)."""
+    from nsm.engine.memes import format_request
+
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    plan = _meme(fctx)[2].plan
+    assert plan["mechanism"].startswith("this-is-fine") and plan["form"] == "한 장 반응짤"
+    plans = SlotStore(fctx.repo.db, fctx.clock).recent_meme_plans(
+        fctx.clock.now().replace(year=2000)
+    )
+    req = format_request(fctx, "치이카와", None, fctx.meme_formats.cands, plans, None)
+    assert req.recent_mechanisms == (plan["mechanism"],)
+
+
+def test_remake_with_fan_candidate_uses_stored_post_not_new_search(fctx, monkeypatch) -> None:
+    """팬 사례로 다시 만들 때 다시 검색하지 않고 계획에 저장된 같은 글을 쓴다(S18 리뷰)."""
+    import nsm.engine.memes as memes
+    from nsm.engine.memes import remake_with_format
+
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    _pick, c, sl = _meme(fctx)
+    fan = {
+        "key": "fan-0", "title": "치이카와 울면서 버티기 짤", "url": "https://blog.naver.com/u1/1", "era": "fan",
+        "evidence": "네이버 블로그 게시 2026-10-20, 반응 수치 미확인", "about": "울면서 버티기", "site": "네이버 블로그",
+        "checked_at": "2026-10-21T09:00:00+09:00", "latest_evidence": "2026-10-20",
+    }  # fmt: skip
+    SlotStore(fctx.repo.db, fctx.clock).set_stage(
+        sl, sl.stage, plan={**sl.plan, "fan_candidates": [fan]}
+    )
+    monkeypatch.setattr(
+        memes, "discover_for", lambda *a, **k: (_ for _ in ()).throw(AssertionError("재검색"))
+    )
+    assert remake_with_format(fctx, c.id, "fan-0") == fan["title"]
+    plan = _meme(fctx)[2].plan
+    assert (
+        plan["format"]["url"] == fan["url"]
+        and plan["category_label"] == "팬 커뮤니티 사례(근거 부족)"
+    )
+
+
+def test_multi_page_meme_second_page_is_queued_after_first(fctx, monkeypatch) -> None:
+    """여러 장 밈: 1장째 그림이 끝나면 2장째가 이어서 들어간다(S18 실호출: 2장째가 영영 대기에 남았다)."""
+    from dataclasses import replace
+
+    from nsm.engine.production import run_images
+    from nsm.ports import MemePage
+    from nsm.store.production import ProductionStore
+
+    orig = fctx.scenario_writer.plan_meme_format
+    monkeypatch.setattr(
+        fctx.scenario_writer,
+        "plan_meme_format",
+        lambda req: replace(orig(req), pages=(MemePage("손 클로즈업"), MemePage("뒤로 빠진 전신"))),
+    )
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    cid = _meme(fctx)[1].id
+    run_images(fctx)  # 1장째
+    run_images(fctx)  # 이어서 들어간 2장째
+    prod = ProductionStore(fctx.repo.db, fctx.clock)
+    assert prod.active(cid, "s0.image") is not None and prod.active(cid, "s1.image") is not None
+    spec2 = fctx.image_studio.specs[-1]
+    assert any("s0.image" in Path(r).name or "images" in str(r) for r in spec2.references[:-1])

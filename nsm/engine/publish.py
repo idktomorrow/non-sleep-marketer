@@ -18,11 +18,12 @@ from nsm.domain.models import Content, Platform, Publication, RenderedPost
 from nsm.domain.policy import (
     apply_labels,
     fit_with_tail,
+    has_ai_image,
     labeled_blog_title,
     local_day_bounds,
     should_post,
 )
-from nsm.domain.quality import card_sources, sources_line
+from nsm.domain.quality import card_sources
 from nsm.engine.artifacts import ArtifactMissing
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
@@ -66,7 +67,9 @@ def labeled_deck(content: Content):
         s.model_copy(update={"sources": card_sources(list(s.sources))}) if s.kind == "outro" else s
         for s in deck.slides
     ]
-    return deck.model_copy(update={"labels": labels, "slides": slides})
+    return deck.model_copy(
+        update={"labels": labels, "slides": slides, "sources": card_sources(list(deck.sources))}
+    )
 
 
 class CardOverflowError(Exception):
@@ -132,11 +135,29 @@ _TEXT_FIELD = {
 }
 
 
-def _sources_tail(content: Content) -> str:
-    """SNS 글 끝에 붙일 출처 줄(배치 Q1). 카드 마무리 장의 출처에서 사이트 이름 1~2개."""
-    outro = next((s for s in content.generated.deck.slides if s.kind == "outro"), None)
-    line = sources_line(list(outro.sources) if outro else [])
-    return f"\n\n{line}" if line else ""
+def post_source_urls(content: Content) -> list[str]:
+    """게시 글 끝에 적을 실제 주소(S18 사용자 결정 2026-10-23: 카드에는 출처 표기를 그리지 않고 글에 진짜 주소).
+    사실 자료(덱 출처·마무리 장 출처)와 카드에 넣은 실제 사진의 출처를 한 번씩."""
+    deck = content.generated.deck
+    outro = next((s for s in deck.slides if s.kind == "outro"), None)
+    # 마무리 장이 있으면 그 출처(검토 화면에서 고친 값)가 우선, 없으면 덱 출처
+    urls = list(outro.sources) if outro is not None else list(deck.sources)
+    for s in deck.slides:
+        ph = getattr(s, "photo", None)
+        if ph is not None and ph.source:
+            urls.append(ph.source)
+    return list(dict.fromkeys(u for u in urls if u and u.strip()))
+
+
+def _sources_tail(content: Content, platform: str = "instagram") -> str:
+    """SNS 글 끝 출처: 실제 주소. 스레드는 글자 수 상한(500자)이 있어 1개만."""
+    all_src = post_source_urls(content)
+    urls = [u for u in all_src if u.startswith(("http://", "https://"))]
+    names = [
+        u for u in all_src if u not in urls
+    ]  # "브랜드 제공 자료"처럼 주소가 아닌 출처는 이름 그대로
+    shown = (urls[:1] if platform == "threads" else urls[:4]) + names[:2]
+    return "\n\n출처\n" + "\n".join(shown) if shown else ""
 
 
 def build_post(
@@ -151,9 +172,9 @@ def build_post(
         platform=platform,
         title=labeled_blog_title(g.blog_title) if platform == "naver_blog" else None,
         text=fit_with_tail(
-            apply_labels(body, content.is_ad),
+            apply_labels(body, content.is_ad, has_ai_image(g.deck)),
             platform,
-            _sources_tail(content) if platform in ("instagram", "threads") else "",
+            _sources_tail(content, platform) if platform in ("instagram", "threads") else "",
         ),
         images=images,
     )
@@ -201,8 +222,13 @@ def _record_failure(
         ctx.repo.transition_publication(pub.id, "failed", error=msg, next_attempt_at=retry_at)
 
 
-def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
-    """manual(사람이 "지금 실행"): 같은 플랫폼 게시 간격은 무시한다. 하루 한도·게시 시간은 지킨다(계정 보호)."""
+def run_publish(
+    ctx: JobContext, manual: bool = False, only_content: str | None = None
+) -> JobResult:
+    """manual(사람이 "지금 실행"): 같은 플랫폼 게시 간격은 무시한다. 하루 한도·게시 시간은 지킨다(계정 보호).
+
+    only_content(사람이 카드에서 "지금 올리기"): 그 원고만 올린다. 실패해 재시도를 기다리는 게시도 바로 다시 시도한다.
+    대기열의 다른 원고가 먼저 올라가지 않게(S18 실측: "게시 지금 실행"이 다른 승인 원고를 먼저 올렸다)."""
     result = JobResult("publish")
     now = ctx.clock.now()
     s = ctx.config.settings
@@ -239,7 +265,14 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
             at = (last + gap).astimezone(ZoneInfo(ctx.tz)).strftime("%H:%M")
             waits.append(f"{name} {s.min_hours_between_posts:g}시간 간격 대기({at} 이후)")
             continue
-        due = ctx.repo.due_publications(platform, now)
+        if only_content:
+            due = [
+                p
+                for p in ctx.repo.publications_for_content(only_content)
+                if p.platform == platform and p.status in ("queued", "failed")
+            ]
+        else:
+            due = ctx.repo.due_publications(platform, now)
         if not due:
             waits.append(f"{name} 올릴 차례인 원고 없음(재시도 시각 전이거나 대기 없음)")
             continue

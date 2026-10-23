@@ -351,7 +351,8 @@ def test_edit_sources_reaches_card_and_post_tail(env) -> None:
     c = env["repo"].get_content("c1")
     assert c.generated.deck.slides[oi].sources == ["https://news.naver.com/a", "브랜드 제공 자료"]
     post = build_post(c, "threads", [])
-    assert post.text.rstrip().endswith("출처: 네이버 뉴스, 브랜드 제공 자료")
+    # 게시 글 끝: 실제 주소(스레드는 1개) + 주소가 아닌 출처 이름(S18)
+    assert post.text.rstrip().endswith("출처\nhttps://news.naver.com/a\n브랜드 제공 자료")
 
 
 @pytest.mark.parametrize(
@@ -463,3 +464,21 @@ def test_products_and_facts_fields_and_item_images(env) -> None:
     assert (
         'name="s2_heading"' in env["client"].get("/review/c1").text
     )  # 상품 장 소제목도 고칠 수 있다
+
+
+def test_deck_without_sources_can_still_be_saved() -> None:
+    """자료 주소가 없는 덱은 출처 칸이 비어도 저장된다. 있던 출처를 다 지우는 것만 막는다(S18 리뷰)."""
+    import json
+
+    from nsm.domain.models import CardDeck
+
+    raw = json.loads(
+        (Path(__file__).parents[1] / "fixtures/decks/editorial.json").read_text("utf-8")
+    )
+    raw["slides"] = [s for s in raw["slides"] if s["kind"] != "outro"]
+    deck = CardDeck.model_validate({**raw, "sources": []})
+    assert E.apply_slide_edits(deck, {"deck_sources": ""}).sources == []
+    with pytest.raises(E.EditError, match="1개 이상"):
+        E.apply_slide_edits(
+            deck.model_copy(update={"sources": ["https://a"]}), {"deck_sources": ""}
+        )

@@ -95,7 +95,12 @@ def test_discovery_reads_pages_records_evidence_and_caches(tmp_path) -> None:
     keys = [c.key for c in res.candidates]
     assert keys == ["scientists-reveal-the-hi", "this-is-fine", "careet-2008"]
     hi = res.candidates[0]
-    assert hi.era == "recent" and hi.title == "Scientists Reveal the Hi"
+    # 인기 목록에 있어도 페이지의 최근 날짜(2025-07)가 오래됐으면 '최근 확산'이 아니다(S18)
+    assert (
+        hi.era == "listed"
+        and hi.latest_evidence == "2025-07-16"
+        and hi.title == "Scientists Reveal the Hi"
+    )
     assert "July 16th, 2025" in hi.evidence and "100,000+" in hi.evidence  # 페이지에 적힌 것만
     assert Path(hi.image_path).is_file() and "meme_formats" not in hi.image_path or True
     assert res.candidates[2].era == "local" and "유행 중" in res.candidates[2].evidence
@@ -237,7 +242,8 @@ def test_meme_image_renders_with_tail_toward_speaker(app_config, tmp_path) -> No
     from nsm.render.html_renderer import build_html
 
     html = build_html(deck, "editorial")
-    assert 'data-tx="40.0"' in html and "참고 밈" in html and "AI 생성 이미지" in html
+    # 참고 밈 출처와 AI 생성 이미지 표기는 카드가 아니라 게시 글에(S18, 사용자 결정 2026-10-23)
+    assert 'data-tx="40.0"' in html and "참고 밈" not in html and "AI 생성 이미지" not in html
     # 꼬리: 렌더 때 말풍선에서 화자(40%, 70%) 쪽으로 경로 하나
     page_file = tmp_path / "deck.html"
     page_file.write_text(html, encoding="utf-8")
@@ -248,7 +254,20 @@ def test_meme_image_renders_with_tail_toward_speaker(app_config, tmp_path) -> No
         pg = b.new_page(viewport={"width": 1080, "height": 1350})
         pg.goto(page_file.as_uri())
         pg.evaluate("window.nsmFit()")
-        d = pg.evaluate("document.querySelector('.mo-tails path').getAttribute('d')")
+        paths = pg.evaluate(
+            "[...document.querySelectorAll('svg.bubbles path')].map(p => p.getAttribute('d'))"
+        )
         b.close()
-    end = [float(v) for v in d.split(" L ")[0].split()[-2:]]
-    assert end[0] < 55 / 100 * 1080 and end[1] > 50 / 100 * 1350  # 말풍선 왼쪽 아래(화자) 쪽으로
+    # 몸통과 꼬리가 경로 하나(이음새·삐져나온 선이 생길 수 없음), 꼬리 끝은 화자(왼쪽 아래) 쪽
+    assert len(paths) == 1 and paths[0].endswith("Z")
+    pts = [tuple(float(v) for v in seg.split()[:2]) for seg in paths[0].split(" L ")[1:]]
+    tip = max(pts, key=lambda p: p[1])
+    assert tip[0] < 55 / 100 * 1080 and tip[1] > 50 / 100 * 1350
+
+
+def test_recent_only_when_page_has_recent_date() -> None:
+    from nsm.adapters.sources.meme_formats import latest_date
+
+    text = "On July 16th, 2025, posted. On October 12th, 2026, an edit got 35,000 likes."
+    assert latest_date(text) == "2026-10-12"
+    assert latest_date("no dates here") == ""

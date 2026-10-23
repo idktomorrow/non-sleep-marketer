@@ -134,8 +134,11 @@ class PicksStore:
             )
             if item_ids:
                 marks = ",".join("?" * len(item_ids))
+                # 이미 다른 원고가 쓴 자료는 그 원고 것으로 둔다(S18: 키워드 "둘 다"는 정보·밈이 같은 자료를 쓴다.
+                # 덮어쓰면 정보 원고가 자기 자료를 잃어 다시 편집·답글 근거를 못 찾는다)
                 cur.execute(
-                    f"UPDATE source_items SET used_in_content_id = ? WHERE id IN ({marks})",
+                    f"UPDATE source_items SET used_in_content_id = ? WHERE id IN ({marks}) "
+                    "AND used_in_content_id IS NULL",
                     [content.id, *item_ids],
                 )
             cur.execute(

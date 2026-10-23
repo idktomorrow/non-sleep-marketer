@@ -16,7 +16,7 @@ import pytest
 from nsm.render.html_renderer import HtmlCardRenderer, build_html, template_version
 from tests.render.test_html_renderer import _extreme, load, png_size, slots
 
-STYLES = ["clean", "photo", "illust", "editorial"]
+STYLES = ["clean", "photo", "illust", "editorial", "kitsch"]
 TEMPLATES = ["info", "list", "compare"]
 
 
@@ -48,8 +48,8 @@ def test_label_slots_do_not_depend_on_style(style: str, template: str) -> None:
     deck = load(template)
     assert _slots_with_style(deck, style) == slots(deck)  # 같은 장, 같은 표기 슬롯
     html = build_html(deck, style)
-    # 표지와 마지막 장에만, 이름과 함께(ADR 0043)
-    assert html.count('data-label="virtual-person"') == html.count('<div class="who">') == 2
+    # 이름·가상인물 배지는 카드에 그리지 않는다(S18: 게시 글 첫 줄 표기)
+    assert html.count('data-label="virtual-person"') == html.count('<div class="who">') == 0
     assert html.count('data-label="ad"') == (1 if deck.labels.ad else 0)
 
 
@@ -79,7 +79,8 @@ def test_code_drawn_background_has_no_ai_caption(style: str, tmp_path: Path) -> 
     slides = list(deck.slides)
     slides[1] = slides[1].model_copy(update={"background": str(bg)})
     s = _slots_with_style(deck.model_copy(update={"slides": slides}), style)
-    assert ["ai-generated" in x["labels"] for x in s] == [False, True, False, False]
+    # AI 표기는 카드가 아니라 게시 글에(S18). 어느 장에 AI 그림이 있는지는 has_ai_image가 본다
+    assert not any("ai-generated" in x["labels"] for x in s)
 
 
 @pytest.mark.parametrize("style", ["photo", "illust"])

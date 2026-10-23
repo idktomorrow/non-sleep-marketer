@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content, ContentBrief, GeneratedContent, SourceItem
 from nsm.domain.policy import (
@@ -258,6 +259,8 @@ def build_draft(
     result: JobResult,
     *,
     with_background: bool = True,
+    photos: list | None = None,
+    feedback: list[str] | None = None,
 ) -> Draft | str:
     """자료 묶음 → 원고 초안. 실패하면 `_SKIP_MATERIAL`(자료 문제) 또는 `_RETRY_LATER`(장애)를 돌려준다.
 
@@ -267,14 +270,18 @@ def build_draft(
     persona, brand = ctx.config.persona, ctx.config.brand
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
-    # 사진 우선형 스타일이면 소식형(editorial: 개요·상품 그리드·일정 패널)도 돌려 쓴다(S12 제안)
-    templates = ("editorial", *TEMPLATES) if brand.card_style == "editorial" else TEMPLATES
-    template = choose_template(ctx.repo.recent_templates(len(templates)), templates)
+    # 사진 우선형이면 소식형 하나로 쓰고 장마다 내용이 표현을 고른다(S18). 다른 스타일은 예전처럼 돌려 쓴다
+    if brand.card_style in PHOTO_FIRST_STYLES:
+        template = "editorial"
+    else:
+        template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)), TEMPLATES)
     brief = ContentBrief(
         topic=f"{persona_topic}: {items[0].title}",
         template=template,
         sources=items,
         is_ad=persona.ad_label,
+        photos=photos or [],  # S18 편집 밀도: 원고를 쓰기 전에 관찰한 실제 사진
+        feedback=feedback or [],  # S18 프로세스: 완성 카드 검토에서 나온 고칠 점(다시 편집할 때)
     )
     try:
         gen = ctx.text_generator.generate_content(brief, persona, brand)  # type: ignore[union-attr]

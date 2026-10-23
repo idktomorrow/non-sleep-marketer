@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import re
 import struct
 from html.parser import HTMLParser
 from pathlib import Path
@@ -88,12 +87,11 @@ def test_label_slots_present(template: str) -> None:
     deck = load(template)
     s = slots(deck)
     assert len(s) == len(deck.slides)
-    # 가상인물 배지는 표지와 마지막 장에만(ADR 0043). 중간 장은 이름(인물)도 배지도 없다
-    assert [x["labels"].count("virtual-person") for x in s] == [1] + [0] * (len(s) - 2) + [1]
-    # 장마다: 이름(인물)이 있으면 배지도 있고, 없으면 둘 다 없다
-    assert all(x["who"] == x["labels"].count("virtual-person") for x in s)
-    assert all(x["page"] == 1 for x in s)
-    assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
+    # 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다(S18 사용자 결정: 가상인물 표기는 게시 글 첫 줄)
+    assert all("virtual-person" not in x["labels"] and x["who"] == 0 and x["page"] == 0 for x in s)
+    assert all(
+        x["sources"] == 0 for x in s
+    )  # 출처는 카드에 그리지 않고 게시 글 끝에 실제 주소(S18)
     ad = [x for x in s if "ad" in x["labels"]]
     if deck.labels.ad:
         assert len(ad) == 1 and ad[0]["kind"] == "cover"  # 광고 배지는 표지에
@@ -109,12 +107,11 @@ def test_ad_false_has_no_ad_badge() -> None:
 
 
 def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
+    from PIL import Image
+
     bg = tmp_path / "bg.png"
-    bg.write_bytes(
-        bytes.fromhex(
-            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b00000000049454e44ae426082"
-        )
-    )
+    # 해상도가 충분한 사진은 꽉 채운 배경으로(S18 화질: 1.6배 넘게 늘려야 하면 위쪽 띠)
+    Image.new("RGB", (880, 1100), (200, 120, 40)).save(bg)
     deck = load("info")
     slides = list(deck.slides)
     slides[0] = slides[0].model_copy(update={"background": str(bg)})
@@ -125,8 +122,10 @@ def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
         }
     )
     s = slots(deck)
-    assert "ai-generated" in s[0]["labels"] and bg.resolve().as_uri() in s[0]["style"]
-    assert all("ai-generated" not in x["labels"] for x in s[1:])
+    # AI 표기는 카드가 아니라 게시 글에(S18). 배경은 그대로 꽉 채운다
+    assert bg.resolve().as_uri() in s[0]["style"] and not any(
+        "ai-generated" in x["labels"] for x in s
+    )
 
 
 def test_missing_background_falls_back_to_brand_gradient() -> None:
@@ -187,16 +186,14 @@ def test_render_works_while_playwright_runs_on_same_thread(renderer, tmp_path: P
     assert len(paths) == 3
 
 
-def test_long_sources_wrap_not_ellipsis() -> None:
+def test_sources_are_not_drawn_on_cards() -> None:
+    """출처(사이트 이름·사진 출처)는 카드에 그리지 않는다(S18 사용자 결정): 게시 글 끝에 실제 주소."""
     html = build_html(_extreme("info"))
     assert (
-        "text-overflow"
-        not in (Path(__file__).resolve().parents[2] / "nsm/templates/cards/base.css")
-        .read_text("utf-8")
-        .split(".outro .sources li")[1]
-        .split("}")[0]
+        "data-sources" not in html
+        and "<b>출처</b>" not in html
+        and "사진 " not in html.split("<script>")[0]
     )
-    assert html.count('data-fit="16"') == 6  # 출처마다 글자 맞춤 대상
 
 
 def test_no_html_left_in_output_and_overflow_reset(renderer, tmp_path: Path) -> None:
@@ -245,18 +242,15 @@ def test_get_renderer_prefers_html_and_falls_back(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("template", ["info", "list", "compare"])
-def test_virtual_person_badge_sits_next_to_persona_name(template: str) -> None:
-    # 심사지침 Ⅴ.5: 사진에는 "가상인물과 근접한 위치"에 표시. 카드에서 인물은 페르소나 이름이다(ADR 0019)
+def test_virtual_person_label_is_in_post_text_not_on_card(template: str) -> None:
+    """S18(사용자 결정 2026-10-23): 카드에는 이름·배지를 그리지 않고, 가상인물 표기는 게시 글 첫 줄에 늘 붙는다."""
+    from nsm.domain import labels as L
+    from nsm.domain.policy import apply_labels
+
     deck = load(template)
     html = build_html(deck)
-    pattern = (
-        r'<div class="ident">\s*<div class="who">[^<]*(?:<img[^>]*>)?[^<]*</div>'
-        r'\s*<span class="badge" data-label="virtual-person">가상인물</span>'
-    )
-    assert len(re.findall(pattern, html)) == 2  # 표지와 마지막 장(ADR 0043)
-    # 이름(인물)이 배지 없이 나오는 장은 없다
-    assert html.count('<div class="who">') == html.count('data-label="virtual-person"') == 2
-    assert html.count(deck.persona.handle) == 2
+    assert 'data-label="virtual-person"' not in html and deck.persona.handle not in html
+    assert apply_labels("본문", False).startswith(L.VIRTUAL_PERSON_TEXT)
 
 
 def test_renderer_version_tracks_template_files() -> None:
@@ -271,7 +265,7 @@ def test_renderer_version_tracks_template_files() -> None:
 
 # 스레드 피드는 카드 첫 장을 224×280 CSS px로 보여 준다(2026-10-14 threads.com 실측, 원본 1080의 약 21%).
 THUMB_SCALE = 224 / 1080
-MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9, "who": 7.5, "badge": 7.0}
+MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9}
 
 
 def _cover_sizes(deck: CardDeck, tmp_path: Path, style: str = "clean") -> dict[str, float]:
@@ -324,3 +318,62 @@ def test_cover_title_blank_lines_collapse(tmp_path: Path) -> None:
     deck = CardDeck.model_validate(raw)
     assert "극장판 흥행에\n게임도 역주행</h1>" in build_html(deck)
     assert _cover_sizes(deck, tmp_path)["titleLines"] == 2
+
+
+def test_cover_photo_always_fills_the_card(tmp_path: Path) -> None:
+    """표지 사진은 비율과 상관없이 카드를 꽉 채운다(가로 사진은 양옆을 자름). 흐린 채움·위에 작게 두기 없음
+    (사용자 피드백 2026-10-23: 첫 장은 풀사진에 그라데이션 글)."""
+    from PIL import Image
+
+    from nsm.render.html_renderer import build_html
+
+    deck = load("info")
+    for size in ((1600, 900), (900, 900), (800, 1400)):
+        img = tmp_path / f"{size[0]}x{size[1]}.png"
+        Image.new("RGB", size, (10, 20, 30)).save(img)
+        slides = list(deck.slides)
+        slides[0] = slides[0].model_copy(update={"background": str(img)})
+        html = build_html(deck.model_copy(update={"slides": slides}), "editorial")
+        assert f"background-image: url('{img.resolve().as_uri()}')" in html
+        assert "bg-fit" not in html and "blur" not in html.split("<body")[1].split("<script>")[0]
+
+
+def test_editorial_renders_list_and_compare_with_their_own_layout() -> None:
+    """소식형에 list·compare 장이 오면 본문 장으로 뭉개지지 않고 각자 모양으로(S18 실키 결과에서 발견)."""
+    from nsm.domain.models import CompareSide, CompareSlide, ListSlide
+    from nsm.render.html_renderer import build_html
+
+    deck = load("info")
+    deck = deck.model_copy(
+        update={
+            "template": "editorial",
+            "slides": [
+                deck.slides[0],
+                CompareSlide(
+                    heading="비교",
+                    left=CompareSide(title="왼쪽", points=["가"]),
+                    right=CompareSide(title="오른쪽", points=["나"]),
+                ),
+                ListSlide(heading="요점", bullets=["하나", "둘"]),
+            ],
+        }
+    )
+    html = build_html(deck, "editorial")
+    assert 'data-kind="compare"' in html and "왼쪽" in html and 'class="cols"' in html
+    assert 'data-kind="list"' in html and "<ol>" in html
+
+
+def test_small_cover_photo_is_not_stretched(tmp_path: Path) -> None:
+    """화질(S18 실측: 800×390 사진을 표지에 3.5배): 1.6배 넘게 늘려야 하면 위쪽 띠로, 늘리지 않는다."""
+    from PIL import Image
+
+    from nsm.render.html_renderer import build_html
+
+    small = tmp_path / "small.jpg"
+    Image.new("RGB", (886, 432)).save(small)
+    deck = load("info")
+    slides = list(deck.slides)
+    slides[0] = slides[0].model_copy(update={"background": str(small)})
+    html = build_html(deck.model_copy(update={"slides": slides}), "kitsch")
+    assert "bg-band" in html and 'class="bg-band-img"' in html
+    assert f"background-image: url('{small.resolve().as_uri()}')" not in html

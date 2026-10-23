@@ -52,6 +52,9 @@ def init() -> None:
 @app.command()
 def run(
     once: bool = typer.Option(False, "--once", help="잡 하나만 1회 실행하고 종료"),
+    manual_only: bool = typer.Option(
+        False, "--manual-only", help="예약 작업 없이 대시보드만(사람이 누른 작업만 실행)"
+    ),
     job: str = typer.Option(
         "",
         "--job",
@@ -71,7 +74,7 @@ def run(
             raise typer.BadParameter("--keyword는 --job keyword와 함께, 그리고 함께만 씁니다")
         run_job_once(job, keyword or None)
     else:
-        run_forever()
+        run_forever(manual_only=manual_only)
 
 
 @app.command("render-preview")
@@ -81,7 +84,7 @@ def render_preview(
     style: str | None = typer.Option(
         None,
         "--style",
-        help="카드 스타일 clean|photo|illust|editorial. 기본: 설정 파일의 brand.card_style(없으면 clean)",
+        help="카드 스타일 clean|photo|illust|editorial|kitsch. 기본: 설정 파일의 brand.card_style(없으면 clean)",
     ),
 ) -> None:
     """카드 덱 JSON을 PNG로 렌더합니다 (렌더러는 배치 S-α, 스타일은 S8)."""

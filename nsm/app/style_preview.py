@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from nsm.config.schema import CARD_STYLES, AppConfig
+from nsm.config.schema import CARD_STYLES, PHOTO_FIRST_STYLES, AppConfig
 from nsm.domain.models import CardDeck
 from nsm.render.html_renderer import TEMPLATES_DIR
 
@@ -53,7 +53,7 @@ def sample_deck(cfg: AppConfig, primary: str, accent: str, style: str = "clean")
     본문은 설명 패널이 보이는 정보형으로 그린다(다른 스타일은 사진 없음, 리스트형).
     """
     logo = cfg.brand.logo_path
-    if style == "editorial" and SAMPLE_PHOTO.is_file():
+    if style in PHOTO_FIRST_STYLES and SAMPLE_PHOTO.is_file():
         photo, template = str(SAMPLE_PHOTO), "info"
         middle = {
             "kind": "body",
@@ -129,7 +129,7 @@ def style_preview_png(
     if style == "illust":  # 캐릭터를 바꾸면 일러스트형 견본도 다시 그린다(C17)
         art = getattr(renderer, "character", None)
         version += ":" + str(getattr(art, "fingerprint", ""))
-    if style == "editorial":  # 견본 사진 파일을 바꾸면 사진 우선형 견본도 다시 그린다(S10)
+    if style in PHOTO_FIRST_STYLES:  # 견본 사진 파일을 바꾸면 사진 우선형 견본도 다시 그린다(S10)
         version += ":" + _photo_fingerprint()
     key = hashlib.sha256(f"{style}|{version}|{deck.model_dump_json()}".encode()).hexdigest()[:16]
     root = media_dir / "style-previews"

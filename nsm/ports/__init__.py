@@ -208,11 +208,14 @@ class MemeFormatCandidate:
     url: str  # 확인한 출처 페이지
     image_path: str = ""  # 대표 사례 그림(로컬 사본). 없으면 ""
     image_url: str = ""
-    era: str = ""  # "recent"(최근 확산) | "classic"(오래됐지만 유명한 형식) | "local"(국내 유행)
+    # "recent"(페이지에 최근 날짜의 확산 기록) | "listed"(인기 목록에 있지만 최근 기록 없음) | "classic"(오래됐지만 유명한 형식)
+    # | "local"(국내 해설 사이트 '유행 중' 표시) | "fan"(팬 커뮤니티 사례, 근거 부족) | "original"(새로 만드는 창작). S18
+    era: str = ""
     evidence: str = ""  # 확인 가능한 확산 근거(페이지에 적힌 날짜·수치 그대로, 추정 없음)
     about: str = ""  # 형식 설명(페이지 요약)
     site: str = ""  # 출처 사이트 이름
     checked_at: str = ""
+    latest_evidence: str = ""  # 페이지에 적힌 가장 최근 확산 날짜(YYYY-MM-DD), 없으면 ""(S18)
 
 
 @dataclass(frozen=True)
@@ -228,6 +231,7 @@ class MemeFormatRequest:
     hook_sources: tuple[SourceItem, ...] = ()
     caution: str = ""
     force_key: str = ""  # "다른 밈으로 다시 만들기": 이 형식으로
+    recent_mechanisms: tuple[str, ...] = ()  # 최근 밈의 웃음 작동 방식(같은 방식 반복 피하기, S18)
 
 
 @dataclass(frozen=True)
@@ -251,6 +255,14 @@ class MemeRank:
 
 
 @dataclass(frozen=True)
+class MemePage:
+    """밈 게시물의 한 장(S18). 만화 컷 수(그림 안의 칸 나눔)와 게시물 장수는 다르다."""
+
+    scene: str
+    overlays: tuple[MemeOverlaySpec, ...] = ()
+
+
+@dataclass(frozen=True)
 class MemeFormatPlan:
     key: str  # 고른 형식
     why: str  # 고른 이유(사람이 읽음)
@@ -264,6 +276,16 @@ class MemeFormatPlan:
     ranking: tuple[MemeRank, ...] = ()
     claims: tuple[tuple[str, str], ...] = ()
     suggested_character: str = ""
+    # S18: 소재 출처·웃음이 작동하는 방식(한 줄)·고른 표현 형식과 그 이유, 게시물 장들(1~3)
+    source_kind: str = ""
+    mechanism: str = ""
+    form: str = ""
+    pages: tuple[MemePage, ...] = ()
+    # 만드는 방법(사용자 피드백 2026-10-23): composite=유명 짤 원본을 그대로 두고 그 안에 캐릭터만 합성,
+    # restage=구조만 빌려 캐릭터 세계에서 새로 그림
+    make: str = "restage"
+    # 재미를 전달하는 핵심(표정·시선·배치·동작·자막·선택지 대비 등). 완성 그림에서 살아 있어야 한다(S18)
+    core: str = ""
 
 
 @runtime_checkable
@@ -277,6 +299,47 @@ class MemeFormatPlanner(Protocol):
     """S17 제안: 밈 형식 재해석. ScenarioWriter와 따로 둬, 이 메서드가 없는 작가도 ScenarioWriter로 남는다(S17 리뷰)."""
 
     def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan: ...
+
+
+@runtime_checkable
+class PhotoPlacer(Protocol):
+    """실제 사진과 카드 장 짝짓기(S18 제안, ADR 0062). 그림을 볼 수 있는 공급자만 구현한다.
+
+    cover_text: 표지 글, slides: (장 번호, 장 요약) 목록, photos: (로컬 경로, 출처 URL, 설명) 목록.
+    돌려주는 값: {"cover": 사진 번호 또는 -1, "slides": [{"slide": 장 번호, "photo": 번호 또는 -1}],
+    "photos": [{"photo": 번호, "shows": 무엇이 보이는지}]}. 검증은 호출자가 한다."""
+
+    def place_photos(
+        self,
+        cover_text: str,
+        slides: list[tuple[int, str]],
+        photos: list[tuple[str, str, str]],
+        items: list[str] = (),  # 상품 장의 상품 하나하나 "[장.번호] 이름 · 설명"(S18)
+    ) -> dict: ...
+
+
+@runtime_checkable
+class PhotoObserver(Protocol):
+    """원고를 쓰기 전에 실제 사진을 관찰한다(S18 편집 밀도). photos: (로컬 경로, 출처 URL, 설명) 목록.
+    돌려주는 값: [{"photo": 번호, "kind", "shows", "details": [{"what", "box": {x,y,w,h}}]}]. 검증은 호출자가 한다."""
+
+    def observe_photos(self, photos: list[tuple[str, str, str]], topic: str = "") -> list[dict]: ...
+
+
+@runtime_checkable
+class CardReviewer(Protocol):
+    """완성 카드 검토(S18 프로세스): 렌더한 장 PNG를 보고 장마다 문제와 원인 단계(material·plan·layout·text)를 돌려준다.
+    돌려주는 값: {"slides": [{"slide": 번호(1부터), "problems": [{"part", "note"}]}]}. 검증은 호출자가 한다."""
+
+    def review_cards(self, paths: list[str], brief: str) -> dict: ...
+
+
+@runtime_checkable
+class MemeImageReviewer(Protocol):
+    """완성된 밈 그림 검토(S18): 기획의 재미 핵심이 그림에 실제로 보이는지. 돌려주는 값:
+    {"ok": bool, "problems": [{"part": "scene"|"composite"|"text"|"idea", "note": str}]}. 검증은 호출자가 한다."""
+
+    def review_meme_image(self, image_path: str, brief: str) -> dict: ...
 
 
 @runtime_checkable

@@ -115,6 +115,8 @@ class SlotPlan:
     chain_from: str | None = None  # 1번째 컷 target(2번째 컷만)
     meme_ref: str | None = None  # 밈 참조 그림(구도·연출 이해용, 캐릭터 참조 아님, S17)
     text_zones: tuple[str, ...] = ()  # 글자가 들어갈 자리(그림에서 비워 둘 곳, S17)
+    composite: bool = False  # 유명 짤 원본을 바탕으로 캐릭터만 합성(meme_ref가 바탕 그림)
+    core: str = ""  # 재미의 핵심(기획의 core): 그림에서 꼭 살아 있어야 할 표정·시선·배치·동작
 
 
 def _zone(o) -> str:
@@ -131,15 +133,20 @@ def image_slots(
     cast: Cast,
     scenes: dict[str, str] | None = None,
     meme_ref: str | None = None,
+    meme_make: str = "restage",
+    meme_core: str = "",
 ) -> list[SlotPlan]:
     """덱에서 그림이 필요한 자리. 만화 컷은 주인공, 정보 카드는 첫 메모(body·facts) 한 곳에 보조 캐릭터 스티커,
     밈 한 장(S17)은 장 전체 그림 하나(캐릭터 참조 + 밈 참조)."""
     scenes = scenes or {}
     out: list[SlotPlan] = []
     sticker_done = False
+    first_meme: str | None = None
     for i, s in enumerate(deck.slides):
         if s.kind == "meme_image":
             t = f"s{i}.image"
+            chain = first_meme  # 여러 장 밈(S18): 2장째부터는 1장째 결과를 참조해 같은 모습으로
+            first_meme = first_meme or t
             out.append(
                 SlotPlan(
                     target=t,
@@ -153,6 +160,10 @@ def image_slots(
                     transparent=False,
                     meme_ref=meme_ref if meme_ref and Path(meme_ref).is_file() else None,
                     text_zones=tuple(_zone(o) for o in s.overlays),
+                    chain_from=chain,
+                    composite=meme_make == "composite"
+                    and bool(meme_ref and Path(meme_ref).is_file()),
+                    core=meme_core,
                 )
             )
         elif s.kind == "comic":
@@ -231,10 +242,37 @@ def compose_prompt(slot: SlotPlan, ref: CharacterRef, chained: bool) -> str:
             "background, pose and camera angle (do not copy the composition)."
         )
     if slot.role == "meme":
-        roles = (
+        must = (
+            f" What makes it funny and MUST stay clearly visible: {slot.core}. The character must act inside the"
+            " scene (natural size, gaze, contact and overlap), not float on top of it."
+            if slot.core
+            else ""
+        )
+        roles = must + (
             " Reference images: the FIRST image(s) are the CHARACTER reference — keep only the character's face, "
             "body shape, colors and proportions; ignore their background, pose, other characters and any text."
         )
+        if slot.composite:
+            # 유명 짤 원본에 캐릭터만 합성(사용자 피드백 2026-10-23): 원본 사진·인물·배경·구도는 그대로
+            roles += (
+                " The LAST image is the ORIGINAL famous meme picture: use it as the BASE image. Keep it as it is — "
+                "the same photo, background, other people, framing, lighting and composition. Change ONLY what the "
+                "scene says: replace that one person or object with our character (or insert our character there), "
+                "same position, size and pose, drawn in the character's own cute illustration style and lit to sit "
+                "naturally in the photo. Remove any text baked into the original image."
+            )
+            # 가로 원본이면 위아래를 빈 여백으로 채워 띠처럼 작아졌다(실호출) → 장면을 이어 그려 세로 칸을 꽉 채운다
+            frame = (
+                " Fill the whole vertical 4:5 frame edge to edge with the photo: if the original is wider, keep the"
+                " main subjects large and extend the same scene naturally above and below (more of the street, sky,"
+                " ground). No borders, no blank or solid-color margins, no letterboxing."
+            )
+            zones = (
+                " Typeset text will be added later at: " + "; ".join(slot.text_zones) + "."
+                if slot.text_zones
+                else ""
+            )
+            return f"{who}. {slot.scene}.{look}{roles}{frame}{zones}"
         if slot.meme_ref:
             roles += (
                 " The LAST image is the MEME FORMAT reference — use it only to understand the composition: "
@@ -302,6 +340,9 @@ def build_spec(
         },
         "refs": [file_sha(r)[:16] for r in refs],
         "meme_ref": file_sha(slot.meme_ref)[:16] if slot.meme_ref else None,
+        # 합성일 때만 넣는다(예전 그림의 지문이 바뀌지 않게). 합성 지시를 바꾸면 숫자를 올린다
+        **({"composite": 2} if slot.composite else {}),
+        **({"core": slot.core} if slot.core else {}),
         "text_zones": list(slot.text_zones),
         "size": [slot.width, slot.height],
         "transparent": slot.transparent,
