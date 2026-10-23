@@ -198,3 +198,8 @@
 .style-editorial .rows.layout-rows:has(> :nth-child(5)) dt { font-size: 24px; }
 .style-editorial .rows.layout-rows:has(> :nth-child(5)) dd { font-size: 32px; }
 .style-editorial .facts:has(.rows > :nth-child(5)) h2 { font-size: 56px; }
+/* 상품 칸(S18 실호출): 상품별 사진이 없으면 빈 회색 상자를 두지 않고 이름·설명을 크게(없는 사진을 채우지 않는다) */
+.style-editorial .product-img.placeholder { display: none; }
+.style-editorial .product:not(:has(img.product-img)) { justify-content: center; padding: 30px 26px; }
+.style-editorial .product:not(:has(img.product-img)) .product-name { font-size: 34px; }
+.style-editorial .product:not(:has(img.product-img)) .product-note { font-size: 24px; }

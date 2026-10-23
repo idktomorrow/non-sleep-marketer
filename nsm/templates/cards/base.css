@@ -186,6 +186,7 @@ body { font-family: "Pretendard", sans-serif; -webkit-font-smoothing: antialiase
 .meme-image .panel-empty { z-index: 0; }
 .meme-image .topbar { position: absolute; left: 28px; right: 28px; top: 24px; z-index: 5; min-height: 0; }
 .meme-image .topbar .ident { background: rgba(0,0,0,.55); border-radius: 999px; padding: 6px 8px 6px 20px; }
+.meme-image .topbar .ident:empty { display: none; }  /* 2장째부터는 이름 칸이 비어 있다(빈 점이 보이지 않게, S18 실호출) */
 .meme-image .who { font-size: 24px; color: #fff; opacity: 1; }
 .meme-image .badge { font-size: 20px; }
 .meme-image .bottombar { position: absolute; left: 28px; right: 28px; bottom: 20px; z-index: 5; }

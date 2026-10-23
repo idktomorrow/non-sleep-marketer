@@ -348,3 +348,28 @@ def test_remake_with_fan_candidate_uses_stored_post_not_new_search(fctx, monkeyp
         plan["format"]["url"] == fan["url"]
         and plan["category_label"] == "팬 커뮤니티 사례(근거 부족)"
     )
+
+
+def test_multi_page_meme_second_page_is_queued_after_first(fctx, monkeypatch) -> None:
+    """여러 장 밈: 1장째 그림이 끝나면 2장째가 이어서 들어간다(S18 실호출: 2장째가 영영 대기에 남았다)."""
+    from dataclasses import replace
+
+    from nsm.engine.production import run_images
+    from nsm.ports import MemePage
+    from nsm.store.production import ProductionStore
+
+    orig = fctx.scenario_writer.plan_meme_format
+    monkeypatch.setattr(
+        fctx.scenario_writer,
+        "plan_meme_format",
+        lambda req: replace(orig(req), pages=(MemePage("손 클로즈업"), MemePage("뒤로 빠진 전신"))),
+    )
+    _hero(fctx)
+    run_picks(fctx, fetch_photo=_fake_photo)
+    cid = _meme(fctx)[1].id
+    run_images(fctx)  # 1장째
+    run_images(fctx)  # 이어서 들어간 2장째
+    prod = ProductionStore(fctx.repo.db, fctx.clock)
+    assert prod.active(cid, "s0.image") is not None and prod.active(cid, "s1.image") is not None
+    spec2 = fctx.image_studio.specs[-1]
+    assert any("s0.image" in Path(r).name or "images" in str(r) for r in spec2.references[:-1])

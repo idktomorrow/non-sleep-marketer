@@ -210,3 +210,27 @@ def test_photo_placement_goes_through_port_and_is_validated() -> None:
     p = match_photos(SimpleNamespace(text_generator=Placer()), deck, cands)
     # 없는 파일은 빼고 맞춘 뒤 원래 번호로: 표지=b(원래 2), 1장=a(0). 같은 사진 두 번·없는 장은 버린다
     assert p.method == "vision" and p.cover == 2 and p.slides == {1: 0} and p.notes == {0: "팝콘통"}
+
+
+def test_blog_images_are_read_from_mobile_page() -> None:
+    """네이버 블로그 PC 주소는 iframe 껍데기라 모바일 주소로 읽는다(S18 실호출: 블로그 자료 2건 모두 사진 0장)."""
+    from pathlib import Path
+
+    import httpx
+
+    from nsm.adapters.sources.og_image import fetch_article_images
+
+    seen = []
+
+    def handler(req):
+        seen.append(req.headers["host"])
+        return httpx.Response(200, text="<html></html>")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetch_article_images(
+        "https://blog.naver.com/u1/224451189345",
+        Path("/tmp/x"),
+        client=client,
+        resolver=lambda h: ["93.184.216.34"],
+    )
+    assert seen == ["m.blog.naver.com"]

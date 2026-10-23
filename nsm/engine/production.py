@@ -404,11 +404,15 @@ def apply_saved_result(ctx: JobContext, job_id: str) -> str:
             _sync_slot_stage(ctx, prod, job.content_id)
         return "apply_failed"
     if job.content_id:
-        if status == "succeeded" and job.target.endswith(".panel0"):
-            # 1번째 컷이 확정됐다: 그 결과를 참조로 2번째 컷을 만든다(아직 2번째가 없으면)
-            enqueue_production(
-                ctx, job.content_id, targets=[job.target[: -len("panel0")] + "panel1"]
-            )
+        if status == "succeeded":
+            # 이 그림을 참조로 기다리던 자리(2번째 컷, 여러 장 밈의 다음 장)를 이어서 만든다(S18: 컷 이름에 묶지 않음)
+            try:
+                _g, _c, slots = current_slots(ctx, prod, job.content_id)
+                waiting = [x.target for x in slots if x.chain_from == job.target]
+            except AdapterError:
+                waiting = []
+            if waiting:
+                enqueue_production(ctx, job.content_id, targets=waiting)
         _sync_slot_stage(ctx, prod, job.content_id)
     return status
 

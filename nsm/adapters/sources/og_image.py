@@ -156,7 +156,10 @@ def fetch_photo_candidate(
     client = client or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
     try:
         try:
-            final_url, html_bytes, _ = _get(client, source_url, MAX_HTML_BYTES, resolver)
+            # 네이버 블로그 PC 주소는 본문이 iframe 안이라 그림이 안 잡힌다 → 모바일 주소로 읽는다(출처는 원래 주소)
+            from nsm.adapters.sources.web import body_url
+
+            final_url, html_bytes, _ = _get(client, body_url(source_url), MAX_HTML_BYTES, resolver)
         except Exception as e:  # noqa: BLE001  후보 하나의 실패는 조용히 비운다
             log.info("사진 후보: 원문을 못 읽음(%s): %s", source_url, e)
             return None
@@ -284,7 +287,10 @@ def fetch_article_images(
     hashes: set[int] = set()
     try:
         try:
-            final_url, html_bytes, _ = _get(client, source_url, MAX_HTML_BYTES, resolver)
+            # 네이버 블로그 PC 주소는 본문이 iframe 안이라 그림이 안 잡힌다 → 모바일 주소로 읽는다(출처는 원래 주소)
+            from nsm.adapters.sources.web import body_url
+
+            final_url, html_bytes, _ = _get(client, body_url(source_url), MAX_HTML_BYTES, resolver)
         except Exception as e:  # noqa: BLE001
             log.info("기사 이미지: 원문을 못 읽음(%s): %s", source_url, e)
             return []
