@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import re
 import struct
 from html.parser import HTMLParser
 from pathlib import Path
@@ -88,11 +87,8 @@ def test_label_slots_present(template: str) -> None:
     deck = load(template)
     s = slots(deck)
     assert len(s) == len(deck.slides)
-    # 가상인물 배지는 표지와 마지막 장에만(ADR 0043). 중간 장은 이름(인물)도 배지도 없다
-    assert [x["labels"].count("virtual-person") for x in s] == [1] + [0] * (len(s) - 2) + [1]
-    # 장마다: 이름(인물)이 있으면 배지도 있고, 없으면 둘 다 없다
-    assert all(x["who"] == x["labels"].count("virtual-person") for x in s)
-    assert all(x["page"] == 1 for x in s)
+    # 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다(S18 사용자 결정: 가상인물 표기는 게시 글 첫 줄)
+    assert all("virtual-person" not in x["labels"] and x["who"] == 0 and x["page"] == 0 for x in s)
     assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
     ad = [x for x in s if "ad" in x["labels"]]
     if deck.labels.ad:
@@ -244,18 +240,15 @@ def test_get_renderer_prefers_html_and_falls_back(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("template", ["info", "list", "compare"])
-def test_virtual_person_badge_sits_next_to_persona_name(template: str) -> None:
-    # 심사지침 Ⅴ.5: 사진에는 "가상인물과 근접한 위치"에 표시. 카드에서 인물은 페르소나 이름이다(ADR 0019)
+def test_virtual_person_label_is_in_post_text_not_on_card(template: str) -> None:
+    """S18(사용자 결정 2026-10-23): 카드에는 이름·배지를 그리지 않고, 가상인물 표기는 게시 글 첫 줄에 늘 붙는다."""
+    from nsm.domain import labels as L
+    from nsm.domain.policy import apply_labels
+
     deck = load(template)
     html = build_html(deck)
-    pattern = (
-        r'<div class="ident">\s*<div class="who">[^<]*(?:<img[^>]*>)?[^<]*</div>'
-        r'\s*<span class="badge" data-label="virtual-person">가상인물</span>'
-    )
-    assert len(re.findall(pattern, html)) == 2  # 표지와 마지막 장(ADR 0043)
-    # 이름(인물)이 배지 없이 나오는 장은 없다
-    assert html.count('<div class="who">') == html.count('data-label="virtual-person"') == 2
-    assert html.count(deck.persona.handle) == 2
+    assert 'data-label="virtual-person"' not in html and deck.persona.handle not in html
+    assert apply_labels("본문", False).startswith(L.VIRTUAL_PERSON_TEXT)
 
 
 def test_renderer_version_tracks_template_files() -> None:
@@ -270,7 +263,7 @@ def test_renderer_version_tracks_template_files() -> None:
 
 # 스레드 피드는 카드 첫 장을 224×280 CSS px로 보여 준다(2026-10-14 threads.com 실측, 원본 1080의 약 21%).
 THUMB_SCALE = 224 / 1080
-MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9, "who": 7.5, "badge": 7.0}
+MIN_THUMB_PX = {"title": 18.0, "subtitle": 9.9}
 
 
 def _cover_sizes(deck: CardDeck, tmp_path: Path, style: str = "clean") -> dict[str, float]:

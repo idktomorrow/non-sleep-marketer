@@ -248,12 +248,14 @@ class OpenAITextGenerator:
         except (KeyError, TypeError) as e:
             raise AdapterError(f"밈 대본 형식이 맞지 않습니다: {e}") from e
 
-    def place_photos(self, cover_text: str, slides, photos) -> dict:
+    def place_photos(self, cover_text: str, slides, photos, items=()) -> dict:
         """실제 사진과 카드 장 짝짓기(S18, 포트 PhotoPlacer): 사진을 작게 줄여 보여 주고 내용이 맞는 장만 고르게 한다."""
         from nsm.adapters.generator import photo_place as pp
 
         body = self._body(pp.SYSTEM, "", pp.SCHEMA, "photo_placement", pp.MAX_TOKENS)
-        body["input"] = [{"role": "user", "content": pp.user_content(cover_text, slides, photos)}]
+        body["input"] = [
+            {"role": "user", "content": pp.user_content(cover_text, slides, photos, items)}
+        ]
         return self._parse(self._text(self._call("photo:match", body, pp.ESTIMATE_USD)))
 
     def plan_meme_format(self, req: MemeFormatRequest) -> MemeFormatPlan:

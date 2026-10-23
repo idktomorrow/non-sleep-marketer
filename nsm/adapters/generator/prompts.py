@@ -196,6 +196,10 @@ TEMPLATE_GUIDE = {
         "  · 두 가지를 견줄 때(전후, 국내·일본, 일반·한정 등 이 소재에 맞는 축): left_title·left_points, right_title·right_points.\n"
         "  · 순서 없는 요점 3~5개: bullets만(body 빈 값).\n"
         "  photo_hint: 이 장에 어울리는 실제 사진이 무엇인지 한 줄(예: '4DX 포스터', '팝콘통 굿즈 사진'). 사진이 필요 없으면 빈 값.\n"
+        "  heading은 그 장 내용을 구체적으로(예: '판매는 10/28~11/3', 'A상은 50cm 대형 인형'). '확인할 것', '라인업', "
+        "'정리', '비교'처럼 어느 소식에나 붙는 제목은 쓰지 않는다.\n"
+        "  이 계정은 **사진 위주**다: 자료에 상품·경품·메뉴처럼 실물이 2개 이상 나오면 목록(bullets)이 아니라 products로 쓴다"
+        "(상품마다 실제 사진이 붙는다). 4개가 넘으면 products 장을 나눈다.\n"
         "  작은 소식은 1~2장으로 끝낸다. 장수를 채우려고 표지 내용을 되풀이하지 않는다."
     ),
 }
@@ -371,7 +375,7 @@ def _editorial_slides(s: dict, heading: str) -> list:
     if len(products) >= 2:
         out.append(
             ProductsSlide(
-                heading=heading or "라인업",
+                heading=heading or f"{len(products)}종 한눈에",
                 items=[
                     ProductItem(
                         name=x["name"].strip(),
@@ -387,7 +391,7 @@ def _editorial_slides(s: dict, heading: str) -> list:
         rows = [FactRow(label=x["label"].strip(), value=x["value"].strip()) for x in facts]
         out.append(
             FactsSlide(
-                heading=heading or "확인할 것",
+                heading=heading or "·".join(r.label for r in rows[:2]),
                 rows=rows,
                 layout=fact_layout(rows, str(s.get("facts_layout", "rows"))),  # type: ignore[arg-type]
                 photo_hint="" if out else hint,

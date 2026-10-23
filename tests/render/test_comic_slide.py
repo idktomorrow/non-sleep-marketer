@@ -81,9 +81,8 @@ def test_markup_text_labels_and_missing_panel() -> None:
     assert html.count('<figure class="panel') == 2 and html.count("panel-img") == 1
     assert "그림 없음" in html and "<svg" not in html  # 도형으로 대체하지 않는다
     assert "카페 알바 루나" in html and "시러~" in html  # 라벨·말풍선은 HTML 글자
-    assert (
-        'data-label="virtual-person"' in html.split("</section>")[0]
-    )  # 첫 장이 만화면 이름·배지가 거기
+    # 카드에는 이름·가상인물 배지를 그리지 않는다(S18 사용자 결정: 표기는 게시 글 첫 줄)
+    assert 'data-label="virtual-person"' not in html and 'class="who"' not in html
 
 
 def test_ai_caption_follows_ai_slides_list() -> None:

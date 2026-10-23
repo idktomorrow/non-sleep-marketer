@@ -181,8 +181,9 @@ def test_photo_placement_goes_through_port_and_is_validated() -> None:
     from nsm.engine.photo_match import match_photos
 
     class Placer:
-        def place_photos(self, cover_text, slides, photos):
+        def place_photos(self, cover_text, slides, photos, items=()):
             assert [i for i, _ in slides] == [1, 2]  # 표지는 본문 장 목록에 넣지 않는다
+            assert items == []  # 상품 장이 없으면 상품 목록도 없다
             return {"cover": 1, "slides": [{"slide": 1, "photo": 0}, {"slide": 2, "photo": 1}, {"slide": 9, "photo": 0}],
                     "photos": [{"photo": 0, "shows": "팝콘통"}]}  # fmt: skip
 
@@ -234,3 +235,45 @@ def test_blog_images_are_read_from_mobile_page() -> None:
         resolver=lambda h: ["93.184.216.34"],
     )
     assert seen == ["m.blog.naver.com"]
+
+
+def test_each_product_gets_its_own_photo() -> None:
+    """라인업 장의 상품 하나하나에 그 상품 사진(S18: 사진 위주 카드). 다른 장과 같은 사진은 두 번 쓰지 않는다."""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from nsm.domain.models import ProductItem, ProductsSlide
+    from nsm.engine.photo_match import match_photos
+
+    class Placer:
+        def place_photos(self, cover_text, slides, photos, items=()):
+            assert items == ["[1.0] A상 대형 인형 · 50cm", "[1.1] B상 갑옷 인형"]
+            return {"cover": 2, "slides": [], "photos": [],
+                    "items": [{"slide": 1, "item": 0, "photo": 0}, {"slide": 1, "item": 1, "photo": 1},
+                              {"slide": 1, "item": 1, "photo": 2}, {"slide": 7, "item": 0, "photo": 1}]}  # fmt: skip
+
+    d = Path(tempfile.mkdtemp())
+    for n in ("a.jpg", "b.jpg", "c.jpg"):
+        (d / n).write_bytes(b"x")
+    deck = CardDeck(
+        template="editorial",
+        brand=DeckBrand(name="b", primary_color="#112233", accent_color="#445566"),
+        persona=DeckPersona(name="p", handle="@p"),
+        slides=[
+            CoverSlide(title="t"),
+            ProductsSlide(
+                heading="경품",
+                items=[
+                    ProductItem(name="A상 대형 인형", note="50cm"),
+                    ProductItem(name="B상 갑옷 인형"),
+                ],
+            ),
+        ],
+    )
+    p = match_photos(
+        SimpleNamespace(text_generator=Placer()),
+        deck,
+        [{"path": str(d / n)} for n in ("a.jpg", "b.jpg", "c.jpg")],
+    )
+    assert p.items == {(1, 0): 0, (1, 1): 1} and p.cover == 2  # 없는 장·두 번째 배정은 버린다

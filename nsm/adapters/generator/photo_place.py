@@ -31,8 +31,22 @@ SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        # 상품 장의 상품 하나하나(S18): "[3.1] B상 갑옷 인형" → slide 3, item 1
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "slide": {"type": "integer"},
+                    "item": {"type": "integer"},
+                    "photo": {"type": "integer"},
+                },
+                "required": ["slide", "item", "photo"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["photos", "cover", "slides"],
+    "required": ["photos", "cover", "slides", "items"],
     "additionalProperties": False,
 }
 
@@ -41,7 +55,9 @@ SYSTEM = (
     "(product, poster, event scene, people, text in image). Then assign a photo to a slide ONLY when the photo "
     "shows what that slide talks about (the same product, the same event, the poster of that film, etc.). "
     "Never put a photo of a different product or event on a slide. Each photo may be used at most once. "
-    "Order: FIRST assign body slides (a photo that shows exactly what one slide describes belongs to that slide), "
+    "Product lines like '[3.1] name' are individual products on a lineup slide: give each product the photo that "
+    "shows THAT product (or a lineup sheet only if nothing better exists); never a different product. "
+    "Order: FIRST assign products and body slides (a photo that shows exactly what one slide describes belongs to that slide), "
     "THEN choose the cover from the photos left over. "
     "cover: the photo that best represents the whole story's subject (the work, character, product or event the "
     "story is about — an official poster or key visual is ideal). The cover only needs to match the overall subject, "
@@ -61,12 +77,13 @@ def thumb_data_url(path: str) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def user_content(cover_text: str, slides, photos) -> list[dict]:
+def user_content(cover_text: str, slides, photos, items=()) -> list[dict]:
     text = (
         "표지: "
         + cover_text[:200]
         + "\n장 목록:\n"
         + "\n".join(t for _, t in slides)
+        + ("\n상품 목록:\n" + "\n".join(items) if items else "")
         + "\n\n사진 목록(번호 순서대로 이미지가 이어진다):\n"
         + "\n".join(
             f"[{k}] 출처 {src[:80]} · 설명 {alt or '없음'}"

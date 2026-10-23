@@ -32,10 +32,7 @@
 /* 띠가 카드 바닥까지 내려가므로 페이지 번호·AI 캡션 줄은 띠 위에 */
 .style-editorial .cover .bottombar { z-index: 2; }
 .style-editorial .cover .titles { display: flex; flex-direction: column; gap: 22px; align-items: flex-start; }
-/* 표지 꼬리표(장식 글자, 레퍼런스의 "What's New") */
-.style-editorial .cover .titles::before {
-  content: "WHAT'S NEW"; font-size: 26px; font-weight: 700; letter-spacing: .16em; opacity: .85; margin-bottom: -6px;
-}
+/* 표지 꼬리표(WHAT'S NEW)는 쓰지 않는다(S18, 사용자 결정 2026-10-23) */
 /* 키커: 칩 없이 짧은 글자(레퍼런스 "치이카와 × ANA 항공 콜라보 총정리"). 사진 위에서는 띠가 대비를 만든다 */
 .style-editorial .cover .subtitle { opacity: .92; }
 /* 사진 위 글 묶음 뒤에 글 높이만큼 따라가는 어두운 띠(순백 사진에서도 흰 글자 대비 ≥3). 가로는 카드 끝까지.
@@ -203,3 +200,46 @@
 .style-editorial .product:not(:has(img.product-img)) { justify-content: center; padding: 30px 26px; }
 .style-editorial .product:not(:has(img.product-img)) .product-name { font-size: 34px; }
 .style-editorial .product:not(:has(img.product-img)) .product-note { font-size: 24px; }
+
+/* ---------------- 사진 위주 라인업(S18, 실제 치이카와 굿즈 정리 카드 참고) ----------------
+   상품마다 실제 사진이 카드 대부분을 차지하고, 이름·가격 칩은 아래에 작게. 사진은 자르지 않는다(흐린 같은 사진으로 여백) */
+.style-editorial .products.item-photos .content { gap: 22px; justify-content: flex-start; }
+.style-editorial .products.item-photos h2 { font-size: 60px; }
+.style-editorial .products.item-photos .grid { flex: 1 1 auto; min-height: 0; gap: 18px; grid-auto-rows: 1fr; }
+.style-editorial .products.item-photos .grid.items-3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1.25fr 1fr; }
+.style-editorial .products.item-photos .grid.items-3 .product:first-child { grid-column: 1 / -1; }
+.style-editorial .products.item-photos .product {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 18px; border-radius: 28px; min-height: 0; background: #fff;
+}
+.style-editorial .product-pic {
+  position: relative; flex: 1 1 auto; min-height: 0; border-radius: 20px; overflow: hidden;
+  background: color-mix(in srgb, var(--primary) 12%, #f4f1ea);
+}
+.style-editorial .product-pic .product-img {
+  position: relative; width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; background: transparent; border-radius: 0;
+}
+.style-editorial .products.item-photos .product-name { font-size: 32px; font-weight: 800; padding: 0 8px; }
+.style-editorial .products.item-photos .product-note { font-size: 22px; padding: 0 8px; }
+/* 가격·조건은 동그란 칩(참고: "1회 ¥1,100" 같은 분홍 칩) */
+.style-editorial .products .product-price {
+  align-self: flex-start; margin: 0 8px; padding: 6px 18px; border-radius: 999px;
+  background: var(--primary); color: var(--on-primary); font-size: 26px; font-weight: 800;
+}
+.style-editorial .products.item-photos .product:not(.with-img) { justify-content: center; }
+/* 본문 사진은 크게(사진 위주): 글이 짧은 장은 사진이 장의 대부분 */
+.style-editorial .body.has-photo .photo-fig { height: min(820px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .facts.has-photo .photo-fig,
+.style-editorial .list.has-photo .photo-fig,
+.style-editorial .compare.has-photo .photo-fig { height: min(560px, calc(904px / var(--ar, 1.5))); }
+/* 상품 사진 여백은 같은 사진을 흐리게(빈 베이지 띠가 남지 않게) */
+.style-editorial .product-pic .photo-blur {
+  position: absolute; inset: -30px; background-size: cover; background-position: center; filter: blur(24px) brightness(.9) saturate(1.1);
+}
+/* 상품 2개: 세로로 길게 늘이지 않고 사진 비율에 가깝게(가운데 정렬) */
+.style-editorial .products.item-photos .grid.items-2 { flex: 0 1 auto; grid-auto-rows: minmax(0, 720px); align-content: center; }
+/* 정보 줄이 4줄 이상이면 사진을 줄여 글이 잘리지 않게(사진 위주라도 내용을 자르지 않는다) */
+.style-editorial .facts.has-photo:has(.rows > :nth-child(4)) .photo-fig { height: min(380px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .facts.has-photo:has(.rows > :nth-child(5)) .photo-fig { height: min(300px, calc(904px / var(--ar, 1.5))); }
+.style-editorial .facts.has-photo .rows.layout-rows .fact { padding: 14px 26px 16px; }
+.style-editorial .facts.has-photo .rows.layout-rows dd { font-size: 34px; }
+.style-editorial .facts.has-photo .rows.layout-rows dt { font-size: 22px; }

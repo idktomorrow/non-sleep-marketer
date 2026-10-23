@@ -48,8 +48,8 @@ def test_label_slots_do_not_depend_on_style(style: str, template: str) -> None:
     deck = load(template)
     assert _slots_with_style(deck, style) == slots(deck)  # 같은 장, 같은 표기 슬롯
     html = build_html(deck, style)
-    # 표지와 마지막 장에만, 이름과 함께(ADR 0043)
-    assert html.count('data-label="virtual-person"') == html.count('<div class="who">') == 2
+    # 이름·가상인물 배지는 카드에 그리지 않는다(S18: 게시 글 첫 줄 표기)
+    assert html.count('data-label="virtual-person"') == html.count('<div class="who">') == 0
     assert html.count('data-label="ad"') == (1 if deck.labels.ad else 0)
 
 

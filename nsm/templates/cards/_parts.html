@@ -98,15 +98,10 @@
 {%- endmacro %}
 
 {% macro chrome(s, i, n, deck, bg) -%}
+{#- 카드 위 표기(S18, 사용자 결정 2026-10-23): 계정 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다.
+    가상인물 표기는 게시 글 첫 줄(apply_labels)에 늘 붙는다. 광고·AI 생성 이미지 표기는 카드에 남긴다 -#}
 <div class="topbar">
-  {#- 가상인물 배지는 인물(페르소나 이름) 바로 옆: 심사지침 "가상인물과 근접한 위치" (ADR 0019).
-      이름(인물)과 배지는 표지와 마지막 장에만 함께 둔다. 중간 장에는 둘 다 없다(ADR 0043) -#}
-  {%- if s.kind in ('cover', 'outro') or (s.kind in ('comic', 'meme_image') and i == 1) %}
-  <div class="ident">
-    <div class="who">{% if deck.brand.logo_path %}<img class="logo" src="{{ deck.brand.logo_path | file_uri }}" alt="">{% endif %}{{ deck.persona.name }} {{ deck.persona.handle }}</div>
-    {%- if deck.labels.virtual_person %}<span class="badge" data-label="virtual-person">가상인물</span>{% endif -%}
-  </div>
-  {%- else %}<div class="ident"></div>{% endif %}
+  <div class="ident"></div>
   <div class="badges">
     {%- if s.kind == 'cover' and deck.labels.ad %}<span class="badge ad" data-label="ad">광고</span>{% endif -%}
   </div>
@@ -118,7 +113,6 @@
   {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
   {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
   {%- if i == n and s.kind != 'outro' and s.kind != 'meme_image' and deck.sources %}<span class="deck-sources" data-sources>출처 {{ deck.sources | join(' · ') }}</span>{% endif -%}
-  <span class="page" data-page>{{ i }} / {{ n }}</span>
 </div>
 {%- endmacro %}
 
@@ -211,15 +205,16 @@
 {#- S12 제안(ADR 0052): 상품 그리드. 그림은 장별 background처럼 사람이 올린 로컬 파일이고 이름·가격은 HTML 글자다 -#}
 {% macro products(s, i, n, deck) -%}
 {%- set bg = s.background -%}
-{{ open('products' ~ (' has-photo' if s.photo else ''), s, bg) }}
+{%- set item_photos = s.items | selectattr('image') | list | length -%}
+{{ open('products' ~ (' has-photo' if s.photo and not item_photos else '') ~ (' item-photos' if item_photos else ''), s, bg) }}
   {{ chrome(s, i, n, deck, bg) }}
   <div class="content{% if s.sticker %} has-sticker{% endif %}">
-    {{- sticker(s) }}{{ photo(s) }}
+    {{- sticker(s) }}{% if not item_photos %}{{ photo(s) }}{% endif %}
     <h2 data-fit="44">{{ s.heading }}</h2>
     <div class="grid items-{{ s.items | length }}">
       {% for it in s.items %}
-      <div class="product">
-        {% if it.image %}<img class="product-img" src="{{ it.image | file_uri }}" alt="">{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
+      <div class="product{% if it.image %} with-img{% endif %}">
+        {% if it.image %}<div class="product-pic"><div class="photo-blur" style="background-image: url('{{ it.image | file_uri }}')"></div><img class="product-img" src="{{ it.image | file_uri }}" alt=""></div>{% else %}<div class="product-img placeholder" aria-hidden="true"></div>{% endif %}
         <div class="product-name" data-fit="22">{{ it.name }}</div>
         {% if it.note %}<div class="product-note" data-fit="16">{{ it.note }}</div>{% endif %}
         {% if it.price %}<div class="product-price" data-fit="20">{{ it.price }}</div>{% endif %}

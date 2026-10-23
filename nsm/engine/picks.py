@@ -49,10 +49,13 @@ MAX_CANDIDATES = 10  # 생성까지 시도할 사건 수 상한(비용)
 PhotoFetcher = Callable[[str, Path], "PhotoCandidate | list[PhotoCandidate] | None"]
 
 
+MAX_PHOTOS = 10  # 원고당 사진 후보(사진 위주 카드: 상품마다 사진이 필요할 수 있다, S18)
+
+
 def fetch_photo_candidates(url: str, dest: Path) -> list[PhotoCandidate]:
     from nsm.adapters.sources.og_image import fetch_article_images
 
-    return fetch_article_images(url, dest, max_images=3)
+    return fetch_article_images(url, dest, max_images=8)
 
 
 def picks_dir(ctx: JobContext) -> Path:
@@ -451,9 +454,9 @@ def _attach_photo(
             cands += [c for c in (got if isinstance(got, list) else [got]) if c is not None]
         except Exception as e:  # noqa: BLE001  후보는 있으면 좋고 없어도 된다
             log.info("사진 후보 수집 실패(%s): %s", u, e)
-        if len(cands) >= 5:
+        if len(cands) >= MAX_PHOTOS:
             break
-    for extra in cands[5:]:  # 쓰지 않을 후보 파일은 남기지 않는다(S18 리뷰)
+    for extra in cands[MAX_PHOTOS:]:  # 쓰지 않을 후보 파일은 남기지 않는다(S18 리뷰)
         Path(extra.path).unlink(missing_ok=True)
     if not cands:
         if urls:
@@ -481,7 +484,7 @@ def _attach_photo(
             "kind": getattr(c, "kind", "og"),
             "size": [c.width, c.height],
         }
-        for c in cands[:5]
+        for c in cands[:MAX_PHOTOS]
     ]
     placement = None
     if deck is not None:
@@ -492,6 +495,7 @@ def _attach_photo(
             placement = {
                 "cover": p.cover,
                 "slides": {str(k): v for k, v in p.slides.items()},
+                "items": {f"{i}.{j}": v for (i, j), v in p.items.items()},
                 "notes": {str(k): v for k, v in p.notes.items()},
                 "method": p.method,
             }

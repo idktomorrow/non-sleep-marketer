@@ -323,6 +323,20 @@ class ReviewActions:
                     )
                 }
             )
+        # 상품 하나하나의 사진(S18): 그 상품을 보여 주는 사진만
+        for key, k in (placement.get("items") or {}).items():
+            try:
+                i, j = (int(x) for x in key.split("."))
+            except ValueError:
+                continue
+            if not (0 < i < len(slides)) or slides[i].kind != "products" or not usable(k):
+                continue
+            items = list(slides[i].items)
+            if not (0 <= j < len(items)):
+                continue
+            dest, _cand = copy(int(k), f"slide-{i + 1:02d}-item{j}")
+            items[j] = items[j].model_copy(update={"image": str(dest)})
+            slides[i] = slides[i].model_copy(update={"items": items})
         g = g.model_copy(update={"deck": g.deck.model_copy(update={"slides": slides})})
         if recolor and cover_dest is not None:
             g = apply_photo_colors(g, cover_dest)

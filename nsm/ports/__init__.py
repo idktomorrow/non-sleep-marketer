@@ -305,7 +305,11 @@ class PhotoPlacer(Protocol):
     "photos": [{"photo": 번호, "shows": 무엇이 보이는지}]}. 검증은 호출자가 한다."""
 
     def place_photos(
-        self, cover_text: str, slides: list[tuple[int, str]], photos: list[tuple[str, str, str]]
+        self,
+        cover_text: str,
+        slides: list[tuple[int, str]],
+        photos: list[tuple[str, str, str]],
+        items: list[str] = (),  # 상품 장의 상품 하나하나 "[장.번호] 이름 · 설명"(S18)
     ) -> dict: ...
 
 

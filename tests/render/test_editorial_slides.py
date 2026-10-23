@@ -86,8 +86,9 @@ def test_renders_in_every_style_without_overflow(
 def test_label_slots_text_and_images() -> None:
     d = deck(item_image=str(SAMPLE))
     s = slots(d)
-    assert [x["labels"].count("virtual-person") for x in s] == [1, 0, 0, 0, 1]
-    assert all(x["page"] == 1 for x in s) and [x["sources"] for x in s] == [0, 0, 0, 0, 1]
+    # 이름·가상인물 배지·쪽 번호는 카드에 없다(S18). 출처는 마무리 장에
+    assert all("virtual-person" not in x["labels"] and x["page"] == 0 for x in s)
+    assert [x["sources"] for x in s] == [0, 0, 0, 0, 1]
     html = build_html(d, "editorial")
     for it in d.slides[2].items:  # 이름·가격은 HTML 글자
         assert it.name in html and it.price in html

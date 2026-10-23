@@ -22,6 +22,9 @@ log = logging.getLogger(__name__)
 class Placement:
     cover: int | None = None  # 후보 번호
     slides: dict[int, int] = field(default_factory=dict)  # 장 번호 → 후보 번호
+    items: dict[tuple[int, int], int] = field(
+        default_factory=dict
+    )  # (상품 장, 상품 번호) → 후보 번호
     notes: dict[int, str] = field(default_factory=dict)  # 후보 번호 → 무엇을 보여 주는지(모델 판단)
     method: str = "none"  # vision | text | none
 
@@ -41,11 +44,18 @@ def _slide_brief(deck: CardDeck) -> list[tuple[int, str]]:
 def _vision(placer, deck: CardDeck, cands: list[dict]) -> Placement | None:
     """그림을 볼 수 있는 공급자(포트 PhotoPlacer)에 묻고, 돌아온 번호를 검증한다. 실패하면 None."""
     brief = _slide_brief(deck)
+    items = [
+        f"[{i}.{j}] {it.name}" + (f" · {it.note}" if it.note else "")
+        for i, s in enumerate(deck.slides)
+        if s.kind == "products"
+        for j, it in enumerate(s.items)
+    ]
     try:
         out = placer.place_photos(
             " / ".join(slide_texts(deck.slides[0])),
             brief,
             [(c["path"], c.get("source_url", ""), c.get("alt", "")) for c in cands],
+            items,
         )
     except Exception as e:  # noqa: BLE001  배치는 있으면 좋고 없으면 비워 둔다
         log.info("사진 짝짓기 실패(비워 둠): %s", e)
@@ -58,6 +68,18 @@ def _vision(placer, deck: CardDeck, cands: list[dict]) -> Placement | None:
     if 0 <= cov < n:
         p.cover = cov
         used.add(cov)
+    valid_items = {
+        (i, j)
+        for i, s in enumerate(deck.slides)
+        if s.kind == "products"
+        for j in range(len(s.items))
+    }
+    # 상품 하나하나에 먼저(그 상품을 보여 주는 사진이 가장 구체적이다), 그다음 장
+    for a in out.get("items", []):
+        key, ph = (int(a["slide"]), int(a["item"])), int(a["photo"])
+        if key in valid_items and 0 <= ph < n and ph not in used:
+            p.items[key] = ph
+            used.add(ph)
     for a in out.get("slides", []):
         si, ph = int(a["slide"]), int(a["photo"])
         if si in valid and 0 <= ph < n and ph not in used:
@@ -109,6 +131,7 @@ def match_photos(ctx, deck: CardDeck, cands: list[dict]) -> Placement:
     return Placement(
         cover=keep[p.cover] if p.cover is not None else None,
         slides={i: keep[k] for i, k in p.slides.items()},
+        items={key: keep[k] for key, k in p.items.items()},
         notes={keep[k]: v for k, v in p.notes.items()},
         method=p.method,
     )
