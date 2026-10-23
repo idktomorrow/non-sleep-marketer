@@ -103,7 +103,7 @@
 
 {% macro chrome(s, i, n, deck, bg) -%}
 {#- 카드 위 표기(S18, 사용자 결정 2026-10-23): 계정 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다.
-    가상인물 표기는 게시 글 첫 줄(apply_labels)에 늘 붙는다. 광고·AI 생성 이미지 표기는 카드에 남긴다 -#}
+    가상인물·AI 생성 이미지 표기는 게시 글 첫 부분(apply_labels)에 붙는다. 광고 배지만 카드에 남긴다 -#}
 <div class="topbar">
   <div class="ident"></div>
   <div class="badges">
@@ -115,7 +115,7 @@
       (덱 플래그 + 그 장에 background). AI로 만든 캐릭터 그림이 들어간 일러스트 장도 같은 표기(C17, ADR 0046) -#}
   {%- set ai_slides = deck.labels.ai_slides -%}
   {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
-  {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
+  {#- AI 생성 이미지 표기는 카드에 그리지 않는다(S18, 사용자 결정 2026-10-23): 게시 글 첫 부분에 붙는다(apply_labels) -#}
 </div>
 {%- endmacro %}
 

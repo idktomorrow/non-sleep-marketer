@@ -18,6 +18,7 @@ from nsm.domain.models import Content, Platform, Publication, RenderedPost
 from nsm.domain.policy import (
     apply_labels,
     fit_with_tail,
+    has_ai_image,
     labeled_blog_title,
     local_day_bounds,
     should_post,
@@ -171,7 +172,7 @@ def build_post(
         platform=platform,
         title=labeled_blog_title(g.blog_title) if platform == "naver_blog" else None,
         text=fit_with_tail(
-            apply_labels(body, content.is_ad),
+            apply_labels(body, content.is_ad, has_ai_image(g.deck)),
             platform,
             _sources_tail(content, platform) if platform in ("instagram", "threads") else "",
         ),

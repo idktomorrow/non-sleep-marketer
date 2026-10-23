@@ -72,12 +72,8 @@ def test_image_character_on_cover_and_outro_only(art_png: Path) -> None:
     assert "mascot-img" in slides[0] and "mascot-img" in slides[-1]
     assert all("mascot" not in s for s in slides[1:-1])
     assert '<svg class="mascot' not in html  # 코드 캐릭터 대신 그림
-    # AI로 만든 그림이 있는 장에만 AI 표기
-    assert ['data-label="ai-generated"' in s for s in slides] == [
-        True,
-        *([False] * (len(slides) - 2)),
-        True,
-    ]
+    # AI 표기는 카드가 아니라 게시 글에(S18, 사용자 결정 2026-10-23)
+    assert not any('data-label="ai-generated"' in s for s in slides)
 
 
 def test_hand_drawn_character_has_no_ai_caption(art_png: Path) -> None:

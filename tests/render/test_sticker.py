@@ -18,8 +18,10 @@ def test_sticker_markup_and_ai_caption_per_slide() -> None:
     assert html.count('class="sticker"') == 2 and "has-sticker" in html
     assert "<svg" not in html  # 코드 캐릭터 없음
     s = slots(deck())
-    # ai_slides=[1, 2]: 스티커(AI) 본문과 만화 장만. 사진이 있는 표지·마지막 장은 AI 표기 없음
-    assert ["ai-generated" in x["labels"] for x in s] == [False, True, True, False, False]
+    # AI 표기는 카드가 아니라 게시 글에(S18): ai_slides=[1, 2]가 있으면 글에 붙는다
+    from nsm.domain.policy import has_ai_image
+
+    assert not any("ai-generated" in x["labels"] for x in s) and has_ai_image(deck())
 
 
 def test_missing_sticker_file_leaves_no_image() -> None:

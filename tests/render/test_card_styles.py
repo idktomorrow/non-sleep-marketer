@@ -79,7 +79,8 @@ def test_code_drawn_background_has_no_ai_caption(style: str, tmp_path: Path) -> 
     slides = list(deck.slides)
     slides[1] = slides[1].model_copy(update={"background": str(bg)})
     s = _slots_with_style(deck.model_copy(update={"slides": slides}), style)
-    assert ["ai-generated" in x["labels"] for x in s] == [False, True, False, False]
+    # AI 표기는 카드가 아니라 게시 글에(S18). 어느 장에 AI 그림이 있는지는 has_ai_image가 본다
+    assert not any("ai-generated" in x["labels"] for x in s)
 
 
 @pytest.mark.parametrize("style", ["photo", "illust"])

@@ -122,8 +122,10 @@ def test_ai_caption_only_on_slides_with_background(tmp_path: Path) -> None:
         }
     )
     s = slots(deck)
-    assert "ai-generated" in s[0]["labels"] and bg.resolve().as_uri() in s[0]["style"]
-    assert all("ai-generated" not in x["labels"] for x in s[1:])
+    # AI 표기는 카드가 아니라 게시 글에(S18). 배경은 그대로 꽉 채운다
+    assert bg.resolve().as_uri() in s[0]["style"] and not any(
+        "ai-generated" in x["labels"] for x in s
+    )
 
 
 def test_missing_background_falls_back_to_brand_gradient() -> None:
