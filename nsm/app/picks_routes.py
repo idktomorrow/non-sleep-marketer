@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from nsm.app.review_actions import ReviewActions
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.policy import local
 from nsm.domain.topics import account_topic_conflict
 from nsm.store.picks import Pick
@@ -132,7 +133,7 @@ def install_picks_routes(
         cfg = state.get_config()
         # 사진 우선형이고 사진 후보를 모으는 설정일 때만 "소재 사진 없음"을 띄운다(다른 스타일은 원래 사진이 없다, S18 리뷰)
         photos_expected = (
-            cfg.brand.card_style == "editorial" and cfg.settings.picks.photo_candidates
+            cfg.brand.card_style in PHOTO_FIRST_STYLES and cfg.settings.picks.photo_candidates
         )
         for p in picks:
             c = contents[p.content_id]

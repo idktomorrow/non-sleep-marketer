@@ -19,8 +19,10 @@ class _Model(BaseModel):
 
 # 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. clean·photo·illust는 배경을 코드(CSS·SVG)로 그린다.
 # editorial(S10 제안, ADR 0050): 사람이 확인한 사진을 크게 깔고 글은 그 위 패널에 올리는 사진 우선 레이아웃.
-CardStyle = Literal["clean", "photo", "illust", "editorial"]
+# kitsch(S18 제안, ADR 0063): editorial과 같은 구성·같은 장 표현에 굵은 장식 제목·스티커 사진·손글씨 이름표를 얹는다.
+CardStyle = Literal["clean", "photo", "illust", "editorial", "kitsch"]
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
+PHOTO_FIRST_STYLES: frozenset[str] = frozenset({"editorial", "kitsch"})
 
 
 # 일러스트형 카드 캐릭터(C17·C20, ADR 0046): 없음(기본), 직접 올린 그림, 코드로 그린 캐릭터

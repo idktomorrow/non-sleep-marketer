@@ -242,7 +242,8 @@ def test_meme_image_renders_with_tail_toward_speaker(app_config, tmp_path) -> No
     from nsm.render.html_renderer import build_html
 
     html = build_html(deck, "editorial")
-    assert 'data-tx="40.0"' in html and "참고 밈" in html and "AI 생성 이미지" in html
+    # 참고 밈 출처는 카드가 아니라 캡션 끝(S18). AI 생성 이미지 표기는 카드에 남는다
+    assert 'data-tx="40.0"' in html and "참고 밈" not in html and "AI 생성 이미지" in html
     # 꼬리: 렌더 때 말풍선에서 화자(40%, 70%) 쪽으로 경로 하나
     page_file = tmp_path / "deck.html"
     page_file.write_text(html, encoding="utf-8")

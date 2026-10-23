@@ -251,7 +251,9 @@ def test_long_threads_text_fits_limit(ctx: JobContext, db) -> None:
     assert len(post.text) == TEXT_LIMITS["threads"]
     # 앞에 표기 문구, 끝에 출처 줄(배치 Q1)은 그대로 두고 가운데 본문만 줄인다
     assert post.text.startswith(VIRTUAL_PERSON_TEXT)
-    assert post.text.endswith("\n\n출처: example.com") and "…\n\n출처:" in post.text
+    assert (
+        post.text.endswith("\n\n출처\nhttps://example.com/brew-temp") and "…\n\n출처\n" in post.text
+    )
 
 
 def test_overflowing_card_goes_to_review_not_published(ctx: JobContext) -> None:

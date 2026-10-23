@@ -97,7 +97,7 @@ def test_label_slots_match_clean_and_no_ai_caption_without_flag() -> None:
     assert all("ai-generated" not in x["labels"] for x in ours)  # 사진이 있어도 AI 배경이 아니다
     assert all("virtual-person" not in x["labels"] for x in ours)  # S18: 카드에 없음
     assert all("ad" not in x["labels"] for x in ours)
-    assert [x["sources"] for x in ours] == [0, 0, 0, 1]
+    assert all(x["sources"] == 0 for x in ours)  # 출처는 게시 글 끝(S18)
     # 이름·핸들·가상인물 배지는 카드에 없다(S18). 팔로우 카드는 브랜드 이름만
     html = build_html(deck, STYLE)
     assert html.count('<div class="who">') == 0 == html.count('data-label="virtual-person"')

@@ -89,7 +89,9 @@ def test_label_slots_present(template: str) -> None:
     assert len(s) == len(deck.slides)
     # 이름·가상인물 배지·쪽 번호는 카드에 그리지 않는다(S18 사용자 결정: 가상인물 표기는 게시 글 첫 줄)
     assert all("virtual-person" not in x["labels"] and x["who"] == 0 and x["page"] == 0 for x in s)
-    assert [x["sources"] for x in s] == [0] * (len(s) - 1) + [1]  # 출처는 마무리 장에만
+    assert all(
+        x["sources"] == 0 for x in s
+    )  # 출처는 카드에 그리지 않고 게시 글 끝에 실제 주소(S18)
     ad = [x for x in s if "ad" in x["labels"]]
     if deck.labels.ad:
         assert len(ad) == 1 and ad[0]["kind"] == "cover"  # 광고 배지는 표지에
@@ -182,16 +184,14 @@ def test_render_works_while_playwright_runs_on_same_thread(renderer, tmp_path: P
     assert len(paths) == 3
 
 
-def test_long_sources_wrap_not_ellipsis() -> None:
+def test_sources_are_not_drawn_on_cards() -> None:
+    """출처(사이트 이름·사진 출처)는 카드에 그리지 않는다(S18 사용자 결정): 게시 글 끝에 실제 주소."""
     html = build_html(_extreme("info"))
     assert (
-        "text-overflow"
-        not in (Path(__file__).resolve().parents[2] / "nsm/templates/cards/base.css")
-        .read_text("utf-8")
-        .split(".outro .sources li")[1]
-        .split("}")[0]
+        "data-sources" not in html
+        and "<b>출처</b>" not in html
+        and "사진 " not in html.split("<script>")[0]
     )
-    assert html.count('data-fit="16"') == 6  # 출처마다 글자 맞춤 대상
 
 
 def test_no_html_left_in_output_and_overflow_reset(renderer, tmp_path: Path) -> None:

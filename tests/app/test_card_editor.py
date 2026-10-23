@@ -351,7 +351,8 @@ def test_edit_sources_reaches_card_and_post_tail(env) -> None:
     c = env["repo"].get_content("c1")
     assert c.generated.deck.slides[oi].sources == ["https://news.naver.com/a", "브랜드 제공 자료"]
     post = build_post(c, "threads", [])
-    assert post.text.rstrip().endswith("출처: 네이버 뉴스, 브랜드 제공 자료")
+    # 게시 글 끝: 실제 주소(스레드는 1개) + 주소가 아닌 출처 이름(S18)
+    assert post.text.rstrip().endswith("출처\nhttps://news.naver.com/a\n브랜드 제공 자료")
 
 
 @pytest.mark.parametrize(

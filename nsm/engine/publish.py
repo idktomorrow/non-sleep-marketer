@@ -22,7 +22,7 @@ from nsm.domain.policy import (
     local_day_bounds,
     should_post,
 )
-from nsm.domain.quality import card_sources, sources_line
+from nsm.domain.quality import card_sources
 from nsm.engine.artifacts import ArtifactMissing
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
@@ -134,13 +134,29 @@ _TEXT_FIELD = {
 }
 
 
-def _sources_tail(content: Content) -> str:
-    """SNS 글 끝에 붙일 출처 줄(배치 Q1). 카드 마무리 장의 출처에서 사이트 이름 1~2개."""
+def post_source_urls(content: Content) -> list[str]:
+    """게시 글 끝에 적을 실제 주소(S18 사용자 결정 2026-10-23: 카드에는 출처 표기를 그리지 않고 글에 진짜 주소).
+    사실 자료(덱 출처·마무리 장 출처)와 카드에 넣은 실제 사진의 출처를 한 번씩."""
     deck = content.generated.deck
     outro = next((s for s in deck.slides if s.kind == "outro"), None)
-    # 마무리 장이 없는 소식형(S18)은 덱 출처로
-    line = sources_line(list(outro.sources) if outro else list(deck.sources))
-    return f"\n\n{line}" if line else ""
+    # 마무리 장이 있으면 그 출처(검토 화면에서 고친 값)가 우선, 없으면 덱 출처
+    urls = list(outro.sources) if outro is not None else list(deck.sources)
+    for s in deck.slides:
+        ph = getattr(s, "photo", None)
+        if ph is not None and ph.source:
+            urls.append(ph.source)
+    return list(dict.fromkeys(u for u in urls if u and u.strip()))
+
+
+def _sources_tail(content: Content, platform: str = "instagram") -> str:
+    """SNS 글 끝 출처: 실제 주소. 스레드는 글자 수 상한(500자)이 있어 1개만."""
+    all_src = post_source_urls(content)
+    urls = [u for u in all_src if u.startswith(("http://", "https://"))]
+    names = [
+        u for u in all_src if u not in urls
+    ]  # "브랜드 제공 자료"처럼 주소가 아닌 출처는 이름 그대로
+    shown = (urls[:1] if platform == "threads" else urls[:4]) + names[:2]
+    return "\n\n출처\n" + "\n".join(shown) if shown else ""
 
 
 def build_post(
@@ -157,7 +173,7 @@ def build_post(
         text=fit_with_tail(
             apply_labels(body, content.is_ad),
             platform,
-            _sources_tail(content) if platform in ("instagram", "threads") else "",
+            _sources_tail(content, platform) if platform in ("instagram", "threads") else "",
         ),
         images=images,
     )

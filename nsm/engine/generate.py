@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from nsm.config.schema import PHOTO_FIRST_STYLES
 from nsm.domain.clock import new_id
 from nsm.domain.models import Content, ContentBrief, GeneratedContent, SourceItem
 from nsm.domain.policy import (
@@ -268,7 +269,7 @@ def build_draft(
     persona_topic, chosen = material
     items = [i for i, _ in chosen]
     # 사진 우선형이면 소식형 하나로 쓰고 장마다 내용이 표현을 고른다(S18). 다른 스타일은 예전처럼 돌려 쓴다
-    if brand.card_style == "editorial":
+    if brand.card_style in PHOTO_FIRST_STYLES:
         template = "editorial"
     else:
         template = choose_template(ctx.repo.recent_templates(len(TEMPLATES)), TEMPLATES)

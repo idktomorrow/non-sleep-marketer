@@ -16,7 +16,7 @@ import pytest
 from nsm.render.html_renderer import HtmlCardRenderer, build_html, template_version
 from tests.render.test_html_renderer import _extreme, load, png_size, slots
 
-STYLES = ["clean", "photo", "illust", "editorial"]
+STYLES = ["clean", "photo", "illust", "editorial", "kitsch"]
 TEMPLATES = ["info", "list", "compare"]
 
 

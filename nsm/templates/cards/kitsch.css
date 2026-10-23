@@ -1,0 +1,102 @@
+/* kitsch 스킨(S18 제안, ADR 0063): editorial.css 위에 얹는다. 구성·장 표현·표기 슬롯은 소식형과 같고 장식만 다르다.
+   참고(사용자가 준 실제 카드 2026-10-23): 분홍 반짝이 바탕의 굿즈 콜라주 + 손글씨 이름표, 유튜브 썸네일처럼 굵은 외곽선 제목.
+   그림은 여전히 실제 자료 사진뿐이고, 코드로 그리는 것은 반짝이 무늬·스티커 테두리·글자 장식이다.
+   폰트(OFL): Black Han Sans(제목), Jua(칩·소제목), Gaegu Bold(손글씨 이름표). 본문은 Pretendard 그대로(읽기 쉬움) */
+@font-face { font-family: "BlackHanSans"; src: url("../fonts/BlackHanSans-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Jua"; src: url("../fonts/Jua-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Gaegu"; font-weight: 700; src: url("../fonts/Gaegu-Bold.woff2") format("woff2"); }
+
+.skin-kitsch {
+  --paper: color-mix(in srgb, var(--primary) 16%, #FFF2F7);
+  --sticker-edge: #fff; --outline: #1B1D22;
+}
+/* 바탕: 파스텔 + 옅은 물방울 점 */
+.skin-kitsch .slide:not(.has-bg) {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,255,255,.75) 0 120px, transparent 121px),
+    radial-gradient(circle at 92% 88%, rgba(255,255,255,.6) 0 160px, transparent 161px),
+    radial-gradient(rgba(255,255,255,.55) 3px, transparent 4px) 0 0 / 46px 46px,
+    var(--paper);
+}
+/* 반짝이(코드 장식): 네 꼭지 별 */
+.skin-kitsch .sparkles .spark {
+  position: absolute; width: 56px; height: 56px; background: #fff;
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+.skin-kitsch .spark.sp0 { top: 46px; left: 60px; }
+.skin-kitsch .spark.sp1 { top: 120px; right: 90px; width: 36px; height: 36px; background: var(--accent); }
+.skin-kitsch .spark.sp2 { bottom: 70px; left: 120px; width: 40px; height: 40px; }
+.skin-kitsch .spark.sp3 { bottom: 150px; right: 54px; width: 64px; height: 64px; }
+.skin-kitsch .spark.sp4 { top: 52%; left: 28px; width: 28px; height: 28px; background: var(--accent); }
+.skin-kitsch .spark.sp5 { top: 30px; left: 46%; width: 30px; height: 30px; }
+.skin-kitsch .spark.sp6 { bottom: 34px; left: 58%; width: 34px; height: 34px; background: var(--accent); }
+
+/* 표지: 굵은 외곽선 제목(흰 글자 + 진한 외곽선 + 색 그림자), 핵심 한 줄은 노란 스티커 칩 */
+.skin-kitsch .cover h1 {
+  font-family: "BlackHanSans", "Pretendard", sans-serif; font-weight: 400; font-size: 124px; line-height: 1.12;
+  letter-spacing: -0.01em; color: #fff;
+  -webkit-text-stroke: 14px var(--outline); paint-order: stroke fill;
+  text-shadow: 0 10px 0 var(--primary-deep);
+}
+.skin-kitsch .cover:not(.has-bg) h1 { color: #fff; }
+.skin-kitsch .cover .subtitle {
+  font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; font-size: 50px; line-height: 1.3;
+  background: #FFE45C; color: var(--outline); opacity: 1; padding: 10px 26px 12px; border-radius: 18px;
+  border: 5px solid var(--outline); transform: rotate(-2deg); box-shadow: 6px 6px 0 var(--outline);
+  max-width: calc(100% - 28px);  /* 기울인 칩·그림자가 가로로 넘치지 않게 */
+}
+/* 사진 위 띠는 소식형보다 옅게(외곽선 글자가 대비를 만든다) */
+.skin-kitsch .cover.has-bg .titles {
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.18) 20%, rgba(0,0,0,.42) 60%, rgba(0,0,0,.55) 100%);
+}
+
+/* 장 제목: 굵은 장식 글자 + 형광펜 밑줄 */
+.skin-kitsch .slide:not(.cover) h2 {
+  font-family: "BlackHanSans", "Pretendard", sans-serif; font-weight: 400; letter-spacing: 0; color: var(--outline);
+  background: linear-gradient(transparent 62%, color-mix(in srgb, var(--accent) 55%, #FFE45C) 62% 92%, transparent 92%);
+  align-self: flex-start;
+}
+.skin-kitsch .slide:not(.cover) h2::after { display: none; }
+.skin-kitsch .caption-panel h2 { align-self: flex-start; }
+
+/* 사진: 흰 테두리 스티커 + 진한 그림자(기울이면 가로 넘침으로 잡혀 글자가 줄어든다) */
+.skin-kitsch .has-photo .photo-fig {
+  border: 12px solid var(--sticker-edge); border-radius: 28px;
+  box-shadow: 0 0 0 4px var(--outline), 10px 12px 0 rgba(27,29,34,.22);
+}
+
+/* 상품 라인업: 스티커 사진 카드 + 손글씨 이름표 + 둥근 가격 칩 */
+.skin-kitsch .products.item-photos .product {
+  border: 4px solid var(--outline); border-radius: 26px; box-shadow: 8px 8px 0 rgba(27,29,34,.18);
+}
+/* 카드를 기울이면 회전한 상자가 가로 넘침으로 잡혀 글자가 최소 크기까지 줄어든다(실키 확인). 이름표에 테이프 띠를 붙인다 */
+.skin-kitsch .products.item-photos .product-name {
+  align-self: flex-start; background: linear-gradient(transparent 55%, color-mix(in srgb, var(--accent) 45%, #FFE45C) 55% 95%, transparent 95%);
+}
+.skin-kitsch .products .product-name {
+  font-family: "Gaegu", "Pretendard", sans-serif; font-weight: 700; color: var(--outline); line-height: 1.1;
+}
+.skin-kitsch .products.item-photos .product-name { font-size: 40px; }
+.skin-kitsch .products .product-price {
+  font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; border: 3px solid var(--outline);
+}
+
+/* 정보 줄: 티켓처럼(점선 테두리 + 진한 외곽선), 종류 이름은 Jua 칩 */
+.skin-kitsch .rows.layout-rows .fact,
+.skin-kitsch .rows.layout-conditions .fact,
+.skin-kitsch .rows.layout-figures .fact {
+  border: 4px solid var(--outline); border-radius: 22px; box-shadow: 6px 6px 0 rgba(27,29,34,.18);
+  outline: 3px dashed color-mix(in srgb, var(--primary) 55%, #fff); outline-offset: -14px;
+}
+.skin-kitsch .rows dt { font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }
+.skin-kitsch .rows.layout-timeline dd { font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }
+.skin-kitsch .rows.layout-figures dd { font-family: "BlackHanSans", "Pretendard", sans-serif; font-weight: 400; }
+
+/* 목록·비교·본문 칩: 진한 외곽선 스티커 */
+.skin-kitsch .list li, .skin-kitsch .compare .col { border: 4px solid var(--outline); box-shadow: 6px 6px 0 rgba(27,29,34,.16); }
+.skin-kitsch .compare .col h3 { font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }
+.skin-kitsch .body:not(.has-bg) li { border: 3px solid var(--outline); font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }
+.skin-kitsch .body:not(.has-bg):not(.has-photo) .content { border-left-color: var(--outline); }
+.skin-kitsch .caption-panel { border: 4px solid var(--outline); box-shadow: 8px 8px 0 rgba(27,29,34,.22); }
+.skin-kitsch .outro .cta { font-family: "Jua", "Pretendard", sans-serif; font-weight: 400; }

@@ -62,7 +62,7 @@
        data-fit="{{ {'s': 22, 'm': 26, 'l': 32, 'xl': 40}[o.size] }}"{% if o.kind == 'bubble' and o.tail_x is not none %} data-tx="{{ o.tail_x }}" data-ty="{{ o.tail_y }}"{% endif %}>{{ o.text }}</div>
   {%- endfor %}
   {{ chrome(s, i, n, deck, s.image) }}
-  {%- if s.credits %}<div class="mo-credits" data-sources>{{ s.credits | join(' · ') }}</div>{% endif %}
+  {#- 밈의 캐릭터 참조·참고 밈 출처도 카드에는 그리지 않는다(S18): 캡션 끝에 실제 주소 -#}
 </section>
 {%- endmacro %}
 
@@ -70,7 +70,11 @@
     배경 사진이 있는 장은 장식 없이 사진 + 어두운 그라디언트(.has-bg)로 그린다(아래 띠의 흰 글자가 읽히게). -#}
 {% macro deco(s, bg) -%}
 {%- if style == 'editorial' %}
-{#- 사진 우선형(S14): 코드로 그린 캐릭터·소품을 더 얹지 않는다. 그림은 사람이 고른 사진과 스티커(ImageAsset)뿐 -#}
+{#- 사진 우선형(S14): 코드로 그린 캐릭터·소품을 더 얹지 않는다. 그림은 사람이 고른 사진과 스티커(ImageAsset)뿐.
+    키치형(S18 제안, ADR 0063)은 사진 없는 바탕에 반짝이 무늬만 코드로 그린다(그림·캐릭터는 여전히 실제 자료만) -#}
+{%- if skin == 'kitsch' and not bg %}
+<div class="deco sparkles" aria-hidden="true">{% for k in range(7) %}<i class="spark sp{{ k }}"></i>{% endfor %}</div>
+{%- endif %}
 {%- elif bg %}
 {%- elif style == 'photo' %}
 <div class="deco" aria-hidden="true"><i class="ring"></i><i class="band"></i><i class="dots"></i></div>
@@ -112,7 +116,6 @@
   {%- set ai_slides = deck.labels.ai_slides -%}
   {%- set ai = ((i - 1) in ai_slides) if ai_slides is not none else (bg and deck.labels.ai_generated_image) -%}
   {%- if ai or (style == 'illust' and not bg and character.ai_made and character.for_kind(s.kind)) %}<span class="ai-caption" data-label="ai-generated">AI 생성 이미지</span>{% endif -%}
-  {%- if i == n and s.kind != 'outro' and s.kind != 'meme_image' and deck.sources %}<span class="deck-sources" data-sources>출처 {{ deck.sources | join(' · ') }}</span>{% endif -%}
 </div>
 {%- endmacro %}
 
@@ -132,7 +135,6 @@
 <figure class="photo-fig{% if ar < 0.9 %} tall{% endif %}" style="--ar: {{ ar }}">
   {%- if ar < 1.2 %}<div class="photo-blur" style="background-image: url('{{ s.photo.path | file_uri }}')"></div>{% endif %}
   <img src="{{ s.photo.path | file_uri }}" alt="{{ s.photo.alt }}">
-  {%- if s.photo.source %}<figcaption>사진 {{ s.photo.source | host }}</figcaption>{% endif %}
 </figure>
 {%- endif %}
 {%- endmacro %}
@@ -256,9 +258,7 @@
     {%- else %}
     <p class="cta" data-fit="48">{{ s.cta }}</p>
     {%- endif %}
-    {% if s.sources %}
-    <ul class="sources" data-sources><b>출처</b>{% for src in s.sources %}<li data-fit="16">{{ src }}</li>{% endfor %}</ul>
-    {% endif %}
+    {#- 출처는 카드에 그리지 않는다(S18 사용자 결정): 게시 글 끝에 실제 주소 -#}
   </div>
 </section>
 {%- endmacro %}

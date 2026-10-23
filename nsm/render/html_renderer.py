@@ -298,7 +298,9 @@ def build_html(
         .render(
             deck=deck,
             c=palette(deck.brand.primary_color, deck.brand.accent_color),
-            style=style,
+            # 키치형(S18 제안, ADR 0063)은 소식형 구성을 그대로 쓰고 장식만 얹는다(kitsch.css)
+            style="editorial" if style == "kitsch" else style,
+            skin=style if style == "kitsch" else None,
             character=character,
             title_style=title_style,
             css_uri=(TEMPLATES_DIR / "cards" / "base.css").resolve().as_uri(),

@@ -6,6 +6,8 @@
 {#- 스타일(S8): clean은 base.css만, photo·illust는 그 위에 스타일 파일을 얹는다 -#}
 {% if style != 'clean' %}<link rel="stylesheet" href="{{ css_uri | replace('base.css', style ~ '.css') }}">
 {% endif %}
+{%- if skin %}<link rel="stylesheet" href="{{ css_uri | replace('base.css', skin ~ '.css') }}">
+{% endif %}
 <style>
 :root {
   --primary: {{ c.primary }}; --primary-deep: {{ c.primary_deep }}; --accent: {{ c.accent }};
@@ -23,7 +25,7 @@
 }
 </style>
 </head>
-<body class="style-{{ style }}">
+<body class="style-{{ style }}{% if skin %} skin-{{ skin }}{% endif %}">
 {%- import "cards/_parts.html" as parts with context -%}
 {%- set n = deck.slides | length -%}
 {%- for s in deck.slides %}

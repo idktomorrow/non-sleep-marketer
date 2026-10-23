@@ -198,6 +198,9 @@ TEMPLATE_GUIDE = {
         "  photo_hint: 이 장에 어울리는 실제 사진이 무엇인지 한 줄(예: '4DX 포스터', '팝콘통 굿즈 사진'). 사진이 필요 없으면 빈 값.\n"
         "  heading은 그 장 내용을 구체적으로(예: '판매는 10/28~11/3', 'A상은 50cm 대형 인형'). '확인할 것', '라인업', "
         "'정리', '비교'처럼 어느 소식에나 붙는 제목은 쓰지 않는다.\n"
+        "  카드에는 확인된 정보만 쓴다. '확인 필요', '확인하세요', '찾아보세요', '살펴봐요', '추후 공지'처럼 보는 사람에게 "
+        "확인을 떠넘기는 말은 카드(제목·줄·마무리)에 쓰지 않는다. 자료에 없는 정보는 그 줄을 빼고, 꼭 알려야 하면 캡션에 한 줄로.\n"
+        "  cover_subtitle은 핵심 사실 한 줄(날짜·가격·장소 등, 예: '10/28(수) 11시 ~ 11/3 · 1회 1,100엔').\n"
         "  이 계정은 **사진 위주**다: 자료에 상품·경품·메뉴처럼 실물이 2개 이상 나오면 목록(bullets)이 아니라 products로 쓴다"
         "(상품마다 실제 사진이 붙는다). 4개가 넘으면 products 장을 나눈다.\n"
         "  작은 소식은 1~2장으로 끝낸다. 장수를 채우려고 표지 내용을 되풀이하지 않는다."
@@ -464,16 +467,67 @@ def reply_user(comment: Any, post_context: str) -> str:
     )
 
 
+# 보는 사람에게 확인을 떠넘기는 말(S18 사용자 결정 2026-10-23): 카드에는 확인된 정보만. 이런 말은 캡션으로 보낸다
+VIEWER_CHECK = re.compile(
+    r"확인\s*(이\s*)?필요|확인(하세요|해\s*(주세요|요|보세요|보기)|해야)|찾아\s*보(세요|아요|기|셔야)|살펴\s*(보세요|봐요|보기)"
+    r"|체크(하세요|해요|해\s*주세요)|추후\s*(공지|안내|발표)|미정|알\s*수\s*없|아직\s*(공개|발표|안내)\s*(되지\s*)?않"
+)
+
+
+def strip_viewer_checks(deck: CardDeck) -> tuple[CardDeck, list[str]]:
+    """카드에서 확인을 떠넘기는 줄·문장·마무리를 걷어내고, 걷어낸 내용을 돌려준다(캡션 '참고' 줄로 옮긴다)."""
+    notes: list[str] = []
+    slides = []
+
+    def keep(text: str) -> bool:
+        if VIEWER_CHECK.search(text or ""):
+            notes.append(text.strip())
+            return False
+        return True
+
+    for s in deck.slides:
+        if s.kind == "facts":
+            rows = [r for r in s.rows if keep(f"{r.label}: {r.value}")]
+            if len(rows) < 2:
+                notes.extend(f"{r.label}: {r.value}" for r in rows)
+                continue
+            s = s.model_copy(update={"rows": rows})
+        elif s.kind in ("body", "list"):
+            bullets = [b for b in s.bullets if keep(b)]
+            upd: dict[str, Any] = {"bullets": bullets}
+            if s.kind == "body":
+                sentences = re.split(r"(?<=[.!?요다])\s+", s.body)
+                kept = [x for x in sentences if keep(x)]
+                if not kept:
+                    continue
+                upd["body"] = " ".join(kept)
+            elif not bullets:
+                continue
+            s = s.model_copy(update=upd)
+        elif s.kind == "outro" and deck.template == "editorial" and not keep(s.cta):
+            continue
+        elif s.kind == "cover" and s.subtitle and not keep(s.subtitle):
+            s = s.model_copy(update={"subtitle": ""})
+        slides.append(s)
+    if len(slides) < 2:  # 다 걷어내 계약이 깨지면 원래 덱(검토에서 사람이 고친다)
+        return deck, []
+    return deck.model_copy(update={"slides": slides}), list(dict.fromkeys(notes))
+
+
 def content_from_output(
     out: dict[str, Any], brief: ContentBrief, brand: Brand, persona: Persona
 ) -> GeneratedContent:
     """구조화 출력(dict) → GeneratedContent. 공급자가 달라도 여기서부터는 같다."""
     deck = build_deck(brief.template, out, brand, persona, brief)
+    deck, notes = strip_viewer_checks(deck)
+    caption = out["instagram_caption"].strip()
+    if notes:
+        caption += "\n\n참고: " + " / ".join(notes[:4])
     return GeneratedContent(
         topic=out["topic"].strip() or brief.topic,
         template=brief.template,
         deck=deck,
-        instagram_caption=out["instagram_caption"].strip(),
+        instagram_caption=caption,
         threads_text=out["threads_text"].strip(),
         blog_title=out.get("blog_title", "").strip(),
         blog_markdown=out.get("blog_markdown", "").strip(),

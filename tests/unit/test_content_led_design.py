@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from nsm.adapters.generator.prompts import build_deck, fact_layout
+from nsm.adapters.generator.prompts import (
+    VIEWER_CHECK,
+    build_deck,
+    content_from_output,
+    fact_layout,
+    strip_viewer_checks,
+)
 from nsm.domain.models import (
     BodySlide,
     CardDeck,
@@ -13,6 +19,7 @@ from nsm.domain.models import (
     FactRow,
     MemeImageSlide,
 )
+from nsm.domain.quality import slide_texts
 from tests.fakes import load_source_items
 
 
@@ -277,3 +284,26 @@ def test_each_product_gets_its_own_photo() -> None:
         [{"path": str(d / n)} for n in ("a.jpg", "b.jpg", "c.jpg")],
     )
     assert p.items == {(1, 0): 0, (1, 1): 1} and p.cover == 2  # 없는 장·두 번째 배정은 버린다
+
+
+def test_viewer_checks_leave_cards_and_go_to_caption(app_config) -> None:
+    """카드는 확인한 정보만(S18 사용자 결정 2026-10-23): '확인 필요'·'살펴봐요' 줄은 카드에서 빼고 캡션 '참고'로."""
+    items = load_source_items()[:1]
+    brief = ContentBrief(topic="t", template="editorial", sources=items)
+    out = _out("배송비와 특전 조건도 살펴봐요")
+    out["cover_subtitle"] = "상세 조건은 확인 필요"
+    out["slides"][0]["facts"].append({"label": "가격", "value": "구체적인 정보 확인 필요"})
+    content = content_from_output(
+        {**out, "blog_title": "", "blog_markdown": ""}, brief, app_config.brand, app_config.persona
+    )
+    deck = content.deck
+    texts = [t for s in deck.slides for t in slide_texts(s)]
+    assert not any(VIEWER_CHECK.search(t) for t in texts)
+    assert deck.slides[-1].kind != "outro" and deck.slides[0].subtitle == ""
+    assert [r.label for r in deck.slides[1].rows] == ["예약", "출시"]  # 확인한 줄은 남는다
+    assert "참고: " in content.instagram_caption and "가격: 구체적인 정보 확인 필요" in (
+        content.instagram_caption
+    )
+    # 확인한 정보만 있는 덱은 그대로
+    plain = build_deck("editorial", _out(""), app_config.brand, app_config.persona, brief)
+    assert strip_viewer_checks(plain) == (plain, [])
