@@ -39,11 +39,6 @@ SCOPE_INSTRUCTION = (
     "topic_reaction=게시물이 전한 소식·현상·제3자(업자·되팔이·행사 주최·다른 회사)에 대한 아쉬움·분노·걱정 같은 "
     "반응. 애매하면 brand_complaint로 답하라. 브랜드: {brand}."
 )
-TOPIC_REACTION_GUIDANCE = (
-    "답글 지침: 이 댓글은 게시물 소식에 대한 아쉬움·불만 반응입니다. 한두 문장으로 공감만 하고, "
-    "브랜드를 대신해 사과·보상·해결 약속을 하지 않으며, 다른 사람이나 회사를 비난하지 않습니다."
-)
-
 SOURCE_CHARS = 1500  # 자료 하나에서 답글 근거로 넘기는 글자 수
 MAX_SOURCES = 3
 
@@ -229,15 +224,25 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
         category = "question"
     today = local(ctx.clock.now(), ctx.tz).date()
     replies_today = ctx.repo.reply_count(c.platform, c.author_id, today)
-    scope = _complaint_scope(ctx, c) if category == "complaint" else None
+    caps = adapter.capabilities()
+    scope = None
+    if (
+        category == "complaint"
+        and cls.confidence >= MIN_CONFIDENCE
+        and "reply" in caps
+        and replies_today < s.reply_daily_limit_per_author
+    ):
+        # 2차 판정은 자동 답글이 가능할 때만 묻는다(어차피 사람에게 갈 댓글에 호출을 쓰지 않게)
+        scope = _complaint_scope(ctx, c)
     action, reason = decide_comment(
         category,  # type: ignore[arg-type]
         replies_today,
         s.reply_daily_limit_per_author,
-        adapter.capabilities(),
+        caps,
         complaint_scope=scope,
     )
-    if action in ("auto_reply", "hide") and cls.confidence < MIN_CONFIDENCE:
+    if action != "escalate" and cls.confidence < MIN_CONFIDENCE:
+        # 신뢰도가 낮으면 숨김·무시도 하지 않는다(스팸으로 잘못 본 환불 문의가 조용히 버려지지 않게)
         action, reason = "escalate", f"분류 불확실({category}, 신뢰도 {cls.confidence:.2f})"
 
     def record(status: str, **kw) -> str:
@@ -264,10 +269,9 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
     # auto_reply
     if ctx.text_generator is None:
         return record("escalated", reason="자동 답글 생성기가 없음(Claude API 키 필요)")
-    context = _post_context(ctx, c)
-    if scope == "topic_reaction":
-        context = f"{TOPIC_REACTION_GUIDANCE}\n{context}"
-    text = ctx.text_generator.generate_reply(c, ctx.config.persona, context)
+    # 소식 반응 불만의 답글 규칙(공감만, 사과·약속 금지)은 답글 시스템 지시에 있다. 자료(데이터) 쪽에 지시를
+    # 섞지 않는다: 여기까지 온 불만은 2차 판정을 통과한 소식 반응뿐이다
+    text = ctx.text_generator.generate_reply(c, ctx.config.persona, _post_context(ctx, c))
     banned = find_banned([text], ctx.config.persona)
     if banned or not text.strip():
         return record(

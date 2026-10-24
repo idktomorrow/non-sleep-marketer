@@ -220,9 +220,11 @@ def labeled_blog_title(title: str) -> str:
 
 # ------------------------------------------------------------------ 댓글 처리 (contracts 4절)
 
-ESCALATE: frozenset[str] = frozenset({"complaint", "price_refund", "legal"})
-# 불만 댓글의 범위(C32, ADR 0052): 우리 브랜드·제품·거래에 대한 불만이면 사람에게, 소식에 대한 반응이면 공감 답글
-COMPLAINT_SCOPES: tuple[str, ...] = ("brand_complaint", "topic_reaction")
+# 늘 사람에게: 돈·법이 걸린 것. 불만(complaint)은 2차 판정에 따라 갈린다(C32, ADR 0052)
+ESCALATE: frozenset[str] = frozenset({"price_refund", "legal"})
+# 불만 댓글의 범위: 우리 브랜드·제품·거래에 대한 불만이면 사람에게, 소식에 대한 반응이면 공감 답글.
+# 분류기들이 라벨을 못 고르면 마지막 라벨로 떨어지므로(claude.py·keyword.py) 안전한 쪽을 마지막에 둔다
+COMPLAINT_SCOPES: tuple[str, ...] = ("topic_reaction", "brand_complaint")
 SPAM_IGNORED_REASON = "스팸 추정(답하지 않고 자동 처리)"
 
 
@@ -244,7 +246,7 @@ def decide_comment(
             if complaint_scope == "brand_complaint"
             else "불만(브랜드 관련인지 불확실)"
         )
-    if category in ESCALATE and category != "complaint":
+    if category in ESCALATE:
         return "escalate", {"price_refund": "가격·환불 문의", "legal": "법적 문제"}[category]
     if category == "spam":
         if "hide_comment" in capabilities:
