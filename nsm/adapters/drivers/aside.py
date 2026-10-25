@@ -98,12 +98,22 @@ def build_script(body: str, args: dict[str, Any]) -> str:
     return prelude + wrap.replace("__BODY__", body)
 
 
-def parse_output(stdout: str) -> dict[str, Any]:
+# Ctrl+C로 죽은 자식 프로세스의 종료 코드: Windows STATUS_CONTROL_C_EXIT(0xC000013A, 부호 있는 표현 포함), POSIX SIGINT
+CTRL_C_EXIT_CODES = frozenset({3221225786, -1073741510, 130, -2})
+
+
+def parse_output(stdout: str, stderr: str = "", returncode: int | None = None) -> dict[str, Any]:
     for line in reversed((stdout or "").splitlines()):
         line = _ANSI.sub("", line).strip()
         if line.startswith(MARKER):
             return json.loads(line[len(MARKER) :])
-    raise AsideError(f"Aside 결과 줄이 없음: {scrub(stdout)}", code="cli")
+    # 결과 줄이 없는 건 CLI가 끊긴 것(끄는 중 Ctrl+C, 브라우저 연결 끊김). 원인이 보이게 종료 코드·stderr를 붙인다(C33)
+    if returncode in CTRL_C_EXIT_CODES:
+        # Ctrl+C는 콘솔의 모든 프로세스에 가므로 CLI가 먼저 죽는다. 프로그램이 끄는 중이라는 뜻
+        raise AsideError(f"Aside CLI가 중단됨(Ctrl+C, 종료 코드 {returncode})", code="interrupted")
+    detail = " | ".join(x for x in (scrub(stderr), scrub(stdout)) if x) or "출력 없음"
+    code = f"종료 코드 {returncode}" if returncode is not None else "종료 코드 모름"
+    raise AsideError(f"Aside 결과 줄이 없음({code}): {detail}", code="cli")
 
 
 class _OneShotFiles:
@@ -195,7 +205,7 @@ class AsideRepl:
                 )
             except subprocess.TimeoutExpired as e:
                 raise AsideError("Aside 응답 시간 초과", code="timeout") from e
-        res = parse_output(proc.stdout)
+        res = parse_output(proc.stdout, proc.stderr, proc.returncode)
         if not res.get("ok"):
             raise AsideError(scrub(res.get("error", "")), code=res.get("code") or "script")
         return res.get("data")

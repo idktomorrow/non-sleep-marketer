@@ -252,6 +252,8 @@ def _setup_logging() -> None:
 
 def run_forever() -> None:
     """한 프로세스에서 스케줄러(작업 스레드 1개)와 대시보드(uvicorn)를 함께 띄운다 (ADR 0006)."""
+    import threading
+
     import uvicorn
 
     from nsm.adapters.notify.windows import DesktopNotifier
@@ -265,6 +267,7 @@ def run_forever() -> None:
     _setup_logging()
     cfg = load_config()
     port = cfg.settings.dashboard_port
+    stopping = threading.Event()  # 끄는 중 표시(C33): 그 순간 돌던 잡의 오류는 "중단"으로 적는다
     url = f"http://127.0.0.1:{port}"
     db = Database(workspace_db_path(cfg))  # 전환해 둔 프리셋의 DB(C29)
     stack = ExitStack()
@@ -273,6 +276,7 @@ def run_forever() -> None:
     try:
         notifier = DesktopNotifier(url)
         ctx = build_context(cfg, db, drivers, notifier=notifier)
+        ctx.shutting_down = stopping.is_set
         notifier.enabled = lambda: ctx.config.settings.desktop_notifications
         # 모든 알림을 대시보드 알림함(종 모양)에도 남긴다(데스크톱 알림을 꺼도 남음, N2)
         from nsm.adapters.notify.recording import RecordingNotifier
@@ -323,8 +327,21 @@ def run_forever() -> None:
             ),
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
-        uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")
+        server = uvicorn.Server(
+            uvicorn.Config(create_app(state), host="127.0.0.1", port=port, log_level="warning")
+        )
+        _orig_exit = server.handle_exit
+
+        def _handle_exit(
+            sig, frame
+        ):  # Ctrl+C를 받는 즉시 "끄는 중"을 켠다(작업 스레드가 바로 알게, C33)
+            stopping.set()
+            _orig_exit(sig, frame)
+
+        server.handle_exit = _handle_exit
+        server.run()
     finally:
+        stopping.set()
         if scheduler is not None:
             try:
                 scheduler.submit(drivers.close).result(timeout=60)

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ class JobContext:
     preview_dir: Path = Path("preview")
     reports_dir: Path = Path("reports")
     backups_dir: Path | None = None  # 없으면 백업하지 않는다(테스트·드라이 실행)
+    # 프로그램을 끄는 중인가(C33). 끄는 순간 돌던 잡의 오류는 "실패"가 아니라 "중단"으로 적는다
+    shutting_down: Callable[[], bool] = field(default_factory=lambda: lambda: False)
 
     @property
     def tz(self) -> str:
@@ -57,6 +60,14 @@ class JobResult:
     skipped: str = ""  # 건너뛴 이유(활동 시간 밖 등)
     counts: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    interrupted: bool = (
+        False  # 오류가 "끄는 중 끊김"(Ctrl+C) 때문인가(C33). 실행 기록에 중단으로 적는다
+    )
+
+    def note(self, e: Exception) -> None:
+        """예외가 중단(Ctrl+C) 때문이면 표시해 둔다."""
+        if getattr(e, "code", None) == "interrupted":
+            self.interrupted = True
 
     def summary(self) -> str:
         """사람이 읽는 한 줄(실행 기록·알림·로그). 예: "새 댓글 없음 · 인스타그램 요청 제한으로 쉬는 중(02:56 이후 다시)"."""

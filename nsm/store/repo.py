@@ -908,6 +908,43 @@ class Repository:
             )[0][0]
         )
 
+    # 원고에 쓰이지 않은 자료: used_in_content_id가 비었거나 표시값(중복 사건·생성 실패)인 것
+    _UNUSED_SOURCE = "(used_in_content_id IS NULL OR used_in_content_id IN ('duplicate_event', 'generation_failed'))"
+
+    def blank_stale_source_bodies(self, threshold: float, keep_days: int) -> int:
+        """관련 없음(또는 판정 없음)으로 남은 자료의 본문을 비운다(C33). 제목·지문(url_hash)·판정은 남겨
+        같은 글을 다시 모으지 않게 한다. 원고에 쓰인 자료와 관련 자료는 건드리지 않는다."""
+        cutoff = self._now() - timedelta(days=keep_days)
+        return self._count(
+            self.db.execute(
+                "UPDATE source_items SET text = '' WHERE text != '' AND collected_at < ? "
+                f"AND relevance IS NOT NULL AND relevance < ? AND {self._UNUSED_SOURCE}",
+                [cutoff, threshold],
+            )
+        )
+
+    def prune_stale_source_records(self, threshold: float, keep_days: int) -> int:
+        """관련 없음으로 오래 남은 자료의 판정 기록을 지운다(C33). 자료 행(제목·지문·관련성)은 남긴다:
+        검색이 같은 옛 글을 계속 돌려주므로 지문을 지우면 60일마다 다시 모으고 다시 판정하게 된다."""
+        cutoff = self._now() - timedelta(days=keep_days)
+        ids = [
+            r[0]
+            for r in self.db.execute(
+                "SELECT id FROM source_items WHERE collected_at < ? "
+                f"AND relevance IS NOT NULL AND relevance < ? AND {self._UNUSED_SOURCE}",
+                [cutoff, threshold],
+            )
+        ]
+        if not ids:
+            return 0
+        marks = ",".join("?" * len(ids))
+        return self._count(
+            self.db.execute(
+                f"DELETE FROM classifications WHERE target_type = 'source_item' AND target_id IN ({marks})",
+                ids,
+            )
+        )
+
     def prune_runs(self, keep_days: int) -> int:
         """keep_days일보다 오래된 실행 기록을 지운다(C12). 원고·댓글·성과는 건드리지 않는다."""
         cutoff = self._now() - timedelta(days=keep_days)

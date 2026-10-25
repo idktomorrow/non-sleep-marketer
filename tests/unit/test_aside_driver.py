@@ -63,6 +63,7 @@ def test_file_server_serves_only_listed_files(tmp_path: Path) -> None:
 class _Proc:
     def __init__(self, stdout: str) -> None:
         self.stdout = stdout
+        self.stderr = ""
         self.returncode = 0
 
 

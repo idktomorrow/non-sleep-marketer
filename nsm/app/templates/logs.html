@@ -9,7 +9,7 @@
 <div class="table-wrap"><table class="job-status"><tr><th>작업</th><th class="col-every">언제 도나</th><th>마지막 실행</th><th>상태</th><th>마지막 결과</th></tr>
 {% for s in statuses %}<tr><td><b>{{ s.job|ko_job }}</b></td><td class="small muted col-every">{{ s.every }}</td>
 <td class="small">{% if s.last %}{{ s.last.started_at|kst }}{% else %}-{% endif %}</td>
-<td>{% if s.state == 'ok' %}<span class="badge ok">정상</span>{% elif s.state == 'bad' %}<span class="badge bad">실패</span>{% elif s.state == 'running' %}<span class="badge gray">실행 중</span>{% elif s.state == 'stale' %}<span class="badge warn">오래 안 돌았음</span>{% else %}<span class="badge gray">아직 안 돌았음</span>{% endif %}</td>
+<td>{% if s.state == 'ok' %}<span class="badge ok">정상</span>{% elif s.state == 'bad' %}<span class="badge bad">실패</span>{% elif s.state == 'interrupted' %}<span class="badge gray" title="프로그램을 끄는 순간 돌던 작업이 끊겼습니다. 다음 실행에 다시 합니다">중단</span>{% elif s.state == 'running' %}<span class="badge gray">실행 중</span>{% elif s.state == 'stale' %}<span class="badge warn">오래 안 돌았음</span>{% else %}<span class="badge gray">아직 안 돌았음</span>{% endif %}</td>
 <td class="small">{% if s.last %}{{ s.last.text }}{% endif %}{% if s.note %}<br><span class="muted">{{ s.note }}</span>{% endif %}</td></tr>{% endfor %}
 </table></div>
 
@@ -21,7 +21,7 @@
 {% if runs %}
 <div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
 {% for r in runs %}<tr><td><b>{{ r.job|ko_job }}</b><br><span class="muted small">{{ r.job }}</span></td><td class="small">{{ r.started_at|kst }}</td><td class="small">{{ r.finished_at|kst }}</td>
-<td>{{ run_badge(r.ok) }}{% if r.count > 1 %}<br><span class="badge gray" title="같은 결과가 이어진 횟수">{{ r.count }}번</span>{% endif %}</td>
+<td>{{ run_badge(r.ok, r.text) }}{% if r.count > 1 %}<br><span class="badge gray" title="같은 결과가 이어진 횟수">{{ r.count }}번</span>{% endif %}</td>
 <td style="min-width:240px"><div class="run-text">{{ r.text }}</div></td></tr>{% endfor %}
 </table></div>
 {% elif show_all %}<p class="muted">아직 실행 기록이 없습니다.</p>
