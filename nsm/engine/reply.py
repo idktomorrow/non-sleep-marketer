@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 
 from nsm.domain.models import COMMENT_CATEGORIES, Comment
-from nsm.domain.policy import decide_comment, find_banned, local, should_act
+from nsm.domain.policy import COMPLAINT_SCOPES, decide_comment, find_banned, local, should_act
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
@@ -33,6 +33,12 @@ INSTRUCTION = (
 )
 
 
+SCOPE_INSTRUCTION = (
+    "이 댓글은 SNS 게시물에 달린 불만·부정적 반응이다. 불만의 대상이 무엇인지 판정하라. "
+    "brand_complaint=이 계정·브랜드·제품·주문·배송·서비스·응대에 대한 불만이나 항의, "
+    "topic_reaction=게시물이 전한 소식·현상·제3자(업자·되팔이·행사 주최·다른 회사)에 대한 아쉬움·분노·걱정 같은 "
+    "반응. 애매하면 brand_complaint로 답하라. 브랜드: {brand}."
+)
 SOURCE_CHARS = 1500  # 자료 하나에서 답글 근거로 넘기는 글자 수
 MAX_SOURCES = 3
 
@@ -191,6 +197,24 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
     return result
 
 
+def _complaint_scope(ctx: JobContext, c: Comment) -> str | None:
+    """불만 댓글이 우리 브랜드·거래에 대한 것인지, 소식에 대한 반응인지(C32). 모르면 None(사람에게)."""
+    if ctx.comment_classifier is None:
+        return None
+    b = ctx.config.brand
+    brand = f"{b.name}({b.industry})" + (f", 제품: {', '.join(b.products)}" if b.products else "")
+    try:
+        cls = ctx.comment_classifier.classify(
+            c.text, list(COMPLAINT_SCOPES), SCOPE_INSTRUCTION.format(brand=brand)
+        )
+    except Exception as e:  # noqa: BLE001  판정 실패는 안전한 쪽(사람)으로
+        log.warning("불만 범위 판정 실패(사람에게): %s", e)
+        return None
+    if cls.label not in COMPLAINT_SCOPES or cls.confidence < MIN_CONFIDENCE:
+        return None
+    return cls.label
+
+
 def _handle(ctx: JobContext, adapter, c: Comment) -> str:
     key = ctx.repo.comment_key(c)
     s = ctx.config.settings
@@ -200,13 +224,25 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
         category = "question"
     today = local(ctx.clock.now(), ctx.tz).date()
     replies_today = ctx.repo.reply_count(c.platform, c.author_id, today)
+    caps = adapter.capabilities()
+    scope = None
+    if (
+        category == "complaint"
+        and cls.confidence >= MIN_CONFIDENCE
+        and "reply" in caps
+        and replies_today < s.reply_daily_limit_per_author
+    ):
+        # 2차 판정은 자동 답글이 가능할 때만 묻는다(어차피 사람에게 갈 댓글에 호출을 쓰지 않게)
+        scope = _complaint_scope(ctx, c)
     action, reason = decide_comment(
         category,  # type: ignore[arg-type]
         replies_today,
         s.reply_daily_limit_per_author,
-        adapter.capabilities(),
+        caps,
+        complaint_scope=scope,
     )
-    if action in ("auto_reply", "hide") and cls.confidence < MIN_CONFIDENCE:
+    if action != "escalate" and cls.confidence < MIN_CONFIDENCE:
+        # 신뢰도가 낮으면 숨김·무시도 하지 않는다(스팸으로 잘못 본 환불 문의가 조용히 버려지지 않게)
         action, reason = "escalate", f"분류 불확실({category}, 신뢰도 {cls.confidence:.2f})"
 
     def record(status: str, **kw) -> str:
@@ -223,7 +259,7 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
         return status
 
     if action == "ignore":
-        return record("ignored")
+        return record("ignored")  # 스팸 자동 처리도 여기(사유에 남는다, C32)
     if action == "hide":
         adapter.hide_comment(c)
         return record("hidden")
@@ -233,6 +269,8 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
     # auto_reply
     if ctx.text_generator is None:
         return record("escalated", reason="자동 답글 생성기가 없음(Claude API 키 필요)")
+    # 소식 반응 불만의 답글 규칙(공감만, 사과·약속 금지)은 답글 시스템 지시에 있다. 자료(데이터) 쪽에 지시를
+    # 섞지 않는다: 여기까지 온 불만은 2차 판정을 통과한 소식 반응뿐이다
     text = ctx.text_generator.generate_reply(c, ctx.config.persona, _post_context(ctx, c))
     banned = find_banned([text], ctx.config.persona)
     if banned or not text.strip():

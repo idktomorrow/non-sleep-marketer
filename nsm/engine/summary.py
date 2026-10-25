@@ -90,7 +90,7 @@ def _reply(c: dict[str, Any]) -> list[str]:
             ("auto_replied", "자동 답글"),
             ("hidden", "숨김"),
             ("escalated", "사람 확인으로 넘김"),
-            ("ignored", "답할 필요 없음"),
+            ("ignored", "답할 필요 없음(스팸·하루 한도)"),
         )
         if _n(c, k)
     ]

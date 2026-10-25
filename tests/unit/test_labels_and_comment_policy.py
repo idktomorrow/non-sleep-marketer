@@ -49,6 +49,24 @@ def test_all_categories_covered() -> None:
         decide_comment(c, 0, 3, ALL)
 
 
+def test_complaint_scope_and_spam_without_hide() -> None:
+    """C32: 소식에 대한 반응은 자동 답글, 브랜드 불만·불확실은 사람에게. 숨기기 없는 플랫폼의 스팸은 답하지 않고 끝."""
+    assert (
+        decide_comment("complaint", 0, 3, ALL, complaint_scope="topic_reaction")[0] == "auto_reply"
+    )
+    action, reason = decide_comment("complaint", 0, 3, ALL, complaint_scope="brand_complaint")
+    assert action == "escalate" and "브랜드" in reason
+    action, reason = decide_comment("complaint", 0, 3, ALL)
+    assert action == "escalate" and "불확실" in reason
+    # 소식 반응이라도 하루 한도는 지킨다
+    assert decide_comment("complaint", 3, 3, ALL, complaint_scope="topic_reaction")[0] == "ignore"
+    action, reason = decide_comment("spam", 0, 3, ALL - {"hide_comment"})
+    assert action == "ignore" and "스팸" in reason
+    assert (
+        decide_comment("price_refund", 0, 3, ALL, complaint_scope="topic_reaction")[0] == "escalate"
+    )
+
+
 def test_daily_reply_limit_per_author() -> None:
     assert decide_comment("question", 2, 3, ALL)[0] == "auto_reply"
     action, reason = decide_comment("question", 3, 3, ALL)
@@ -58,7 +76,7 @@ def test_daily_reply_limit_per_author() -> None:
 def test_capability_fallbacks() -> None:
     no_hide = ALL - {"hide_comment"}
     action, reason = decide_comment("spam", 0, 3, no_hide)
-    assert action == "escalate" and "스팸 추정" in reason
+    assert action == "ignore" and "스팸 추정" in reason  # C32: 사람에게 넘기지 않는다
     assert decide_comment("praise_general", 0, 3, ALL - {"reply"})[0] == "escalate"
 
 

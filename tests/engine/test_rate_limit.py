@@ -17,7 +17,6 @@ from nsm.engine.publish import PAUSED_KEY, run_publish
 from nsm.engine.reply import run_reply
 from nsm.engine.runner import run_job
 from tests.engine.test_publish_job import ctx as publish_ctx  # noqa: F401
-from tests.engine.test_reply_job import ctx  # noqa: F401
 
 
 def _limit(adapter, clock, hours: float = 2) -> None:

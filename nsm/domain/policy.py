@@ -220,7 +220,12 @@ def labeled_blog_title(title: str) -> str:
 
 # ------------------------------------------------------------------ 댓글 처리 (contracts 4절)
 
-ESCALATE: frozenset[str] = frozenset({"complaint", "price_refund", "legal"})
+# 늘 사람에게: 돈·법이 걸린 것. 불만(complaint)은 2차 판정에 따라 갈린다(C32, ADR 0052)
+ESCALATE: frozenset[str] = frozenset({"price_refund", "legal"})
+# 불만 댓글의 범위: 우리 브랜드·제품·거래에 대한 불만이면 사람에게, 소식에 대한 반응이면 공감 답글.
+# 분류기들이 라벨을 못 고르면 마지막 라벨로 떨어지므로(claude.py·keyword.py) 안전한 쪽을 마지막에 둔다
+COMPLAINT_SCOPES: tuple[str, ...] = ("topic_reaction", "brand_complaint")
+SPAM_IGNORED_REASON = "스팸 추정(답하지 않고 자동 처리)"
 
 
 def decide_comment(
@@ -228,18 +233,26 @@ def decide_comment(
     author_replies_today: int,
     daily_limit: int,
     capabilities: set[str],
+    complaint_scope: str | None = None,
 ) -> tuple[CommentAction, str]:
-    """댓글 유형 → 처리 방법과 사유."""
+    """댓글 유형 → 처리 방법과 사유.
+
+    complaint_scope: 불만 댓글의 2차 판정. "topic_reaction"(소식에 대한 반응)이면 자동 답글,
+    "brand_complaint"이거나 모르면(None) 사람에게. 돈·약속이 걸린 가격·환불·법적 문제는 늘 사람에게.
+    """
+    if category == "complaint" and complaint_scope != "topic_reaction":
+        return "escalate", (
+            "브랜드·거래에 대한 불만"
+            if complaint_scope == "brand_complaint"
+            else "불만(브랜드 관련인지 불확실)"
+        )
     if category in ESCALATE:
-        return "escalate", {
-            "complaint": "불만",
-            "price_refund": "가격·환불 문의",
-            "legal": "법적 문제",
-        }[category]
+        return "escalate", {"price_refund": "가격·환불 문의", "legal": "법적 문제"}[category]
     if category == "spam":
         if "hide_comment" in capabilities:
             return "hide", "스팸"
-        return "escalate", "스팸 추정(이 플랫폼은 자동 숨김을 지원하지 않음)"
+        # 숨기기가 없는 플랫폼(인스타그램): 답하지 않는 게 정답이라 사람이 확인할 일이 아니다(C32)
+        return "ignore", SPAM_IGNORED_REASON
     if author_replies_today >= daily_limit:
         return "ignore", f"같은 사람에게 오늘 이미 {daily_limit}번 답함"
     if "reply" not in capabilities:

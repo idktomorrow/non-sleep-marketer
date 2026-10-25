@@ -274,10 +274,11 @@ class Clock(Protocol):
   - relevance_confidence < 0.8 → 검토
   - 금칙어·금칙 패턴 포함 → 검토(사유 기록)
   - 그 외 → 승인
-- `decide_comment(category, author_daily_count, capabilities) -> CommentAction`
+- `decide_comment(category, author_daily_count, daily_limit, capabilities, complaint_scope=None) -> (CommentAction, reason)`
   - praise_general, question → auto_reply (단 하루 3회 초과 시 ignore)
-  - spam → hide (capability 없으면 escalate, 사유 "스팸 추정")
-  - complaint, price_refund, legal → escalate + 알림
+  - spam → hide (capability 없으면 ignore, 사유 "스팸 추정(답하지 않고 자동 처리)" — C32, ADR 0052)
+  - complaint → 2차 판정 `complaint_scope`가 "topic_reaction"(소식에 대한 반응)이면 auto_reply(공감만), "brand_complaint"이거나 모르면 escalate (C32)
+  - price_refund, legal → escalate + 알림
 - `in_active_hours(now, persona) -> bool`. `persona.enabled`가 False면 collect/generate/publish/reply 모두 건너뜀(health, metrics는 계속)
 - `apply_labels(text, platform, persona) -> str`: 첫 줄에 표기 삽입(5절 표기 규칙)
 - `check_quota(platform, today_count, settings) -> bool`, `check_cost_cap(today_usd, settings) -> bool`
