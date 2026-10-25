@@ -33,7 +33,8 @@ def relevance_instruction(ctx: JobContext, extra_topic: str | None = None) -> st
     return (
         f"이 자료가 브랜드 '{b.name}'({b.industry})의 SNS 정보 콘텐츠 소재로 쓸 수 있는가? "
         f"관심 주제: {', '.join(topics)}. "
-        "관심 주제와 직접 관련된 정보성 글(방법, 기준, 원리, 비교, 정리, 소식)만 relevant다. "
+        "관심 주제가 글의 중심 소재인 정보성 글(방법, 기준, 원리, 비교, 정리, 소식)만 relevant다. "
+        "다른 소재의 글에서 관심 주제를 지나가며 언급만 하면(예: 다른 게임의 10주년 기사에 콜라보 한 줄) irrelevant다. "
         "주제 낱말이 나와도 방문 후기, 맛집·카페 리뷰, 여행기, 개인 일기·일상 기록, 구매·사용 후기, "
         "광고 홍보 글은 irrelevant다. "
         # C27: Gemini가 흥행·품절 기사를 "정보성 글이 아님"으로 보던 것을 이 한 줄이 바로잡았다(ADR 0048)

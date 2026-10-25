@@ -176,12 +176,22 @@ class Repository:
 
     def latest_classification(self, target_id: str, kind: str) -> str | None:
         """그 대상의 가장 최근 판정 라벨(없으면 None)."""
+        found = self.latest_classification_at(target_id, kind)
+        return found[0] if found else None
+
+    def latest_classification_at(self, target_id: str, kind: str) -> tuple[str, datetime] | None:
+        """가장 최근 판정 (라벨, 판정 시각). "새 소식" 판정은 그 뒤 새 원고가 생기면 다시 물어야 한다(C34)."""
         rows = self.db.execute(
-            "SELECT label FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
-            "AND kind = ? ORDER BY created_at DESC LIMIT 1",
+            "SELECT label, created_at FROM classifications WHERE target_type = 'source_item' "
+            "AND target_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1",
             [target_id, kind],
         )
-        return rows[0][0] if rows else None
+        return (rows[0][0], from_db(rows[0][1])) if rows else None  # type: ignore[return-value]
+
+    def latest_content_time(self) -> datetime | None:
+        """가장 최근 원고가 만들어진 시각(폐기 제외)."""
+        rows = self.db.execute("SELECT max(created_at) FROM contents WHERE status != 'discarded'")
+        return from_db(rows[0][0]) if rows and rows[0][0] is not None else None
 
     def relevant_items_without_facts(self, threshold: float, limit: int = 100) -> list[SourceItem]:
         """원문 읽기가 끝났는데(가져옴·건너뜀·실패 소진) 구체 사실 판정이 아직 없는 관련 자료(C31).

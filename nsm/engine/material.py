@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from nsm.domain.models import SourceItem
+from nsm.domain.policy import local_day_bounds
 from nsm.domain.quality import same_event, title_tokens
 from nsm.engine.collect import _who, excluded_word
 from nsm.engine.context import JobContext
@@ -32,8 +33,9 @@ def same_news_instruction(recent_titles: list[str]) -> str:
     listing = "\n".join(f"- {t}" for t in recent_titles[:RECENT_TITLES_MAX])
     return (
         "아래는 이 계정이 최근에 올린 게시물 제목이다. 주어진 자료가 이 중 하나와 같은 사건·같은 소식을 "
-        "다루면 same_news, 새로운 사실(새 행사·새 상품·새 날짜·다른 소식)을 담고 있으면 new_news로 답하라. "
-        "같은 주제라도 새 사실이 있으면 new_news다.\n"
+        "다루면 same_news, 다른 사건(새 행사·새 상품·새 날짜·다른 대상)을 다루면 new_news로 답하라. "
+        "같은 영화·상품·행사의 흥행 성적(예매 순위, 관객 수, 매출, 품절 소식)은 숫자가 바뀌어도 같은 소식이다. "
+        "같은 대상의 후속 보도·반응 기사도 같은 소식이다.\n"
         f"최근 게시물:\n{listing}"
     )
 
@@ -59,12 +61,19 @@ def _model_duplicates(ctx: JobContext, candidates: list[SourceItem], titles: lis
         return set()
     dups: set[str] = set()
     ask: list[SourceItem] = []
+    newest = (
+        ctx.repo.latest_content_time()
+    )  # 이 뒤에 생긴 원고가 있으면 "새 소식" 판정은 낡은 것이다(C34)
     for item in candidates:
-        prev = ctx.repo.latest_classification(item.id, SAME_NEWS_KIND)
-        if prev == "same_news":
-            dups.add(item.id)
-        elif prev is None:
+        prev = ctx.repo.latest_classification_at(item.id, SAME_NEWS_KIND)
+        if prev is None:
             ask.append(item)
+        elif prev[0] == "same_news":
+            dups.add(item.id)
+        elif newest is not None and newest >= prev[1]:
+            ask.append(
+                item
+            )  # 판정 뒤(같은 실행 안 포함) 새 원고가 생겼으니 그 원고와도 비교해야 한다
     if not ask:
         return dups
     texts = [f"{i.title}\n{i.text[:1500]}" for i in ask]
@@ -131,15 +140,18 @@ def pick_material(
     if not groups:
         return None
 
-    # 3. 주제 순서: 주간 상한 아래인 주제 먼저, 그다음 가장 오래 안 쓴 주제
+    # 3. 주제 순서: 주간 상한 아래인 주제 먼저, 오늘 아직 안 쓴 주제 먼저(같은 주제 하루 두 번 방지, C34),
+    #    그다음 가장 오래 안 쓴 주제
     last_used = ctx.repo.persona_topic_last_used()
     weekly = ctx.repo.persona_topic_counts_since(now - timedelta(days=7))
+    day_start, _ = local_day_bounds(now, ctx.tz)
+    today = ctx.repo.persona_topic_counts_since(day_start)
     epoch = datetime.min.replace(tzinfo=now.tzinfo)
     limit = s.topic_weekly_limit
 
     def order(t: str) -> tuple:
         over = bool(limit) and weekly.get(t, 0) >= limit
-        return (over, last_used.get(t, epoch), -len(groups[t]))
+        return (over, today.get(t, 0) >= 1, last_used.get(t, epoch), -len(groups[t]))
 
     for topic in sorted(groups, key=order):
         if limit and weekly.get(topic, 0) >= limit:
