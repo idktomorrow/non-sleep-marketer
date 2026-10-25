@@ -235,9 +235,22 @@ def outro_cta(gen: GeneratedContent) -> str:
     return next((s.cta for s in gen.deck.slides if s.kind == "outro"), "")
 
 
+HASHTAG_LIMIT = 5  # 인스타그램 게시물당 해시태그 상한(2025-12 변경, 전엔 30)
+_HASHTAG = re.compile(r"(?<!\S)#[^\s#]+")
+
+
+def hashtag_count(text: str) -> int:
+    return len(_HASHTAG.findall(text or ""))
+
+
 def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
     """프롬프트에만 있던 규칙을 생성 결과에 대고 검사한다. 빈 목록이면 통과."""
     out: list[str] = []
+    # 협찬이면 게시할 때 '#광고'가 앞에 붙으므로 그만큼 적게(C33)
+    tag_limit = HASHTAG_LIMIT - (1 if persona.ad_label else 0)
+    n_tags = hashtag_count(gen.instagram_caption)
+    if n_tags > tag_limit:
+        out.append(f"인스타그램 캡션 해시태그 {n_tags}개(상한 {tag_limit}개)")
     limit = emoji_limit(persona.tone)
     texts = sns_texts(gen)
     if limit is not None:

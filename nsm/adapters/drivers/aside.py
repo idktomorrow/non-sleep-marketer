@@ -98,12 +98,15 @@ def build_script(body: str, args: dict[str, Any]) -> str:
     return prelude + wrap.replace("__BODY__", body)
 
 
-def parse_output(stdout: str) -> dict[str, Any]:
+def parse_output(stdout: str, stderr: str = "", returncode: int | None = None) -> dict[str, Any]:
     for line in reversed((stdout or "").splitlines()):
         line = _ANSI.sub("", line).strip()
         if line.startswith(MARKER):
             return json.loads(line[len(MARKER) :])
-    raise AsideError(f"Aside 결과 줄이 없음: {scrub(stdout)}", code="cli")
+    # 결과 줄이 없는 건 CLI가 끊긴 것(끄는 중 Ctrl+C, 브라우저 연결 끊김). 원인이 보이게 종료 코드·stderr를 붙인다(C33)
+    detail = scrub(stderr) or scrub(stdout) or "출력 없음"
+    code = f"종료 코드 {returncode}" if returncode is not None else "종료 코드 모름"
+    raise AsideError(f"Aside 결과 줄이 없음({code}): {detail}", code="cli")
 
 
 class _OneShotFiles:
@@ -195,7 +198,7 @@ class AsideRepl:
                 )
             except subprocess.TimeoutExpired as e:
                 raise AsideError("Aside 응답 시간 초과", code="timeout") from e
-        res = parse_output(proc.stdout)
+        res = parse_output(proc.stdout, proc.stderr, proc.returncode)
         if not res.get("ok"):
             raise AsideError(scrub(res.get("error", "")), code=res.get("code") or "script")
         return res.get("data")

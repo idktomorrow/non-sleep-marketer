@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,8 @@ class JobContext:
     preview_dir: Path = Path("preview")
     reports_dir: Path = Path("reports")
     backups_dir: Path | None = None  # 없으면 백업하지 않는다(테스트·드라이 실행)
+    # 프로그램을 끄는 중인가(C33). 끄는 순간 돌던 잡의 오류는 "실패"가 아니라 "중단"으로 적는다
+    shutting_down: Callable[[], bool] = field(default_factory=lambda: lambda: False)
 
     @property
     def tz(self) -> str:

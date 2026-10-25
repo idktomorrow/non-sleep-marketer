@@ -21,7 +21,7 @@
 {% if runs %}
 <div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>끝</th><th>결과</th><th>요약</th></tr>
 {% for r in runs %}<tr><td><b>{{ r.job|ko_job }}</b><br><span class="muted small">{{ r.job }}</span></td><td class="small">{{ r.started_at|kst }}</td><td class="small">{{ r.finished_at|kst }}</td>
-<td>{{ run_badge(r.ok) }}{% if r.count > 1 %}<br><span class="badge gray" title="같은 결과가 이어진 횟수">{{ r.count }}번</span>{% endif %}</td>
+<td>{{ run_badge(r.ok, r.message) }}{% if r.count > 1 %}<br><span class="badge gray" title="같은 결과가 이어진 횟수">{{ r.count }}번</span>{% endif %}</td>
 <td style="min-width:240px"><div class="run-text">{{ r.text }}</div></td></tr>{% endfor %}
 </table></div>
 {% elif show_all %}<p class="muted">아직 실행 기록이 없습니다.</p>

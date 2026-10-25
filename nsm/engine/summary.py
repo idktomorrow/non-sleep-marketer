@@ -132,6 +132,10 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
             parts.append(f"오래된 백업 {_n(c, 'backups_removed')}개 지움")
     if _n(c, "runs_pruned"):
         parts.append(f"오래된 실행 기록 {_n(c, 'runs_pruned')}줄 정리")
+    if _n(c, "sources_blanked"):
+        parts.append(f"관련 없는 자료 {_n(c, 'sources_blanked')}건 본문 비움")
+    if _n(c, "sources_deleted"):
+        parts.append(f"오래된 자료 {_n(c, 'sources_deleted')}건 지움")
     return parts or ["정리할 것 없음"]
 
 

@@ -119,7 +119,7 @@
 {% if runs %}
 <div class="table-wrap"><table><tr><th>작업</th><th>시작</th><th>결과</th><th>요약</th></tr>
 {% for r in runs %}<tr><td>{{ r.job|ko_job }}</td><td>{{ r.started_at|kst }}</td>
-<td>{{ run_badge(r.ok) }}{% if r.count > 1 %} <span class="badge gray">{{ r.count }}번</span>{% endif %}</td>
+<td>{{ run_badge(r.ok, r.message) }}{% if r.count > 1 %} <span class="badge gray">{{ r.count }}번</span>{% endif %}</td>
 <td class="small">{{ r.text }}</td></tr>{% endfor %}
 </table></div>
 {% else %}<p class="muted">최근에 따로 볼 만한 실행이 없습니다.</p>{% endif %}

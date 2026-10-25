@@ -16,7 +16,9 @@ from nsm.domain.policy import apply_labels
 
 def test_virtual_person_text_is_ftc_guideline_wording() -> None:
     # 공정위 예규 제499호 Ⅴ.5 예시 문구 그대로 (ADR 0019)
-    assert VIRTUAL_PERSON_TEXT == "인공지능(AI)을 기반으로 생성된 가상인물이 포함된 게시물입니다"
+    assert (
+        VIRTUAL_PERSON_TEXT == "AI 가상인물 포함 게시물"
+    )  # C33: 지침 예시 "가상인물 포함" 기반, 피드 미리보기 확보
 
 
 def test_ad_hashtag_is_first_hashtag_before_body_hashtags() -> None:

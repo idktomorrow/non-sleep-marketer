@@ -44,6 +44,11 @@ ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
 }
 
 
+INTERRUPTED_PREFIX = (
+    "중단(프로그램 종료 중): "  # 실행 기록 배지가 이 접두어를 보고 "중단"으로 보여 준다(C33)
+)
+
+
 def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = None) -> JobResult:
     if name in ARG_JOBS:
         if arg is None:
@@ -57,9 +62,17 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
     try:
         result = fn(ctx)
     except Exception as e:
+        if ctx.shutting_down():
+            # 끄는 순간 끊긴 것(Ctrl+C가 브라우저 CLI까지 끊음): 실패가 아니라 중단. 알림도 보내지 않는다(C33)
+            log.info("잡 %s 중단(프로그램 종료 중): %s", name, e)
+            ctx.repo.finish_run(run_id, False, f"{INTERRUPTED_PREFIX}{type(e).__name__}: {e}")
+            return JobResult(name, ok=False, errors=[str(e)])
         log.exception("잡 %s 실패", name)
         ctx.repo.finish_run(run_id, False, f"{type(e).__name__}: {e}")
         ctx.notifier.notify(f"잡 실패: {name}", str(e)[:200], "error")
         return JobResult(name, ok=False, errors=[str(e)])
-    ctx.repo.finish_run(run_id, result.ok, result.summary())
+    summary = result.summary()
+    if not result.ok and ctx.shutting_down():
+        summary = f"{INTERRUPTED_PREFIX}{summary}"
+    ctx.repo.finish_run(run_id, result.ok, summary)
     return result
