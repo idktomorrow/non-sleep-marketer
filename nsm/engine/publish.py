@@ -240,6 +240,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     try:
         res = adapter.publish(build_post(content, pub.platform, images))
     except Exception as e:  # noqa: BLE001
+        result.note(e)
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
         if until := retry_at(e):

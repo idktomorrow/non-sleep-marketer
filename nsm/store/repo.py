@@ -918,32 +918,32 @@ class Repository:
         return self._count(
             self.db.execute(
                 "UPDATE source_items SET text = '' WHERE text != '' AND collected_at < ? "
-                f"AND coalesce(relevance, 0) < ? AND {self._UNUSED_SOURCE}",
+                f"AND relevance IS NOT NULL AND relevance < ? AND {self._UNUSED_SOURCE}",
                 [cutoff, threshold],
             )
         )
 
-    def delete_stale_sources(self, threshold: float, keep_days: int) -> int:
-        """관련 없음으로 오래 남은 자료를 판정 기록과 함께 지운다(C33). 원고에 쓰인 자료는 영구 보존."""
+    def prune_stale_source_records(self, threshold: float, keep_days: int) -> int:
+        """관련 없음으로 오래 남은 자료의 판정 기록을 지운다(C33). 자료 행(제목·지문·관련성)은 남긴다:
+        검색이 같은 옛 글을 계속 돌려주므로 지문을 지우면 60일마다 다시 모으고 다시 판정하게 된다."""
         cutoff = self._now() - timedelta(days=keep_days)
         ids = [
             r[0]
             for r in self.db.execute(
                 "SELECT id FROM source_items WHERE collected_at < ? "
-                f"AND coalesce(relevance, 0) < ? AND {self._UNUSED_SOURCE}",
+                f"AND relevance IS NOT NULL AND relevance < ? AND {self._UNUSED_SOURCE}",
                 [cutoff, threshold],
             )
         ]
         if not ids:
             return 0
         marks = ",".join("?" * len(ids))
-        with self.db.transaction() as cur:
-            cur.execute(
+        return self._count(
+            self.db.execute(
                 f"DELETE FROM classifications WHERE target_type = 'source_item' AND target_id IN ({marks})",
                 ids,
             )
-            cur.execute(f"DELETE FROM source_items WHERE id IN ({marks})", ids)
-        return len(ids)
+        )
 
     def prune_runs(self, keep_days: int) -> int:
         """keep_days일보다 오래된 실행 기록을 지운다(C12). 원고·댓글·성과는 건드리지 않는다."""

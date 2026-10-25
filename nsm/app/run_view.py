@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from nsm.config.schema import AppConfig
+from nsm.engine.runner import INTERRUPTED_PREFIX
 from nsm.engine.summary import readable
 
 # 아무 일도 없었다는 뜻의 문장(요약 전체가 이것과 같거나, 이것으로 시작하는 건너뜀)
@@ -177,6 +178,8 @@ def job_statuses(
                 note += f" · {since_ok}"
         elif last.ok is None:
             state, note = "running", ""
+        elif not last.ok and last.text.startswith(INTERRUPTED_PREFIX):
+            state, note = "interrupted", since_ok  # 끄는 순간 끊긴 것: 실패가 아니다(C33)
         elif not last.ok:
             state, note = "bad", since_ok
         else:

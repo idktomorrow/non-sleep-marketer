@@ -32,13 +32,6 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     s = ctx.config.settings
     # 정리를 먼저: 백업이 실패해도(파일이 열려 있음, 디스크 가득) 실행 기록 정리는 된다
     pruned = ctx.repo.prune_runs(s.run_log_keep_days)
-    # 자료 정리(C33): 관련 없음 자료는 본문을 비우고(지문은 남김), 더 오래되면 지운다. 원고에 쓰인 자료는 영구
-    result.counts["sources_blanked"] = ctx.repo.blank_stale_source_bodies(
-        s.relevance_threshold, s.source_body_keep_days
-    )
-    result.counts["sources_deleted"] = ctx.repo.delete_stale_sources(
-        s.relevance_threshold, s.source_keep_days
-    )
     if ctx.backups_dir is not None and ctx.repo.db.path != ":memory:":
         day = local(ctx.clock.now(), ctx.tz).date().isoformat()
         prefix = backup_prefix(s.preset)
@@ -56,4 +49,12 @@ def run_maintenance(ctx: JobContext) -> JobResult:
         )
         log.info("데이터 백업: %s", path)
     result.counts["runs_pruned"] = pruned
+    # 자료 정리(C33)는 백업 뒤에: 오늘 백업에 정리 전 상태가 한 번 더 남게. 관련 없음 자료는 본문을 비우고
+    # (제목·지문은 남겨 같은 글을 다시 모으지 않게), 더 오래되면 판정 기록을 지운다. 원고에 쓰인 자료는 영구
+    result.counts["sources_blanked"] = ctx.repo.blank_stale_source_bodies(
+        s.relevance_threshold, s.source_body_keep_days
+    )
+    result.counts["sources_pruned"] = ctx.repo.prune_stale_source_records(
+        s.relevance_threshold, s.source_keep_days
+    )
     return result

@@ -236,7 +236,8 @@ def outro_cta(gen: GeneratedContent) -> str:
 
 
 HASHTAG_LIMIT = 5  # 인스타그램 게시물당 해시태그 상한(2025-12 변경, 전엔 30)
-_HASHTAG = re.compile(r"(?<!\S)#[^\s#]+")
+# 붙여 쓴 태그(#치이카와#먼작귀)도 각각 센다. 영문·숫자 뒤의 #(C#, c#d)만 태그가 아니다
+_HASHTAG = re.compile(r"(?<![A-Za-z0-9])#[^\s#]+")
 
 
 def hashtag_count(text: str) -> int:

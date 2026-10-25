@@ -327,7 +327,19 @@ def run_forever() -> None:
             ),
         )
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
-        uvicorn.run(create_app(state), host="127.0.0.1", port=port, log_level="warning")
+        server = uvicorn.Server(
+            uvicorn.Config(create_app(state), host="127.0.0.1", port=port, log_level="warning")
+        )
+        _orig_exit = server.handle_exit
+
+        def _handle_exit(
+            sig, frame
+        ):  # Ctrl+C를 받는 즉시 "끄는 중"을 켠다(작업 스레드가 바로 알게, C33)
+            stopping.set()
+            _orig_exit(sig, frame)
+
+        server.handle_exit = _handle_exit
+        server.run()
     finally:
         stopping.set()
         if scheduler is not None:

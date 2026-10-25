@@ -62,7 +62,7 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
     try:
         result = fn(ctx)
     except Exception as e:
-        if ctx.shutting_down():
+        if ctx.shutting_down() or getattr(e, "code", None) == "interrupted":
             # 끄는 순간 끊긴 것(Ctrl+C가 브라우저 CLI까지 끊음): 실패가 아니라 중단. 알림도 보내지 않는다(C33)
             log.info("잡 %s 중단(프로그램 종료 중): %s", name, e)
             ctx.repo.finish_run(run_id, False, f"{INTERRUPTED_PREFIX}{type(e).__name__}: {e}")
@@ -72,7 +72,7 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
         ctx.notifier.notify(f"잡 실패: {name}", str(e)[:200], "error")
         return JobResult(name, ok=False, errors=[str(e)])
     summary = result.summary()
-    if not result.ok and ctx.shutting_down():
+    if not result.ok and (ctx.shutting_down() or result.interrupted):
         summary = f"{INTERRUPTED_PREFIX}{summary}"
     ctx.repo.finish_run(run_id, result.ok, summary)
     return result

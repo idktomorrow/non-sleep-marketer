@@ -170,7 +170,7 @@ def test_old_run_logs_are_pruned_only(db, clock, app_config) -> None:
     clock.advance(days=91)
     _run(ctx, "reply")
     r = run_maintenance(ctx)
-    assert r.counts == {"runs_pruned": 1, "sources_blanked": 0, "sources_deleted": 0}
+    assert r.counts == {"runs_pruned": 1, "sources_blanked": 0, "sources_pruned": 0}
     assert len(ctx.repo.recent_runs()) == 1  # 방금 것만 남음(maintenance 자신은 runner가 적는다)
     assert ctx.repo.relevant_since(clock.now() - timedelta(days=365), 0.5) == 3  # 자료는 그대로
     assert r.summary() == "오래된 실행 기록 1줄 정리"

@@ -55,6 +55,35 @@ def test_aside_missing_result_line_reports_exit_code_and_stderr() -> None:
     with pytest.raises(A.AsideError) as e2:
         A.parse_output("no marker here")
     assert "종료 코드 모름" in str(e2.value) and "no marker here" in str(e2.value)
+    # stderr가 있어도 stdout 꼬리를 잃지 않는다
+    with pytest.raises(A.AsideError) as e3:
+        A.parse_output("page error: boom", "(node) ExperimentalWarning", 1)
+    assert "ExperimentalWarning" in str(e3.value) and "page error: boom" in str(e3.value)
+    # Ctrl+C 종료 코드는 "중단"으로 구분된다(프로그램이 끄는 중이라는 뜻)
+    with pytest.raises(A.AsideError) as e4:
+        A.parse_output("", "", 3221225786)
+    assert e4.value.code == "interrupted"
+
+
+def test_ctrl_c_in_adapter_marks_run_interrupted_even_before_shutdown_flag(
+    db, clock, app_config, monkeypatch
+) -> None:
+    """리뷰: Ctrl+C는 CLI를 먼저 죽이므로 종료 플래그보다 예외가 먼저 온다. 예외 코드로도 중단을 안다."""
+    from nsm.engine import runner
+    from nsm.engine.context import JobResult
+
+    def boom(c):
+        raise A.AsideError("Aside CLI가 중단됨(Ctrl+C)", code="interrupted")
+
+    monkeypatch.setitem(runner.JOBS, "boom", boom)
+    ctx = _ctx(db, clock, app_config)
+    run_job("boom", ctx)
+    assert ctx.repo.recent_runs(1)[0]["message"].startswith(INTERRUPTED_PREFIX)
+    assert not ctx.notifier.calls
+    # 잡이 예외를 삼키고 errors에 적어도 result.note(e)로 중단이 전해진다
+    r = JobResult("x", ok=False, errors=["threads 댓글 조회 실패"])
+    r.note(A.AsideError("중단", code="interrupted"))
+    assert r.interrupted
 
 
 # ------------------------------------------------------------------ 2-4
@@ -93,24 +122,28 @@ def test_maintenance_blanks_then_deletes_stale_irrelevant_sources(
         ctx.repo.set_source_relevance(i, rel)
         ctx.repo.record_classification("source_item", i, "relevance", "x", rel, "t")
     ctx.repo.mark_items_used(["used"], "content-1")
+    ctx.repo.insert_source_item(item("never-judged", 30))  # 판정이 아직 없는 자료는 건드리지 않는다
     r = run_maintenance(ctx)
-    assert r.counts["sources_blanked"] == 2 and r.counts["sources_deleted"] == 1
+    assert r.counts["sources_blanked"] == 2 and r.counts["sources_pruned"] == 1
     texts = {r[0]: r[1] for r in ctx.repo.db.execute("SELECT id, text FROM source_items")}
     assert set(texts) == {
         "fresh-irrel",
         "old-irrel",
+        "ancient-irrel",
         "old-rel",
         "used",
-    }  # 60일 넘은 관련 없음만 삭제
-    assert texts["old-irrel"] == "" and texts["fresh-irrel"] != "" and texts["old-rel"] != ""
+        "never-judged",
+    }
+    assert texts["old-irrel"] == "" and texts["ancient-irrel"] == ""
+    assert texts["fresh-irrel"] != "" and texts["old-rel"] != "" and texts["never-judged"] != ""
     assert texts["used"] != ""  # 원고에 쓰인 자료는 본문도 행도 그대로
-    assert ctx.repo.has_url_hash(
-        "hold-irrel".replace("hold", "h" + "old")
-    )  # 지문은 남아 같은 글을 다시 모으지 않는다
+    # 행(지문)은 남아 같은 글을 다시 모으지 않는다. 60일 넘은 관련 없음은 판정 기록만 정리
+    assert ctx.repo.has_url_hash("hancient-irrel") and ctx.repo.has_url_hash("hold-irrel")
     assert not ctx.repo.db.execute(
         "SELECT 1 FROM classifications WHERE target_id = 'ancient-irrel'"
     )
-    assert "본문 비움" in r.summary() and "지움" in r.summary()
+    assert ctx.repo.db.execute("SELECT 1 FROM classifications WHERE target_id = 'old-irrel'")
+    assert "본문 비움" in r.summary() and "판정 기록" in r.summary()
 
 
 # ------------------------------------------------------------------ 2-5
@@ -128,7 +161,8 @@ def test_hashtag_limit_counts_ad_label(app_config) -> None:
     gen = FakeTextGenerator(inject_text="#a #b #c #d #e #f").generate_content(
         brief, app_config.persona, app_config.brand
     )
-    assert hashtag_count("#a #b c#d #e") == 3  # 낱말 가운데 #은 해시태그가 아니다
+    assert hashtag_count("#a #b c#d #e") == 3  # 영문 뒤 #은 해시태그가 아니다(C#, c#d)
+    assert hashtag_count("#치이카와#먼작귀#팝업 굿즈") == 3  # 붙여 쓴 태그도 각각 센다
     assert any("해시태그" in v for v in rule_violations(gen, app_config.persona))
     four = FakeTextGenerator(inject_text="#a #b #c #d").generate_content(
         brief, app_config.persona, app_config.brand

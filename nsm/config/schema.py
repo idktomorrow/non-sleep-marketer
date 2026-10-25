@@ -122,7 +122,7 @@ class Settings(_Model):
     stall_alert_days: int = Field(default=2, ge=1, le=14)
     backup_keep: int = Field(default=7, ge=1, le=60)  # 하루 한 번 데이터 백업, 최근 몇 개를 남길지
     run_log_keep_days: int = Field(default=90, ge=7, le=3650)  # 실행 기록 보관 일수
-    # 자료 정리(C33): 관련 없음·원고에 안 쓰인 자료의 본문은 며칠 뒤 비우고(지문·제목은 남김), 더 지나면 지운다
+    # 자료 정리(C33): 관련 없음·원고에 안 쓰인 자료의 본문은 며칠 뒤 비우고(지문·제목은 남김), 더 지나면 판정 기록을 지운다
     source_body_keep_days: int = Field(default=7, ge=1, le=365)
     source_keep_days: int = Field(default=60, ge=7, le=3650)
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로

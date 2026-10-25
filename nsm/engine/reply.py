@@ -159,6 +159,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                 ctx.repo.latest_comment_time(platform),
             )
         except Exception as e:  # noqa: BLE001
+            result.note(e)
             if until := retry_at(e):
                 waits.append(resting(ctx, platform, until))
             else:
@@ -179,6 +180,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                     # 댓글 탓이 아니다: 'new'로 남겨 쉬고 나서 처리한다. 남은 댓글도 막히니 여기서 그만
                     waits.append(resting(ctx, platform, until))
                     break
+                result.note(e)
                 log.warning("댓글 처리 실패 %s: %s", c.external_id, e)
                 result.errors.append(f"댓글 {c.external_id}: {e}")
                 ctx.repo.update_comment(
