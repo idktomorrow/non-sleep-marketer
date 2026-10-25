@@ -174,12 +174,24 @@ class Repository:
         """구체 사실 유무('has'|'none', C31). None이면 다시 판정하게 비운다(본문을 나중에 받았을 때)."""
         self.db.execute("UPDATE source_items SET facts = ? WHERE id = ?", [label, item_id])
 
-    def latest_classification(self, target_id: str, kind: str) -> str | None:
-        """그 대상의 가장 최근 판정 라벨(없으면 None)."""
+    def latest_classifications(self, ids: list[str], kind: str) -> dict[str, tuple[str, str]]:
+        """여러 대상의 가장 최근 판정 {id: (라벨, 판정자)}. 판정자 칸에는 "누가|무엇과 비교했나"가 들어 있을 수 있다(C34)."""
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
         rows = self.db.execute(
-            "SELECT label FROM classifications WHERE target_type = 'source_item' AND target_id = ? "
-            "AND kind = ? ORDER BY created_at DESC LIMIT 1",
-            [target_id, kind],
+            "SELECT target_id, label, classifier FROM classifications "
+            f"WHERE target_type = 'source_item' AND kind = ? AND target_id IN ({marks}) "
+            "QUALIFY row_number() OVER (PARTITION BY target_id ORDER BY created_at DESC, rowid DESC) = 1",
+            [kind, *ids],
+        )
+        return {r[0]: (r[1], r[2]) for r in rows}
+
+    def latest_content_id(self) -> str | None:
+        """가장 최근 원고 id(폐기 제외). 같은 소식 판정이 "무엇과 비교했나"를 적는 기준(C34)."""
+        rows = self.db.execute(
+            "SELECT id FROM contents WHERE status != 'discarded' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1"
         )
         return rows[0][0] if rows else None
 

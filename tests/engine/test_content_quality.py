@@ -328,3 +328,89 @@ def test_recent_titles_are_newest_first(db, clock, app_config) -> None:
         _seed_content(ctx, f"t{i}", "핸드드립", "info", now - timedelta(days=[3, 1, 2][i]))
         ctx.repo.db.execute("UPDATE contents SET topic = ? WHERE id = ?", [name, f"t{i}"])
     assert ctx.repo.recent_titles(now - timedelta(days=14), 2) == ["ㅎ 최근 글", "ㄴ 중간 글"]
+
+
+def test_new_news_is_reasked_after_a_draft_is_created_in_the_same_run(
+    db, clock, app_config
+) -> None:
+    """C34: 한 실행 안에서 첫 원고가 생기면 같은 주제의 남은 후보는 그 원고와도 비교해야 한다."""
+    cfg = _settings(app_config, protect_count=0, quotas={"threads": 10, "instagram": 10})
+    # 원고 하나가 같은 주제 자료 3건까지 쓰므로, a2는 관련성을 낮춰 첫 원고에 안 들어가고 남게 한다
+    items = [
+        _item("a1", "극장판 치이카와 예매 1위 이어가는 중"),
+        _item("f1", "먼작귀 팝업 11월 오픈"),
+        _item("f2", "치이카와 다이소 신상 11월 3일"),
+        _item("a2", "극장판 치이카와 200만 관객 돌파"),
+    ]
+    # 지시에 "최근에 올린 게시물"이 있을 때만 new_news(첫 묶음), 두 번째 묶음에서 same_news를 내게 상태를 둔다
+    state = {"asked": 0}
+
+    class Scoped(FakeClassifier):
+        def classify(self, text, labels, instruction):
+            self.calls.append((text, tuple(labels), instruction))
+            if "최근에 올린 게시물" in instruction:
+                state["asked"] += 1
+                # 첫 원고가 생긴 뒤의 질문(목록에 '예매 1위'가 들어 있음)이면 같은 소식
+                label = "same_news" if "예매 1위" in instruction else "new_news"
+                return Classification(label=label, confidence=0.9)
+            conf = 0.85 if text.startswith("극장판 치이카와 200만") else 0.9
+            return Classification(label="relevant", confidence=conf)
+
+    ctx = _ctx(db, clock, cfg, items)
+    ctx.relevance_classifier = Scoped()
+    run_collect(ctx)
+    # 첫 원고를 하나 만들어 두어야 "최근 게시물"이 있어 2차 판정이 돌아간다
+    _seed_content(ctx, "seed", "핸드드립", "info", clock.now() - timedelta(days=1))
+
+    # 실제 흐름: 원고 created_at은 실행 시작 시각(run_generate의 now)이고 판정 기록은 그보다 뒤에 찍힌다.
+    # 시각으로 비교하면 "원고가 판정보다 먼저"가 돼 재질문이 안 된다 → 기준 원고 id로 판단해야 한다(리뷰)
+    class Ticking:
+        def __init__(self, start):
+            self.t = start
+
+        def now(self):
+            self.t = self.t + timedelta(seconds=1)
+            return self.t
+
+    ctx.clock = Ticking(clock.now())
+    ctx.repo.clock = ctx.clock
+    r = run_generate(ctx)
+    # 첫 묶음(4건 new_news) → 원고 1개(a1·f1·f2) → 남은 a2는 다시 물어 same_news → 두 번째 원고는 안 만든다
+    assert r.counts["created"] == 1 and state["asked"] == 5
+    assert _marker(ctx, "a2") == DUPLICATE_EVENT
+
+
+def test_same_topic_is_not_used_twice_in_one_day_when_another_has_material(
+    db, clock, app_config
+) -> None:
+    """C34: 주간 상한 안이라도 오늘 이미 쓴 주제는 뒤로 미룬다."""
+    cfg = _settings(
+        app_config, protect_count=0, quotas={"threads": 10, "instagram": 10}, topic_weekly_limit=5
+    )
+    # 원고 하나가 같은 주제 자료 3건까지 쓰므로 핸드드립은 4건 둔다(3건 쓰고 1건 남게)
+    drip = ["드립 소식 하나", "드립 소식 둘", "드립 소식 셋", "드립 소식 넷"]
+    by_text = {f"{t}\n{LONG}": Classification(label="핸드드립", confidence=0.9) for t in drip}
+    by_text[f"원두 소식\n{LONG}"] = Classification(label="원두", confidence=0.9)
+    items = [_item(f"s{i}", t) for i, t in enumerate(drip)] + [_item("s9", "원두 소식")]
+    ctx = _ctx(db, clock, cfg, items, by_text=by_text)
+    run_collect(ctx)
+    r = run_generate(ctx)
+    topics = [
+        t[0] for t in ctx.repo.db.execute("SELECT persona_topic FROM contents ORDER BY rowid")
+    ]
+    assert r.counts["created"] == 3 and topics[:2] == ["핸드드립", "원두"]  # 둘째는 다른 주제 먼저
+
+
+def test_instructions_treat_box_office_as_same_news_and_require_topic_at_center(app_config) -> None:
+    from nsm.engine.material import same_news_instruction
+
+    text = same_news_instruction(["극장판 치이카와 200만 관객 돌파"])
+    assert "흥행 성적" in text and "숫자가 바뀌어도 같은 소식" in text
+    from nsm.engine.collect import relevance_instruction
+    from nsm.engine.context import JobContext
+    from tests.fakes import FakeNotifier
+
+    ctx = JobContext(config=app_config, repo=None, clock=None, notifier=FakeNotifier())  # type: ignore[arg-type]
+    assert "글의 중심 소재" in relevance_instruction(
+        ctx
+    ) and "지나가며 언급" in relevance_instruction(ctx)

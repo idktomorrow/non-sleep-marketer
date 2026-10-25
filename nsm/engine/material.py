@@ -15,6 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from nsm.domain.models import SourceItem
+from nsm.domain.policy import local_day_bounds
 from nsm.domain.quality import same_event, title_tokens
 from nsm.engine.collect import _who, excluded_word
 from nsm.engine.context import JobContext
@@ -32,8 +33,9 @@ def same_news_instruction(recent_titles: list[str]) -> str:
     listing = "\n".join(f"- {t}" for t in recent_titles[:RECENT_TITLES_MAX])
     return (
         "아래는 이 계정이 최근에 올린 게시물 제목이다. 주어진 자료가 이 중 하나와 같은 사건·같은 소식을 "
-        "다루면 same_news, 새로운 사실(새 행사·새 상품·새 날짜·다른 소식)을 담고 있으면 new_news로 답하라. "
-        "같은 주제라도 새 사실이 있으면 new_news다.\n"
+        "다루면 same_news, 다른 사건(새 행사·새 상품·새 날짜·다른 대상)을 다루면 new_news로 답하라. "
+        "같은 영화·상품·행사의 흥행 성적(예매 순위, 관객 수, 매출, 품절 소식)은 숫자가 바뀌어도 같은 소식이다. "
+        "같은 대상의 후속 보도·반응 기사도 같은 소식이다.\n"
         f"최근 게시물:\n{listing}"
     )
 
@@ -53,18 +55,28 @@ def _recent_texts(
     return titles, [s for s in token_sets if s]
 
 
-def _model_duplicates(ctx: JobContext, candidates: list[SourceItem], titles: list[str]) -> set[str]:
-    """분류기에게 후보들을 한 묶음으로 묻고 같은 소식인 자료 id를 돌려준다. 이미 판정한 자료는 묻지 않는다."""
+def _model_duplicates(
+    ctx: JobContext, candidates: list[SourceItem], titles: list[str], basis: str
+) -> set[str]:
+    """분류기에게 후보들을 한 묶음으로 묻고 같은 소식인 자료 id를 돌려준다.
+
+    판정은 "누가|무엇과 비교했나(그때의 최신 원고 id)"와 함께 기록한다. 같은 소식이면 다시 묻지 않고,
+    새 소식이면 기준(최신 원고)이 그대로일 때만 믿는다. 같은 실행 안에서 첫 원고가 생기면 기준이 바뀌어
+    남은 후보를 다시 묻는다(C34 — 시각 비교는 원고 시각이 실행 시작 시각이라 믿을 수 없었다).
+    """
     if not titles or ctx.relevance_classifier is None or not candidates:
         return set()
     dups: set[str] = set()
     ask: list[SourceItem] = []
+    prev = ctx.repo.latest_classifications([i.id for i in candidates], SAME_NEWS_KIND)
     for item in candidates:
-        prev = ctx.repo.latest_classification(item.id, SAME_NEWS_KIND)
-        if prev == "same_news":
-            dups.add(item.id)
-        elif prev is None:
+        found = prev.get(item.id)
+        if found is None:
             ask.append(item)
+        elif found[0] == "same_news":
+            dups.add(item.id)
+        elif found[1].rsplit("|", 1)[-1] != basis:
+            ask.append(item)  # 그때와 최신 원고가 다르다: 새 원고와도 비교해야 한다
     if not ask:
         return dups
     texts = [f"{i.title}\n{i.text[:1500]}" for i in ask]
@@ -77,7 +89,7 @@ def _model_duplicates(ctx: JobContext, candidates: list[SourceItem], titles: lis
     except Exception as e:  # noqa: BLE001  판정 실패는 "새 소식"으로 보고 진행(원고가 멈추지 않게)
         log.warning("같은 소식 판정 실패(새 소식으로 간주): %s", e)
         return dups
-    who = _who(ctx, ctx.relevance_classifier)
+    who = f"{_who(ctx, ctx.relevance_classifier)}|{basis}"
     for item, c in zip(ask, labels, strict=True):
         ctx.repo.record_classification(
             "source_item", item.id, SAME_NEWS_KIND, c.label, c.confidence, who
@@ -131,15 +143,18 @@ def pick_material(
     if not groups:
         return None
 
-    # 3. 주제 순서: 주간 상한 아래인 주제 먼저, 그다음 가장 오래 안 쓴 주제
+    # 3. 주제 순서: 주간 상한 아래인 주제 먼저, 오늘 아직 안 쓴 주제 먼저(같은 주제 하루 두 번 방지, C34),
+    #    그다음 가장 오래 안 쓴 주제
     last_used = ctx.repo.persona_topic_last_used()
     weekly = ctx.repo.persona_topic_counts_since(now - timedelta(days=7))
+    day_start, _ = local_day_bounds(now, ctx.tz)
+    today = ctx.repo.persona_topic_counts_since(day_start)
     epoch = datetime.min.replace(tzinfo=now.tzinfo)
     limit = s.topic_weekly_limit
 
     def order(t: str) -> tuple:
         over = bool(limit) and weekly.get(t, 0) >= limit
-        return (over, last_used.get(t, epoch), -len(groups[t]))
+        return (over, t in today, last_used.get(t, epoch), -len(groups[t]))
 
     for topic in sorted(groups, key=order):
         if limit and weekly.get(topic, 0) >= limit:
@@ -150,7 +165,8 @@ def pick_material(
             )
         ranked = sorted(groups[topic], key=lambda x: -x[1])
         # 2차: 제목이 달라도 같은 소식이면(분류기, 상위 후보를 한 묶음으로) 뺀다
-        dups = _model_duplicates(ctx, [i for i, _ in ranked[:MODEL_BATCH]], titles)
+        basis = ctx.repo.latest_content_id() or "-"  # 원고가 생길 때마다 바뀐다(같은 실행 안 포함)
+        dups = _model_duplicates(ctx, [i for i, _ in ranked[:MODEL_BATCH]], titles, basis)
         if dups:
             ctx.repo.mark_items_used(list(dups), DUPLICATE_EVENT)
             log.info("최근 게시물과 같은 소식(분류기)으로 자료 %d건 제외", len(dups))
