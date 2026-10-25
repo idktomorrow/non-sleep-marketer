@@ -361,6 +361,19 @@ def test_new_news_is_reasked_after_a_draft_is_created_in_the_same_run(
     run_collect(ctx)
     # 첫 원고를 하나 만들어 두어야 "최근 게시물"이 있어 2차 판정이 돌아간다
     _seed_content(ctx, "seed", "핸드드립", "info", clock.now() - timedelta(days=1))
+
+    # 실제 흐름: 원고 created_at은 실행 시작 시각(run_generate의 now)이고 판정 기록은 그보다 뒤에 찍힌다.
+    # 시각으로 비교하면 "원고가 판정보다 먼저"가 돼 재질문이 안 된다 → 기준 원고 id로 판단해야 한다(리뷰)
+    class Ticking:
+        def __init__(self, start):
+            self.t = start
+
+        def now(self):
+            self.t = self.t + timedelta(seconds=1)
+            return self.t
+
+    ctx.clock = Ticking(clock.now())
+    ctx.repo.clock = ctx.clock
     r = run_generate(ctx)
     # 첫 묶음(4건 new_news) → 원고 1개(a1·f1·f2) → 남은 a2는 다시 물어 same_news → 두 번째 원고는 안 만든다
     assert r.counts["created"] == 1 and state["asked"] == 5

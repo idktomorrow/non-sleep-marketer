@@ -174,24 +174,26 @@ class Repository:
         """구체 사실 유무('has'|'none', C31). None이면 다시 판정하게 비운다(본문을 나중에 받았을 때)."""
         self.db.execute("UPDATE source_items SET facts = ? WHERE id = ?", [label, item_id])
 
-    def latest_classification(self, target_id: str, kind: str) -> str | None:
-        """그 대상의 가장 최근 판정 라벨(없으면 None)."""
-        found = self.latest_classification_at(target_id, kind)
-        return found[0] if found else None
-
-    def latest_classification_at(self, target_id: str, kind: str) -> tuple[str, datetime] | None:
-        """가장 최근 판정 (라벨, 판정 시각). "새 소식" 판정은 그 뒤 새 원고가 생기면 다시 물어야 한다(C34)."""
+    def latest_classifications(self, ids: list[str], kind: str) -> dict[str, tuple[str, str]]:
+        """여러 대상의 가장 최근 판정 {id: (라벨, 판정자)}. 판정자 칸에는 "누가|무엇과 비교했나"가 들어 있을 수 있다(C34)."""
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
         rows = self.db.execute(
-            "SELECT label, created_at FROM classifications WHERE target_type = 'source_item' "
-            "AND target_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1",
-            [target_id, kind],
+            "SELECT target_id, label, classifier FROM classifications "
+            f"WHERE target_type = 'source_item' AND kind = ? AND target_id IN ({marks}) "
+            "QUALIFY row_number() OVER (PARTITION BY target_id ORDER BY created_at DESC, rowid DESC) = 1",
+            [kind, *ids],
         )
-        return (rows[0][0], from_db(rows[0][1])) if rows else None  # type: ignore[return-value]
+        return {r[0]: (r[1], r[2]) for r in rows}
 
-    def latest_content_time(self) -> datetime | None:
-        """가장 최근 원고가 만들어진 시각(폐기 제외)."""
-        rows = self.db.execute("SELECT max(created_at) FROM contents WHERE status != 'discarded'")
-        return from_db(rows[0][0]) if rows and rows[0][0] is not None else None
+    def latest_content_id(self) -> str | None:
+        """가장 최근 원고 id(폐기 제외). 같은 소식 판정이 "무엇과 비교했나"를 적는 기준(C34)."""
+        rows = self.db.execute(
+            "SELECT id FROM contents WHERE status != 'discarded' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1"
+        )
+        return rows[0][0] if rows else None
 
     def relevant_items_without_facts(self, threshold: float, limit: int = 100) -> list[SourceItem]:
         """원문 읽기가 끝났는데(가져옴·건너뜀·실패 소진) 구체 사실 판정이 아직 없는 관련 자료(C31).
