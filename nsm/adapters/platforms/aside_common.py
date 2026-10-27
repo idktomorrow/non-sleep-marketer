@@ -18,20 +18,39 @@ from nsm.domain.models import Platform
 from nsm.ports import AdapterError, Clock, NotSupportedError
 
 
-class LoginRequiredError(AdapterError):
+class PlatformError(AdapterError):
+    """종류(`kind`)가 붙은 어댑터 실패(E1, ADR 0054). 엔진은 이 클래스를 몰라도 `kind` 속성으로 표를 읽는다
+    (포트는 동결). `evidence_dir`: 실패 순간 남긴 증거 폴더."""
+
+    kind = "transient"
+
+    def __init__(self, message: str, kind: str | None = None) -> None:
+        super().__init__(message)
+        if kind:
+            self.kind = kind
+        self.evidence_dir: str | None = None
+
+
+class LoginRequiredError(PlatformError):
     """로그인이 풀려 있음. 이 호출은 일반 실패로 처리되고, 30분마다 도는 health 잡이 알림을 보내고 그 플랫폼을 멈춘다."""
 
+    kind = "auth"
 
-class AccountMismatchError(AdapterError):
+
+class AccountMismatchError(PlatformError):
     """로그인된 계정이 설정의 게시 계정과 다름. 게시하지 않는다."""
 
+    kind = "auth"
 
-class RateLimitedError(AdapterError):
+
+class RateLimitedError(PlatformError):
     """플랫폼이 요청이 많다고 막음(HTTP 429). `retry_at`까지 이 플랫폼에 브라우저 요청을 보내지 않는다.
 
     로그인 문제가 아니므로 health 잡이 플랫폼을 멈추거나 "로그인 필요"를 알리지 않는다(ADR 0038).
     엔진은 이 클래스를 몰라도 되게 `retry_at` 속성으로 알아본다(포트는 동결).
     """
+
+    kind = "rate_limited"
 
     def __init__(self, message: str, retry_at: datetime) -> None:
         super().__init__(message)
@@ -43,6 +62,22 @@ RATE_LIMIT_COOLDOWN = timedelta(hours=2)
 RATE_LIMIT_MAX = timedelta(hours=8)
 # 예외 메시지로만 알 수 있는 경우. ERR_HTTP_RESPONSE_CODE_FAILURE는 404·500에도 나와 넣지 않는다
 _RATE_LIMIT_TEXT = re.compile(r"HTTP ERROR 429|Too Many Requests")
+# Aside 스크립트의 오류 코드 → 오류 종류(E1). 'ui'는 스크립트가 직접 던진 "버튼·메뉴·대화상자를 못 찾음"
+# (화면 변경)뿐이다. 라벨 없는 예외('script': 탭이 닫힘, 실행 맥락 사라짐, net::ERR_…, 대기 시간 초과)는
+# 다시 하면 될 수 있어 일시적으로 본다(지금처럼 재시도)
+_KIND_BY_CODE = {
+    "ui": "ui_changed",
+    "login": "auth",
+    "mismatch": "auth",
+    "ratelimit": "rate_limited",
+}
+EVIDENCE_EVERY = timedelta(
+    hours=1
+)  # 같은 플랫폼·같은 종류의 증거는 한 시간에 한 번(health·댓글 묶음 반복)
+
+
+def kind_for_code(code: str, message: str = "") -> str:
+    return _KIND_BY_CODE.get(code, "transient")
 
 
 def norm_handle(h: str | None) -> str:
@@ -60,7 +95,9 @@ def check_upload_paths(images: list[Path], root: Path | None = None) -> list[Pat
     for p in images:
         rp = Path(p).resolve()
         if rp.suffix.lower() != ".png" or not rp.is_relative_to(root) or not rp.is_file():
-            raise AdapterError(f"올릴 수 없는 파일: {Path(p).name} (NSM media 폴더의 PNG만)")
+            raise PlatformError(
+                f"올릴 수 없는 파일: {Path(p).name} (NSM media 폴더의 PNG만)", "config_or_bug"
+            )
         out.append(rp)
     return out
 
@@ -82,6 +119,7 @@ class AsideAdapterBase:
         # 요청 제한으로 쉬는 중이면 그 끝 시각. 엔진(publish·reply)이 미리 보고 건너뛴다.
         self.blocked_until: datetime | None = None
         self._strikes = 0
+        self._evidence_at: dict[str, datetime] = {}  # 종류 → 마지막으로 증거를 남긴 시각
 
     def capabilities(self) -> set[str]:
         return set(PLATFORM_CAPABILITIES[self.platform])
@@ -93,7 +131,8 @@ class AsideAdapterBase:
     def _run(self, body: str, args: dict | None = None, files: list[Path] | None = None):
         if not self.handle:
             raise AccountMismatchError(
-                f"{self.platform} 게시 계정이 설정에 없습니다(settings.accounts). 실계정 동작을 하지 않습니다."
+                f"{self.platform} 게시 계정이 설정에 없습니다(settings.accounts). 실계정 동작을 하지 않습니다.",
+                "config_or_bug",  # 로그인 문제가 아니라 설정 누락
             )
         return self._call(body, {"handle": self.handle, **(args or {})}, files)
 
@@ -110,16 +149,46 @@ class AsideAdapterBase:
         try:
             data = self.repl.run(body, args, files)
         except AsideError as e:
-            if e.code == "ratelimit" or _RATE_LIMIT_TEXT.search(str(e)):
-                raise self._rate_limited(now, e) from e
-            if e.code == "login":
-                raise LoginRequiredError(f"{self.platform} 로그인 필요: {e}") from e
-            if e.code == "mismatch":
-                raise AccountMismatchError(f"{self.platform}: {e}") from e
-            raise AdapterError(f"{self.platform}: {e}") from e
+            err = self._classify(now, e)
+            if err.kind != "rate_limited" and e.code != "interrupted":
+                self._attach_evidence(err, e)
+            raise err from e
         if not probe:
             self._strikes = 0
         return data
+
+    def _classify(self, now: datetime, e: AsideError) -> PlatformError:
+        """Aside 오류 → 종류가 붙은 어댑터 오류(E1). 문구는 예전과 같다."""
+        if e.code == "ratelimit" or _RATE_LIMIT_TEXT.search(str(e)):
+            return self._rate_limited(now, e)
+        if e.code == "login":
+            return LoginRequiredError(f"{self.platform} 로그인 필요: {e}")
+        if e.code == "mismatch":
+            return AccountMismatchError(f"{self.platform}: {e}")
+        return PlatformError(f"{self.platform}: {e}", kind_for_code(e.code, str(e)))
+
+    def _attach_evidence(self, err: PlatformError, e: AsideError) -> None:
+        """실패 증거를 남기고 오류 문구 끝에 폴더 이름을 붙인다(전체 경로는 `evidence_dir`).
+        저장이 실패해도 원래 오류는 그대로. 같은 종류는 한 시간에 한 번만 남긴다."""
+        from nsm.adapters.evidence import save_evidence
+
+        now = self._now()
+        last = self._evidence_at.get(err.kind)
+        if last is not None and now - last < EVIDENCE_EVERY:
+            return
+        d = save_evidence(
+            self.platform,
+            self._now(),
+            getattr(e, "evidence", None),
+            error=str(err),
+            kind=err.kind,
+            log_file=paths.logs_dir() / "nsm.log",
+        )
+        if d is not None:
+            self._evidence_at[err.kind] = now
+            err.evidence_dir = str(d)
+            # 집 폴더 경로가 알림·대시보드에 드러나지 않게 이름만(logs\\shots 아래)
+            err.args = (f"{err.args[0]} (증거: {d.name})", *err.args[1:])
 
     def _rate_limited(self, now: datetime, e: Exception) -> RateLimitedError:
         self._strikes += 1

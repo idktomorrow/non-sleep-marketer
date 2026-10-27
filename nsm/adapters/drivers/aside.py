@@ -40,11 +40,16 @@ _SECRETISH = re.compile(
 
 
 class AsideError(RuntimeError):
-    """repl 실행 실패. `code`로 원인을 나눈다: login, mismatch, timeout, script, cli."""
+    """repl 실행 실패. `code`로 원인을 나눈다: ui(화면 요소 없음), login, mismatch, ratelimit, page, timeout,
+    script(라벨 없는 예외), cli, interrupted.
 
-    def __init__(self, message: str, code: str = "script") -> None:
+    evidence: 스크립트가 실패한 순간 탭에서 모은 것(화면 base64, 대화상자 수, 보이는 글, 라벨, 주소). E1.
+    """
+
+    def __init__(self, message: str, code: str = "script", evidence: dict | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.evidence = evidence
 
 
 def scrub(text: str, limit: int = 300) -> str:
@@ -64,6 +69,28 @@ function nsmLeft() { return Math.max(0, __deadline - Date.now()); }
 class NsmError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
 async function nsmOpen(url) { const p = await openTab(url); __opened.push(p); return p; }
 async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: Math.max(1000, Math.min(ms || 20000, nsmLeft())) }); return loc.first(); }
+async function nsmEvidence() {
+  const pg = __opened[__opened.length - 1];
+  if (!pg) return null;
+  const ev = { url: pg.url() };
+  const budget = (ms) => Math.max(500, Math.min(ms, nsmLeft() - 3000));
+  const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), budget(ms)))]);
+  const info = await within(pg.evaluate(() => {
+    const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]')).filter(vis);
+    const labels = [];
+    for (const el of document.querySelectorAll('svg title, [aria-label]')) {
+      const t = (el.tagName.toLowerCase() === 'title' ? el.textContent : el.getAttribute('aria-label')) || '';
+      if (t.trim() && labels.length < 200) labels.push(t.trim().slice(0, 120));
+    }
+    const text = ((document.body && document.body.innerText) || '').slice(0, 4000);
+    return { dialogs: dialogs.length, labels, text };
+  }).catch(() => ({})), 3000);
+  Object.assign(ev, info || {});
+  const shot = await pg.screenshot({ timeout: budget(5000) }).catch(() => null);
+  if (shot) ev.screenshot = Buffer.from(shot).toString('base64');
+  return ev;
+}
 async function nsmFiles() {
   const out = [];
   for (const f of (ARGS.__files || [])) {
@@ -83,6 +110,11 @@ try {
   __res = { ok: true, data: await (async () => { __BODY__ })() };
 } catch (e) {
   __res = { ok: false, code: (e && e.code) || 'script', error: String((e && e.message) || e) };
+  // 실패 증거(E1): 탭을 닫기 전에 마지막 탭의 화면과 대화상자 정보를 모은다. 쿠키·저장소는 읽지 않는다.
+  // 요청 제한·중단에는 모으지 않고, 남은 시간이 적으면 건너뛴다(결과 줄을 못 찍으면 원래 오류 코드를 잃는다).
+  if (!['ratelimit', 'interrupted'].includes(__res.code) && nsmLeft() > 6000) {
+    try { __res.evidence = await nsmEvidence(); } catch (e2) {}
+  }
 } finally {
   for (const p of __opened) { try { await closeTab(p); } catch (e) {} }
 }
@@ -106,7 +138,14 @@ def parse_output(stdout: str, stderr: str = "", returncode: int | None = None) -
     for line in reversed((stdout or "").splitlines()):
         line = _ANSI.sub("", line).strip()
         if line.startswith(MARKER):
-            return json.loads(line[len(MARKER) :])
+            try:
+                return json.loads(line[len(MARKER) :])
+            except (
+                ValueError
+            ) as e:  # 결과 줄이 잘림(큰 스크린샷 등): 원래 실패로 다루되 형식 오류는 숨기지 않는다
+                raise AsideError(
+                    f"Aside 결과 줄을 읽지 못함({type(e).__name__})", code="cli"
+                ) from e
     # 결과 줄이 없는 건 CLI가 끊긴 것(끄는 중 Ctrl+C, 브라우저 연결 끊김). 원인이 보이게 종료 코드·stderr를 붙인다(C33)
     if returncode in CTRL_C_EXIT_CODES:
         # Ctrl+C는 콘솔의 모든 프로세스에 가므로 CLI가 먼저 죽는다. 프로그램이 끄는 중이라는 뜻
@@ -207,7 +246,12 @@ class AsideRepl:
                 raise AsideError("Aside 응답 시간 초과", code="timeout") from e
         res = parse_output(proc.stdout, proc.stderr, proc.returncode)
         if not res.get("ok"):
-            raise AsideError(scrub(res.get("error", "")), code=res.get("code") or "script")
+            ev = res.get("evidence")
+            raise AsideError(
+                scrub(res.get("error", "")),
+                code=res.get("code") or "script",
+                evidence=ev if isinstance(ev, dict) else None,
+            )
         return res.get("data")
 
 

@@ -131,3 +131,26 @@ def test_aside_collect_driver_reads_page_once() -> None:
     d.goto("https://search.example/?q=1")
     assert [link.href for link in d.links()] == ["https://x/1"] and d.page_text() == "본문"
     assert len(fake.calls) == 1 and fake.calls[0][1]["url"] == "https://search.example/?q=1"
+
+
+def test_run_carries_failure_evidence_and_script_collects_it(monkeypatch, tmp_path: Path) -> None:
+    """E1: 스크립트가 실패하면 탭을 닫기 전에 증거를 모으고, 드라이버가 AsideError.evidence로 넘긴다."""
+    r = A.AsideRepl(exe=tmp_path / "aside.exe")
+    ev = {"url": "https://x", "dialogs": 1, "labels": ["닫기"], "text": "t", "screenshot": "AA=="}
+    out = A.MARKER + json.dumps(
+        {"ok": False, "code": "script", "error": "버튼 없음", "evidence": ev}
+    )
+    monkeypatch.setattr(A.subprocess, "run", lambda cmd, **kw: _Proc(out))
+    with pytest.raises(A.AsideError) as e:
+        r.run("x")
+    assert e.value.code == "script" and e.value.evidence == ev
+    script = A.build_script("return 1;", {})
+    # 증거 수집은 catch 안(탭을 닫는 finally보다 먼저)이고, 쿠키·저장소는 읽지 않는다
+    assert script.index("nsmEvidence()") < script.index("closeTab")
+    assert "cookie" not in script.lower() and "localStorage" not in script
+    # 요청 제한·중단엔 모으지 않고, 남은 시간이 적으면 건너뛴다(원래 오류 코드를 잃지 않게)
+    assert "'ratelimit', 'interrupted'" in script and "nsmLeft() > 6000" in script
+    # 결과 줄이 잘리면 형식 오류가 아니라 AsideError(cli)
+    with pytest.raises(A.AsideError) as e2:
+        A.parse_output(A.MARKER + '{"ok": false, "evidence": {"screenshot": "AAAA')
+    assert e2.value.code == "cli"

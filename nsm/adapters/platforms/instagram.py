@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
     AsideAdapterBase,
+    PlatformError,
     RateLimitedError,
     check_upload_paths,
     norm_handle,
@@ -166,9 +167,9 @@ const before = await findMine(pg, 2);
 if (before) return { code: before.code, ratio: before.ratio, existing: true };
 await pg.goto('https://www.instagram.com/');
 const files = await nsmFiles();
-if (!files.length) throw new NsmError('script', '인스타그램 게시에는 이미지가 필요함');
+if (!files.length) throw new NsmError('ui', '인스타그램 게시에는 이미지가 필요함');
 const np = await nsmUntil(() => nsmMarkIcon(pg, null, '새로운 게시물', 0), 20000);
-if (!np) throw new NsmError('script', '"새로운 게시물" 메뉴 없음');
+if (!np) throw new NsmError('ui', '"새로운 게시물" 메뉴 없음');
 await np.click();
 const postItem = await nsmUntil(() => nsmMarkIcon(pg, null, '게시물', 0), 10000);
 if (postItem) await postItem.click();
@@ -179,14 +180,14 @@ await fi.waitFor({ state: 'attached', timeout: Math.max(1000, Math.min(20000, ns
 await fi.setInputFiles(files);
 // 자르기: 반드시 4:5. 안내 창이 뒤늦게 떠도 닫고 찾는다
 const crop = await nsmUntil(async () => { await nsmDismissPrompts(pg); return nsmMarkIcon(pg, '[role="dialog"]', '자르기 선택', 0); }, 30000);
-if (!crop) throw new NsmError('script', '자르기 단계가 나오지 않음');
+if (!crop) throw new NsmError('ui', '자르기 단계가 나오지 않음');
 await crop.click();
 await sleep(800);
-if (!(await nsmClickText(pg.locator('[role="dialog"]'), '4:5'))) throw new NsmError('script', '4:5 자르기 버튼 없음');
+if (!(await nsmClickText(pg.locator('[role="dialog"]'), '4:5'))) throw new NsmError('ui', '4:5 자르기 버튼 없음');
 await sleep(800);
-if (!(await nextStep(pg, '자르기'))) throw new NsmError('script', '자르기 다음 단계로 못 감');
+if (!(await nextStep(pg, '자르기'))) throw new NsmError('ui', '자르기 다음 단계로 못 감');
 await sleep(2500);
-if (!(await nextStep(pg, '편집'))) throw new NsmError('script', '편집 다음 단계로 못 감');
+if (!(await nextStep(pg, '편집'))) throw new NsmError('ui', '편집 다음 단계로 못 감');
 const cap = await nsmWait(pg.locator('[role="dialog"] [contenteditable="true"]'), 20000);
 await cap.click();
 await pg.keyboard.insertText(ARGS.text);
@@ -210,10 +211,10 @@ const threadsSwitch = async (turnOff) => await pg.evaluate((turnOff) => {
 await threadsSwitch(true);
 await sleep(600);
 const thrState = await threadsSwitch(false);
-if (thrState.some(Boolean)) throw new NsmError('script', '"Threads에 공유" 스위치를 끄지 못함(중복 게시 위험)');
+if (thrState.some(Boolean)) throw new NsmError('ui', '"Threads에 공유" 스위치를 끄지 못함(중복 게시 위험)');
 // 공유하기도 처리 중이면 비활성이다. 실제로 누를 때까지 기다린다('busy'는 누른 게 아님).
 const shareClicked = await nsmUntil(async () => (await clickDialogButton(pg, '공유하기')) === true, 20000, 1000);
-if (!shareClicked) throw new NsmError('script', '공유하기 버튼 없음 또는 계속 비활성');
+if (!shareClicked) throw new NsmError('ui', '공유하기 버튼 없음 또는 계속 비활성');
 // 여기부터는 올라갔을 수 있으니 어떤 오류도 밖으로 내지 않는다(오류 → 재시도 → 중복 게시)
 try {
   const shared = await nsmUntil(async () => /공유되었습니다|게시물이 공유/.test(await pg.evaluate(() => document.body.innerText)), 60000, 1500);
@@ -234,12 +235,12 @@ _DELETE = (
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
 const more = await nsmUntil(() => nsmMarkIcon(pg, 'main', '옵션 더 보기', 0), 20000);
-if (!more) throw new NsmError('script', '글 메뉴(옵션 더 보기) 없음');
+if (!more) throw new NsmError('ui', '글 메뉴(옵션 더 보기) 없음');
 await more.click();
 await sleep(1000);
-if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('script', '삭제 메뉴 없음');
+if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('ui', '삭제 메뉴 없음');
 await sleep(1000);
-if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('script', '삭제 확인 버튼 없음');
+if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('ui', '삭제 확인 버튼 없음');
 await sleep(2500);
 return { deleted: true };
 """
@@ -313,7 +314,7 @@ const ok = await pg.evaluate(([author, cid, key]) => {
   }
   return false;
 }, [ARGS.author, ARGS.cid, key]);
-if (!ok) throw new NsmError('script', '댓글의 "답글 달기" 없음');
+if (!ok) throw new NsmError('ui', '댓글의 "답글 달기" 없음');
 await pg.locator('[data-nsm-mark="' + key + '"]').click();
 // "답글 달기"를 누르면 입력창에 "@작성자 "가 채워지고 초점이 거기 간다. 그 상태가 "이 댓글의 답글"이라는 표시다.
 // 여기서 입력창을 다시 클릭하면 인스타그램이 답글 대상을 잊어 새 댓글로 올라간다(2026-10-19 실험으로 확인).
@@ -321,7 +322,7 @@ await pg.locator('[data-nsm-mark="' + key + '"]').click();
 const box = await nsmWait(pg.locator('main textarea, main [contenteditable="true"]'), 15000);
 const readBox = async () => await box.evaluate(e => e.value !== undefined ? e.value : (e.innerText || ''));
 const prefilled = await nsmUntil(async () => (await readBox()).startsWith('@' + ARGS.author), 8000, 300);
-if (!prefilled) throw new NsmError('script', '답글 입력창에 "@' + ARGS.author + '"가 채워지지 않음');
+if (!prefilled) throw new NsmError('ui', '답글 입력창에 "@' + ARGS.author + '"가 채워지지 않음');
 const focused = await box.evaluate(e => document.activeElement === e);
 if (!focused) await box.evaluate(e => e.focus());  // 마우스 클릭이 아니라 focus()만(답글 대상 유지)
 await pg.keyboard.insertText(ARGS.text);
@@ -333,7 +334,7 @@ await pg.keyboard.press('Enter');
 const posted = await nsmUntil(async () => (await readBox()) === '', 6000, 300);
 if (!posted) {
   const sent = await nsmClickText(pg.locator('main'), '게시');
-  if (!sent) throw new NsmError('script', '답글 게시 버튼 없음');
+  if (!sent) throw new NsmError('ui', '답글 게시 버튼 없음');
 }
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다
 // 답글은 보통 "답글 N개 모두 보기"로 접혀 보인다. 내 문구가 보이거나 그 댓글 칸에 답글 수가 생기면 확인된 것으로 본다.
@@ -419,7 +420,7 @@ def _split_comment_id(external_id: str) -> tuple[str, str]:
     """댓글 ID는 "작성자:댓글ID"(글 페이지의 /c/<댓글ID>/ 링크). "/"는 대시보드 경로를 깨므로 쓰지 않는다."""
     author, _, cid = external_id.partition(":")
     if not author or not cid:
-        raise AdapterError(f"인스타그램 댓글 ID 형식이 아님: {external_id}")
+        raise PlatformError(f"인스타그램 댓글 ID 형식이 아님: {external_id}", "config_or_bug")
     return author, cid
 
 
@@ -437,7 +438,7 @@ class InstagramAdapter(AsideAdapterBase):
     def publish(self, post: RenderedPost) -> PublishResult:
         self._need("publish")
         if not post.images:
-            raise AdapterError("인스타그램 게시에는 이미지가 필요합니다")
+            raise PlatformError("인스타그램 게시에는 이미지가 필요합니다", "config_or_bug")
         images = check_upload_paths(post.images, self.media_dir)
         since = (self._now() - IDEMPOTENCY_WINDOW).isoformat()
         args = {"text": post.text, "probe": _probe(post.text), "since": since}

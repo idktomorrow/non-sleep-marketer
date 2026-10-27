@@ -30,6 +30,13 @@ def retry_at(exc: BaseException) -> datetime | None:
     return t if isinstance(t, datetime) else None
 
 
+def rest_until(exc: BaseException) -> datetime | None:
+    """오류 종류 표(ADR 0054)에서 "정한 시각까지 쉬었다 다시"인 오류면 그 시각(요청 제한)."""
+    from nsm.domain.errors import policy_for
+
+    return retry_at(exc) if policy_for(exc).retry == "until" else None
+
+
 def blocked_until(adapter: object, now: datetime) -> datetime | None:
     """어댑터가 요청 제한으로 쉬는 중이면 그 끝 시각."""
     t = getattr(adapter, "blocked_until", None)

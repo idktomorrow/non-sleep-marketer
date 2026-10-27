@@ -43,3 +43,13 @@ def nsm_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "nsm-home"
     monkeypatch.setenv("NSM_HOME", str(home))
     return home
+
+
+@pytest.fixture(autouse=True)
+def _isolated_evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """실패 증거(E1)가 실제 <NSM_HOME>/logs/shots에 쓰이거나 지워지지 않게 테스트마다 임시 폴더로."""
+    from nsm.adapters import evidence
+
+    d = tmp_path / "evidence-shots"
+    monkeypatch.setattr(evidence, "shots_dir", lambda: d)
+    return d
