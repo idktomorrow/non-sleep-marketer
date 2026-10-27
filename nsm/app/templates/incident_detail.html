@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="/incidents">← 장애</a></p>
+<h1>{{ f.platform|ko_platform }} · {{ labels[f.kind] }}</h1>
+<p class="muted small">{{ f.occurred_at|kst }} · {{ f.job|ko_job }} · 단계 {{ f.stage }}</p>
+
+{% if f.diagnosis %}
+<div class="notice info incident-diagnosis"><b>자동 진단(Claude)</b><br>{{ f.diagnosis }}<br><span class="muted small">원인 추정은 화면을 보고 짐작한 것입니다. 확인은 사람이 하고, 고치는 일도 사람이 합니다.</span></div>
+{% endif %}
+
+<div class="panel">
+  <p><b>메시지</b><br><span class="small">{{ f.message }}</span></p>
+  <p><b>자동으로 취한 조치</b><br><span class="small">{{ f.action }}</span></p>
+  <p style="margin-bottom:0"><b>증거 폴더</b><br>{% if d.evidence %}<code class="small">{{ d.evidence }}</code><br><span class="muted small">탐색기 주소창에 붙여 넣으면 열립니다. 키·토큰·쿠키는 들어 있지 않습니다.</span>{% else %}<span class="muted small">없음(요청 제한·중단은 남기지 않고, 같은 종류는 한 시간에 한 번만 남깁니다)</span>{% endif %}</p>
+</div>
+
+{% if d.evidence %}
+<h2>실패 순간</h2>
+{% if d.has_shot %}<p><img class="incident-shot" src="/incidents/{{ f.id }}/screenshot.png" alt="실패 순간의 브라우저 화면"></p>{% endif %}
+<div class="panel small">
+  <p><b>떠 있던 대화상자</b> {{ d.dialogs if d.dialogs is not none else '-' }}개 · <b>주소</b> <span class="muted">{{ d.url or '-' }}</span></p>
+  {% if d.labels %}<p><b>버튼·아이콘 이름</b> <span class="muted">{{ d.labels|join(', ') }}</span></p>{% endif %}
+  {% if d.text %}<p style="margin-bottom:0"><b>보이던 글(앞부분)</b><br><span class="muted">{{ d.text }}</span></p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

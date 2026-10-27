@@ -41,6 +41,7 @@
     {% if not simple or request.url.path.startswith('/materials') %}<a href="/materials" {% if request.url.path.startswith('/materials') %}class="active"{% endif %}>자료</a>{% endif %}
     <a href="/performance" {% if request.url.path.startswith('/performance') %}class="active"{% endif %}>성과</a>
     {% if has_reports %}<a href="/reports" {% if request.url.path.startswith('/reports') %}class="active"{% endif %}>주간 리포트</a>{% endif %}
+    {% if not simple or request.url.path.startswith('/incidents') %}<a href="/incidents" {% if request.url.path.startswith('/incidents') %}class="active"{% endif %}>장애</a>{% endif %}
     {% if not simple or request.url.path.startswith('/logs') %}<a href="/logs" {% if request.url.path.startswith('/logs') %}class="active"{% endif %}>실행 기록</a>{% endif %}
     <a href="/settings" {% if request.url.path.startswith('/settings') %}class="active"{% endif %}>설정</a>
   </nav>

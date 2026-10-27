@@ -162,6 +162,9 @@ def asset_url(name: str) -> str:
     return f"/static/{name}?v={hit[1]}"
 
 
+LOOPBACK = frozenset({"127.0.0.1", "::1"})  # 실패 화면은 내 PC에서 연 대시보드에만(E2)
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
     # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
@@ -281,9 +284,13 @@ def create_app(state: AppState) -> FastAPI:
             key=lambda p: (p.next_attempt_at is None, p.next_attempt_at, p.id),
         )
         cap = state.get_config().settings.daily_cost_cap_usd
+        from nsm.app.incidents import ongoing as ongoing_incidents
+
         return page(
             request,
             "overview.html",
+            # 진행 중인 장애만 한 줄씩(E2): "스레드: 요청 제한으로 14:00까지 쉬는 중"
+            incidents_now=ongoing_incidents(state, now, lambda t: local(t, tz()).strftime("%H:%M")),
             ov=ov,
             human_approved=state.repo.count_human_approved(),
             runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
@@ -1044,6 +1051,55 @@ def create_app(state: AppState) -> FastAPI:
             comment_stats=queries.comment_stats(state.repo.db, since),
             costs=queries.costs_by_day(state.repo.db, now - timedelta(days=14), tz()),
         )
+
+    # ------------------------------------------------------------------ 장애(E2, ADR 0055)
+
+    @app.get("/incidents", response_class=HTMLResponse)
+    def incidents(request: Request) -> HTMLResponse:
+        from nsm.app import incidents as inc
+        from nsm.domain.errors import POLICIES, short_label
+
+        now = state.clock.now()
+        live = inc.ongoing(state, now, lambda t: local(t, tz()).strftime("%H:%M"))
+        return page(
+            request,
+            "incidents.html",
+            kinds=inc.kind_rows(state, now, live),
+            failures=state.repo.recent_failures(50),
+            labels={k: short_label(k) for k in POLICIES},
+            days=inc.SUMMARY_DAYS,
+        )
+
+    @app.get("/incidents/{failure_id}", response_class=HTMLResponse)
+    def incident_detail(request: Request, failure_id: str) -> HTMLResponse:
+        from nsm.app import incidents as inc
+        from nsm.domain.errors import POLICIES, short_label
+
+        f = state.repo.get_failure(failure_id)
+        if f is None:
+            raise HTTPException(status_code=404)
+        return page(
+            request,
+            "incident_detail.html",
+            f=f,
+            d=inc.detail(f),
+            labels={k: short_label(k) for k in POLICIES},
+        )
+
+    @app.get("/incidents/{failure_id}/screenshot.png")
+    def incident_screenshot(request: Request, failure_id: str) -> FileResponse:
+        """실패 순간 화면. 내 PC(127.0.0.1)에서 연 대시보드에만 준다."""
+        from nsm.app import incidents as inc
+
+        host = request.client.host if request.client else ""
+        if host not in LOOPBACK:
+            raise HTTPException(status_code=403)
+        f = state.repo.get_failure(failure_id)
+        d = inc.evidence_path(f) if f else None
+        shot = d / "screenshot.png" if d else None
+        if shot is None or not shot.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(shot, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.get("/logs", response_class=HTMLResponse)
     def logs(request: Request, show_all: bool = Query(False, alias="all")) -> HTMLResponse:

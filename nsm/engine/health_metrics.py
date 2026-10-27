@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from nsm.domain.errors import policy_for
+from nsm.domain.errors import KindedError, policy_for
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, rest_until, resting, retry_at
 from nsm.engine.watchdog import check_stalls
@@ -30,19 +31,34 @@ def run_health(ctx: JobContext) -> JobResult:
         if until := blocked_until(adapter, now):
             limited.append(resting(ctx, platform, until))
             continue
+        err: BaseException | None = None
         try:
             h = adapter.health()
             ok, detail = h.logged_in, h.detail
         except Exception as e:  # noqa: BLE001
             if until := rest_until(e):  # 오류 종류 표(ADR 0054): 요청 제한만 쉬고, 나머지는 멈춘다
+                record_incident(ctx, platform, "health", "health", e, "쉬기")
                 limited.append(resting(ctx, platform, until))
                 continue
+            err = e
             ok, detail = False, f"상태 확인 실패({policy_for(e).label}): {e}"
         if not ok and platform not in paused:
+            # 멈추는 순간에만 기록한다(멈춘 동안 30분마다 같은 실패가 쌓이지 않게)
+            diag = record_incident(
+                ctx,
+                platform,
+                "health",
+                "health",
+                err or KindedError(detail, "auth"),
+                "자동 게시·답글 멈춤",
+            )
             paused.add(platform)
             ctx.notifier.notify(
                 f"{platform} 로그인 필요",
-                f"{platform} 자동 게시·답글을 멈췄습니다. 브라우저에서 다시 로그인하세요. ({detail})",
+                with_diagnosis(
+                    f"{platform} 자동 게시·답글을 멈췄습니다. 브라우저에서 다시 로그인하세요. ({detail})",
+                    diag,
+                ),
                 "error",
             )
         elif ok and platform in paused:
@@ -79,6 +95,14 @@ def run_metrics(ctx: JobContext) -> JobResult:
             _platform_metrics(ctx, platform, adapter, result, now, tally)
         except Exception as e:  # noqa: BLE001
             until = retry_at(e)
+            record_incident(
+                ctx,
+                platform,
+                "metrics",
+                "metrics",
+                e,
+                "쉬기" if until else "지표 수집 중단(다음 실행에 다시)",
+            )
             if until is None:
                 raise
             limited.append(resting(ctx, platform, until))  # 남은 글도 막힌다: 이 플랫폼은 그만

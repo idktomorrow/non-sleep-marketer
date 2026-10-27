@@ -172,6 +172,7 @@ def test_old_run_logs_are_pruned_only(db, clock, app_config) -> None:
     r = run_maintenance(ctx)
     assert r.counts == {
         "runs_pruned": 1,
+        "failures_pruned": 0,
         "sources_blanked": 0,
         "sources_pruned": 0,
         "evidence_pruned": 0,

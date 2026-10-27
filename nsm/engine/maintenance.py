@@ -32,6 +32,7 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     s = ctx.config.settings
     # 정리를 먼저: 백업이 실패해도(파일이 열려 있음, 디스크 가득) 실행 기록 정리는 된다
     pruned = ctx.repo.prune_runs(s.run_log_keep_days)
+    result.counts["failures_pruned"] = ctx.repo.prune_failures(s.run_log_keep_days)  # E2
     if ctx.backups_dir is not None and ctx.repo.db.path != ":memory:":
         day = local(ctx.clock.now(), ctx.tz).date().isoformat()
         prefix = backup_prefix(s.preset)

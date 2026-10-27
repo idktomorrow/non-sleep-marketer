@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from nsm.domain.models import COMMENT_CATEGORIES, Comment
 from nsm.domain.policy import COMPLAINT_SCOPES, decide_comment, find_banned, local, should_act
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, rest_until, resting
 
@@ -139,6 +140,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
         return result
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     counts = dict.fromkeys(("new", "auto_replied", "hidden", "escalated", "ignored"), 0)
+    diagnoses: list[str] = []  # 자동 진단(E2): 사람 확인 알림 끝에 붙인다
     waits: list[str] = []
     for platform, adapter in ctx.adapters.items():
         if platform in paused or "fetch_comments" not in adapter.capabilities():
@@ -160,7 +162,22 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             )
         except Exception as e:  # noqa: BLE001
             result.note(e)
-            if until := rest_until(e):
+            until = rest_until(e)
+            diag = record_incident(
+                ctx,
+                platform,
+                "reply",
+                "fetch_comments",
+                e,
+                "쉬기" if until else "다음 댓글 확인에 다시",
+            )
+            if diag:  # 댓글 조회 화면이 바뀜: 사람 확인 댓글이 없어도 알린다
+                ctx.notifier.notify(
+                    f"{platform} 댓글 확인 실패",
+                    with_diagnosis(f"{platform} 댓글 조회 실패: {e}", diag),
+                    "error",
+                )
+            if until:
                 waits.append(resting(ctx, platform, until))
             else:
                 result.errors.append(f"{platform} 댓글 조회 실패: {e}")
@@ -177,6 +194,17 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                 outcome = _handle(ctx, adapter, c)
             except Exception as e:  # noqa: BLE001  한 댓글 실패가 나머지를 막지 않게
                 # 표(ADR 0054): 요청 제한만 쉬었다 다시, 나머지는 다시 보내지 않고 그 댓글을 사람에게(C23)
+                diag = record_incident(
+                    ctx,
+                    platform,
+                    "reply",
+                    "reply",
+                    e,
+                    "쉬고 나서 다시"
+                    if rest_until(e)
+                    else "그 댓글을 사람 확인으로(다시 보내지 않음)",
+                )
+                diagnoses += [diag] if diag else []
                 if until := rest_until(e):
                     # 댓글 탓이 아니다: 'new'로 남겨 쉬고 나서 처리한다. 남은 댓글도 막히니 여기서 그만
                     waits.append(resting(ctx, platform, until))
@@ -194,7 +222,12 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
         result.counts["rate_limited"] = waits
     if counts["escalated"]:
         ctx.notifier.notify(
-            "댓글 확인 필요", f"사람이 확인해야 할 댓글이 {counts['escalated']}건 있습니다", "warn"
+            "댓글 확인 필요",
+            with_diagnosis(
+                f"사람이 확인해야 할 댓글이 {counts['escalated']}건 있습니다",
+                " / ".join(dict.fromkeys(diagnoses)) if diagnoses else None,
+            ),
+            "warn",
         )
     result.ok = not result.errors
     return result

@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS costs (
     ref VARCHAR
 );
 
+-- 분류된 실패 한 건(E2, ADR 0055). run_logs는 잡 한 번 = 한 줄이라 따로 둔다
+CREATE TABLE IF NOT EXISTS failures (
+    id VARCHAR PRIMARY KEY,
+    occurred_at TIMESTAMP NOT NULL,
+    platform VARCHAR NOT NULL,
+    job VARCHAR NOT NULL,
+    stage VARCHAR NOT NULL,              -- publish / render / reply / fetch_comments / health / metrics
+    kind VARCHAR NOT NULL,               -- 오류 종류(ADR 0054)
+    message VARCHAR NOT NULL,
+    evidence_dir VARCHAR,                -- <NSM_HOME>/logs/shots/... (E1)
+    action VARCHAR NOT NULL,             -- 자동으로 취한 조치
+    diagnosis VARCHAR,                   -- Claude 원인 추정 두 문장(화면 변경 등)
+    diagnosed_at TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS run_logs (
     id VARCHAR PRIMARY KEY,
     job VARCHAR NOT NULL,

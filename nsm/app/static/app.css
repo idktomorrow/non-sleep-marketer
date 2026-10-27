@@ -251,3 +251,8 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
   .field-row { grid-template-columns: 1fr; }
   .style-options { grid-template-columns: 1fr; }
 }
+/* 장애 화면(E2) */
+.incident-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
+.incident-diagnosis { line-height: 1.6; }
+.incident-now a { color: inherit; }
+

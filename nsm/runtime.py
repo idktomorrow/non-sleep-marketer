@@ -111,6 +111,7 @@ def build_context(
     notifier=None,
 ) -> JobContext:
     from nsm.adapters.classifier import make_classifiers
+    from nsm.adapters.diagnosis import make_diagnoser
     from nsm.adapters.sources.google_trends import GoogleTrendsSource
     from nsm.adapters.sources.image_reader import make_image_reader
     from nsm.adapters.sources.upload import UploadSource
@@ -146,6 +147,7 @@ def build_context(
         classifier_name=classifiers.name,
         text_generator=make_text_generator(cfg, secrets, repo),
         image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
+        diagnoser=make_diagnoser(cfg, secrets, repo),
         adapters=make_platform_adapters(cfg, clock),
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
