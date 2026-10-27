@@ -982,6 +982,12 @@ class Repository:
         )
         return fid
 
+    def mark_diagnosis_attempt(self, failure_id: str) -> None:
+        """진단을 부르기 전에 시각을 찍는다. 실패한 시도도 6시간·하루 상한에 센다(리뷰: 실패하면 매번 다시 불렀다)."""
+        self.db.execute(
+            "UPDATE failures SET diagnosed_at = ? WHERE id = ?", [self._now(), failure_id]
+        )
+
     def set_failure_diagnosis(self, failure_id: str, text: str) -> None:
         self.db.execute(
             "UPDATE failures SET diagnosis = ?, diagnosed_at = ? WHERE id = ?",

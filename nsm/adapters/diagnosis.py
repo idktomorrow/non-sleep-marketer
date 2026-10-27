@@ -42,7 +42,7 @@ _SCHEMA = {
 
 
 def _esc(v: Any) -> str:
-    return html.escape(str(v or ""), quote=True)
+    return html.escape("" if v is None else str(v), quote=True)  # 0은 "0"으로(대화상자 0개는 단서)
 
 
 def screen_summary(evidence_dir: Path) -> dict[str, Any]:
@@ -135,7 +135,8 @@ def make_diagnoser(cfg: Any, secrets: Any, cost_sink: CostSink):
     import anthropic
 
     return ClaudeDiagnoser(
-        anthropic.Anthropic(max_retries=1, timeout=TIMEOUT_S, api_key=key),
+        # 작업 스레드에서 부르므로 재시도 없이 60초까지(6시간에 한 번이라 길게 막혀도 그때뿐)
+        anthropic.Anthropic(max_retries=0, timeout=TIMEOUT_S, api_key=key),
         cfg.settings.models.generation,
         cost_sink,
     )

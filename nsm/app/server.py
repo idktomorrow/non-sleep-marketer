@@ -162,6 +162,9 @@ def asset_url(name: str) -> str:
     return f"/static/{name}?v={hit[1]}"
 
 
+LOOPBACK = frozenset({"127.0.0.1", "::1"})  # 실패 화면은 내 PC에서 연 대시보드에만(E2)
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
     # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
@@ -1054,7 +1057,7 @@ def create_app(state: AppState) -> FastAPI:
     @app.get("/incidents", response_class=HTMLResponse)
     def incidents(request: Request) -> HTMLResponse:
         from nsm.app import incidents as inc
-        from nsm.domain.errors import POLICIES
+        from nsm.domain.errors import POLICIES, short_label
 
         now = state.clock.now()
         live = inc.ongoing(state, now, lambda t: local(t, tz()).strftime("%H:%M"))
@@ -1063,14 +1066,14 @@ def create_app(state: AppState) -> FastAPI:
             "incidents.html",
             kinds=inc.kind_rows(state, now, live),
             failures=state.repo.recent_failures(50),
-            labels={k: p.label.split("(")[0] for k, p in POLICIES.items()},
+            labels={k: short_label(k) for k in POLICIES},
             days=inc.SUMMARY_DAYS,
         )
 
     @app.get("/incidents/{failure_id}", response_class=HTMLResponse)
     def incident_detail(request: Request, failure_id: str) -> HTMLResponse:
         from nsm.app import incidents as inc
-        from nsm.domain.errors import POLICIES
+        from nsm.domain.errors import POLICIES, short_label
 
         f = state.repo.get_failure(failure_id)
         if f is None:
@@ -1080,7 +1083,7 @@ def create_app(state: AppState) -> FastAPI:
             "incident_detail.html",
             f=f,
             d=inc.detail(f),
-            labels={k: p.label.split("(")[0] for k, p in POLICIES.items()},
+            labels={k: short_label(k) for k in POLICIES},
         )
 
     @app.get("/incidents/{failure_id}/screenshot.png")
@@ -1089,7 +1092,7 @@ def create_app(state: AppState) -> FastAPI:
         from nsm.app import incidents as inc
 
         host = request.client.host if request.client else ""
-        if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        if host not in LOOPBACK:
             raise HTTPException(status_code=403)
         f = state.repo.get_failure(failure_id)
         d = inc.evidence_path(f) if f else None

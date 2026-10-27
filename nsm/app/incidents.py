@@ -16,7 +16,7 @@ from typing import Any
 
 from nsm.adapters import evidence as _evidence
 from nsm.adapters.diagnosis import screen_summary
-from nsm.domain.errors import ERROR_KINDS, POLICIES
+from nsm.domain.errors import ERROR_KINDS, POLICIES, short_label
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import NAMES, blocked_until
 
@@ -61,13 +61,14 @@ def ongoing(state: Any, now: datetime, fmt_time: Callable[[datetime], str]) -> l
                 )
             )
     for platform in state.repo.get_setting(PAUSED_KEY, []) or []:
-        out.append(
-            Ongoing(
-                "auth",
-                platform,
-                f"{_name(platform)}: 로그인·상태 확인 실패로 자동 게시·답글 멈춤(다시 로그인하면 풀림)",
-            )
+        # health는 로그인 말고도(네트워크·화면 변경) 멈춘다. 멈출 때 남긴 기록의 종류로 이유를 말한다
+        kind = state.repo.latest_failure_kind(platform, "health") or "auth"
+        why = (
+            "로그인 필요로 자동 게시·답글 멈춤(다시 로그인하면 풀림)"
+            if kind == "auth"
+            else f"상태 확인 실패({short_label(kind)})로 자동 게시·답글 멈춤(다음 점검에서 되면 풀림)"
         )
+        out.append(Ongoing(kind, platform, f"{_name(platform)}: {why}"))
     waiting: dict[str, datetime] = {}
     for p in state.repo.publications_in_status("failed"):
         due = p.next_attempt_at

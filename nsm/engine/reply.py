@@ -171,7 +171,12 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                 e,
                 "쉬기" if until else "다음 댓글 확인에 다시",
             )
-            diagnoses += [diag] if diag else []
+            if diag:  # 댓글 조회 화면이 바뀜: 사람 확인 댓글이 없어도 알린다
+                ctx.notifier.notify(
+                    f"{platform} 댓글 확인 실패",
+                    with_diagnosis(f"{platform} 댓글 조회 실패: {e}", diag),
+                    "error",
+                )
             if until:
                 waits.append(resting(ctx, platform, until))
             else:
@@ -220,7 +225,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             "댓글 확인 필요",
             with_diagnosis(
                 f"사람이 확인해야 할 댓글이 {counts['escalated']}건 있습니다",
-                diagnoses[0] if diagnoses else None,
+                " / ".join(dict.fromkeys(diagnoses)) if diagnoses else None,
             ),
             "warn",
         )

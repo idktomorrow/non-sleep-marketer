@@ -80,7 +80,8 @@ def env(db, clock, app_config, tmp_path: Path, _isolated_evidence: Path):
         action="쉬기",
     )
     return {
-        "client": TestClient(create_app(state)),
+        # 대시보드는 127.0.0.1에서만 연다: 테스트 클라이언트도 루프백 주소로
+        "client": TestClient(create_app(state), client=("127.0.0.1", 50000)),
         "state": state,
         "repo": repo,
         "fid": fid,
@@ -101,7 +102,9 @@ def test_ongoing_states_show_on_incidents_and_overview(env, clock) -> None:
     env["repo"].set_setting(PAUSED_KEY, ["instagram"])
     html = env["client"].get("/incidents").text
     assert "스레드: 요청 제한으로" in html and "까지 쉬는 중" in html
-    assert "인스타그램: 로그인·상태 확인 실패로 자동 게시·답글 멈춤" in html
+    assert (
+        "인스타그램: 로그인 필요로 자동 게시·답글 멈춤" in html
+    )  # health 기록이 없으면 로그인으로
     home = env["client"].get("/").text
     assert "incident-now" in home and "스레드: 요청 제한으로" in home
     # 장애가 없으면 "오늘" 화면에 줄이 없다
@@ -149,3 +152,20 @@ def test_incidents_link_only_in_advanced_mode(env) -> None:
     assert 'href="/incidents"' not in c.get("/").text.split("<main")[0]
     c.post("/ui-mode", data={"csrf": env["state"].csrf_token, "mode": "advanced"})
     assert 'href="/incidents"' in c.get("/").text
+
+
+def test_paused_reason_follows_recorded_health_kind(env) -> None:
+    """리뷰: health는 네트워크 실패로도 멈춘다. 멈출 때 남긴 기록의 종류로 이유를 말한다."""
+    env["repo"].record_failure(
+        platform="threads",
+        job="health",
+        stage="health",
+        kind="transient",
+        message="시간 초과",
+        evidence_dir=None,
+        action="자동 게시·답글 멈춤",
+    )
+    env["repo"].set_setting(PAUSED_KEY, ["threads"])
+    html = env["client"].get("/incidents").text
+    assert "스레드: 상태 확인 실패(일시적)로 자동 게시·답글 멈춤" in html
+    assert "스레드: 로그인 필요" not in html

@@ -208,3 +208,45 @@ def test_failures_are_pruned_with_run_logs(ctx, clock) -> None:
     assert r.counts["failures_pruned"] == 1 and ctx.repo.recent_failures() == []
     assert "실패 기록" in r.summary()
     _ = timedelta
+
+
+def test_failed_diagnosis_attempts_count_toward_limits(ctx, _isolated_evidence) -> None:
+    """리뷰: 진단이 실패해도(거절·형식 오류·시간 초과) 6시간·하루 상한에 센다. 매번 다시 부르지 않는다."""
+    ctx._msgs.fail = True
+    d = _evidence(_isolated_evidence)
+    assert record_incident(ctx, "instagram", "publish", "publish", _ui_error(d), "a") is None
+    assert record_incident(ctx, "instagram", "publish", "publish", _ui_error(d), "a") is None
+    assert len(ctx._msgs.calls) == 1  # 두 번째는 6시간 상한으로 부르지 않음
+
+
+def test_shutdown_errors_are_not_recorded(ctx, _isolated_evidence) -> None:
+    ctx.shutting_down = lambda: True
+    e = _ui_error(_evidence(_isolated_evidence))
+    assert record_incident(ctx, "instagram", "publish", "publish", e, "a") is None
+    assert ctx.repo.recent_failures() == [] and not ctx._msgs.calls
+
+
+def test_zero_dialogs_is_kept_in_prompt() -> None:
+    assert 'dialogs="0"' in build_prompt("threads", "x", {"dialogs": 0})
+
+
+def test_health_records_once_when_pausing_including_soft_logout(ctx) -> None:
+    """리뷰: 멈춘 동안 30분마다 같은 실패를 쌓지 않고, 예외 없이 '로그인 안 됨'을 돌려줘도 기록한다."""
+    from nsm.domain.models import HealthStatus
+    from nsm.engine.health_metrics import run_health
+
+    class Soft:
+        platform = "threads"
+        blocked_until = None
+
+        def capabilities(self):
+            return set()
+
+        def health(self):
+            return HealthStatus(logged_in=False, detail="스레드 로그인 필요(Aside 브라우저)")
+
+    ctx.adapters = {"threads": Soft()}
+    run_health(ctx)
+    run_health(ctx)
+    rows = ctx.repo.recent_failures()
+    assert len(rows) == 1 and rows[0]["kind"] == "auth" and rows[0]["stage"] == "health"

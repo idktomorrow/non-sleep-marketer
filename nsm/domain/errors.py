@@ -86,6 +86,20 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
 }
 
 
+def short_label(kind: str) -> str:
+    """화면용 짧은 이름(괄호 앞): "외부 화면 변경(버튼…)" → "외부 화면 변경"."""
+    p = POLICIES.get(kind)  # type: ignore[call-overload]
+    return p.label.split("(")[0] if p else kind
+
+
+class KindedError(Exception):
+    """엔진이 예외 없이 알게 된 실패(예: health가 '로그인 안 됨'을 돌려줌)를 표에 기록할 때 쓴다."""
+
+    def __init__(self, message: str, kind: ErrorKind) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
 def kind_of(exc: BaseException) -> ErrorKind:
     """예외의 종류. 어댑터가 붙인 `kind`가 있으면 그것, 요청 제한 시각이 있으면 rate_limited.
 

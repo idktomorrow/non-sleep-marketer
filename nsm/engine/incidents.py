@@ -50,6 +50,8 @@ def record_incident(
     ctx: JobContext, platform: str, job: str, stage: str, exc: BaseException, action: str
 ) -> str | None:
     """실패를 남기고, 할 수 있으면 진단한다. 진단 문장(없으면 None)을 돌려준다 — 알림 끝에 붙인다."""
+    if ctx.shutting_down() or getattr(exc, "code", None) == "interrupted":
+        return None  # 끄는 순간 끊긴 것은 실패가 아니다(C33): 기록·진단하지 않는다
     kind = kind_of(exc)
     where = evidence_dir(exc)
     try:
@@ -70,6 +72,7 @@ def record_incident(
         log.debug("진단 건너뜀(%s): %s", platform, why)
         return None
     try:
+        ctx.repo.mark_diagnosis_attempt(fid)  # 실패한 시도도 상한에 센다
         text = ctx.diagnoser.diagnose(platform, str(exc), Path(where))  # type: ignore[union-attr,arg-type]
     except Exception as e:  # noqa: BLE001  진단이 실패해도 알림은 진단 없이 그대로
         log.warning("자동 진단 실패(%s): %s", platform, e)
