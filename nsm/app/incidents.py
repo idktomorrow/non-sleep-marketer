@@ -2,7 +2,7 @@
 
 지금 상태는 저장된 표가 아니라 그 순간의 사실에서 계산한다:
 - 쉬는 중: 어댑터의 `blocked_until`(요청 제한, ADR 0038)
-- 멈춤: health가 멈춘 플랫폼(`PAUSED_KEY`)
+- 멈춤: health가 멈춘 플랫폼(`PAUSED_KEY`)과 멈출 때 저장한 이유(`PAUSE_INFO_KEY`, E4)
 - 재시도 대기: 실패해 다음 시각을 기다리는 게시
 """
 
@@ -16,7 +16,8 @@ from typing import Any
 
 from nsm.adapters import evidence as _evidence
 from nsm.adapters.diagnosis import screen_summary
-from nsm.domain.errors import ERROR_KINDS, POLICIES, short_label
+from nsm.domain.errors import ERROR_KINDS, POLICIES
+from nsm.engine.pause import pause_info, reason_text
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import NAMES, blocked_until
 
@@ -60,15 +61,13 @@ def ongoing(state: Any, now: datetime, fmt_time: Callable[[datetime], str]) -> l
                     f"{_name(platform)}: 요청 제한으로 {fmt_time(until)}까지 쉬는 중",
                 )
             )
+    info = pause_info(state.repo)
     for platform in state.repo.get_setting(PAUSED_KEY, []) or []:
-        # health는 로그인 말고도(네트워크·화면 변경) 멈춘다. 멈출 때 남긴 기록의 종류로 이유를 말한다
-        kind = state.repo.latest_failure_kind(platform, "health") or "auth"
-        why = (
-            "로그인 필요로 자동 게시·답글 멈춤(다시 로그인하면 풀림)"
-            if kind == "auth"
-            else f"상태 확인 실패({short_label(kind)})로 자동 게시·답글 멈춤(다음 점검에서 되면 풀림)"
-        )
-        out.append(Ongoing(kind, platform, f"{_name(platform)}: {why}"))
+        # 멈출 때 저장한 이유를 그대로 쓴다(E4). 이유가 없으면 추정하지 않고 "이유 미기록"
+        i = info.get(platform)
+        reason = (i or {}).get("reason")
+        kind = reason if reason in ERROR_KINDS else ""
+        out.append(Ongoing(kind, platform, f"{_name(platform)}: {reason_text(i, fmt_time)}"))
     waiting: dict[str, datetime] = {}
     for p in state.repo.publications_in_status("failed"):
         due = p.next_attempt_at

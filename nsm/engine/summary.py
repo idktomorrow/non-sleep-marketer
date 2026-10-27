@@ -107,10 +107,20 @@ def _reply(c: dict[str, Any]) -> list[str]:
 
 def _health(c: dict[str, Any]) -> list[str]:
     paused = c.get("paused") or []
-    if paused:
-        names = ", ".join(PLATFORMS.get(p, str(p)) for p in paused)
-        return [f"로그인이 필요해 멈춘 곳: {names}"]
-    return ["로그인 정상"]
+    why = c.get("paused_why") or {}
+    parts: list[str] = []
+    if paused:  # 이유는 멈출 때 저장한 것 그대로(E4). 예전 기록엔 없으면 "이유 미기록"
+        names = ", ".join(
+            f"{PLATFORMS.get(p, str(p))}({why.get(p, '이유 미기록')})" for p in paused
+        )
+        parts.append(f"자동 게시·답글 멈춘 곳: {names}")
+    else:
+        parts.append("로그인 정상")
+    if c.get("health_retry"):
+        parts.append(
+            f"상태 확인 실패(일시적), 다음 점검에서 다시 확인: {', '.join(c['health_retry'])}"
+        )
+    return parts
 
 
 def _metrics(c: dict[str, Any]) -> list[str]:

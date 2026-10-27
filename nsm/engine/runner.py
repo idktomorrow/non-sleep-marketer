@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 
 from nsm.engine.collect import run_collect
-from nsm.engine.context import JobContext, JobResult
+from nsm.engine.context import JobContext, JobResult, is_interrupted
 from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
 from nsm.engine.keyword import run_keyword_draft
@@ -62,7 +62,7 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
     try:
         result = fn(ctx)
     except Exception as e:
-        if ctx.shutting_down() or getattr(e, "code", None) == "interrupted":
+        if is_interrupted(ctx, e):
             # 끄는 순간 끊긴 것(Ctrl+C가 브라우저 CLI까지 끊음): 실패가 아니라 중단. 알림도 보내지 않는다(C33)
             log.info("잡 %s 중단(프로그램 종료 중): %s", name, e)
             ctx.repo.finish_run(run_id, False, f"{INTERRUPTED_PREFIX}{type(e).__name__}: {e}")

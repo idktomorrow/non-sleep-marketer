@@ -127,6 +127,8 @@ class Settings(_Model):
     source_keep_days: int = Field(default=60, ge=7, le=3650)
     # 실패 증거 폴더(<NSM_HOME>/logs/shots) 보관 일수(E1, ADR 0054)
     evidence_keep_days: int = Field(default=14, ge=1, le=365)
+    # 상태 확인(health)이 일시적 오류로 연속 몇 번 실패하면 자동 게시·답글을 멈출지(E4, ADR 0054 개정). 로그인 풀림은 바로 멈춘다
+    health_pause_after_failures: int = Field(default=2, ge=1, le=10)
     desktop_notifications: bool = True  # Windows 알림. 꺼도 대시보드 안 표시와 로그는 그대로
     # auto: Gemini 키 → gemini(무료 구간), Anthropic 키 → claude, 둘 다 없으면 keyword (ADR 0048)
     classifier: Literal["auto", "gemini", "claude", "keyword"] = "auto"

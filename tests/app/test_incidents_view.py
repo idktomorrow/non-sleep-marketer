@@ -102,9 +102,9 @@ def test_ongoing_states_show_on_incidents_and_overview(env, clock) -> None:
     env["repo"].set_setting(PAUSED_KEY, ["instagram"])
     html = env["client"].get("/incidents").text
     assert "스레드: 요청 제한으로" in html and "까지 쉬는 중" in html
-    assert (
-        "인스타그램: 로그인 필요로 자동 게시·답글 멈춤" in html
-    )  # health 기록이 없으면 로그인으로
+    # 이유가 저장되지 않은 예전 멈춤은 추정하지 않는다(E4)
+    assert "인스타그램: 자동 게시·답글 멈춤, 이유 미기록" in html
+    assert "인스타그램: 로그인 필요" not in html
     home = env["client"].get("/").text
     assert "incident-now" in home and "스레드: 요청 제한으로" in home
     # 장애가 없으면 "오늘" 화면에 줄이 없다
@@ -154,18 +154,30 @@ def test_incidents_link_only_in_advanced_mode(env) -> None:
     assert 'href="/incidents"' in c.get("/").text
 
 
-def test_paused_reason_follows_recorded_health_kind(env) -> None:
-    """리뷰: health는 네트워크 실패로도 멈춘다. 멈출 때 남긴 기록의 종류로 이유를 말한다."""
-    env["repo"].record_failure(
-        platform="threads",
-        job="health",
-        stage="health",
-        kind="transient",
-        message="시간 초과",
-        evidence_dir=None,
-        action="자동 게시·답글 멈춤",
+def test_paused_reason_comes_from_stored_pause_info(env) -> None:
+    """E4: 멈춤 이유는 멈출 때 저장한 것을 그대로. 장애 화면·"오늘" 줄·할 일 목록이 같은 이유를 쓴다."""
+    from nsm.engine.pause import PAUSE_INFO_KEY
+
+    env["repo"].set_setting(PAUSED_KEY, ["threads", "instagram"])
+    env["repo"].set_setting(
+        PAUSE_INFO_KEY,
+        {
+            "threads": {"reason": "transient", "since": "2026-10-11T01:00:00+00:00", "failures": 2},
+            "instagram": {"reason": "auth", "since": "2026-10-11T01:00:00+00:00"},
+        },
     )
-    env["repo"].set_setting(PAUSED_KEY, ["threads"])
     html = env["client"].get("/incidents").text
-    assert "스레드: 상태 확인 실패(일시적)로 자동 게시·답글 멈춤" in html
-    assert "스레드: 로그인 필요" not in html
+    assert "스레드: 상태 확인 2회 연속 실패(일시적)로 자동 게시·답글 멈춤" in html
+    assert "인스타그램: 로그인 필요로 자동 게시·답글 멈춤(다시 로그인하면 풀림, 10:00부터)" in html
+    home = env["client"].get("/").text
+    assert "스레드: 상태 확인 2회 연속 실패(일시적)로" in home  # "오늘" 줄
+    assert "스레드(상태 확인 2회 연속 실패(일시적))" in home  # 할 일 목록
+    assert "인스타그램(로그인 필요)" in home and "로그인이 필요해 멈춘 플랫폼" not in home
+
+
+def test_old_pause_without_reason_is_shown_above_the_kind_table(env) -> None:
+    """리뷰: 종류를 모르는 멈춤은 표의 어느 줄에도 붙지 않으므로 표 위에 진행 중으로 보인다."""
+    env["repo"].set_setting(PAUSED_KEY, ["instagram"])
+    html = env["client"].get("/incidents").text
+    notice = html.index("진행 중 · 인스타그램: 자동 게시·답글 멈춤, 이유 미기록")
+    assert notice < html.index("종류별 요약")
