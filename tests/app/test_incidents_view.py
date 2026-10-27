@@ -173,3 +173,11 @@ def test_paused_reason_comes_from_stored_pause_info(env) -> None:
     assert "스레드: 상태 확인 2회 연속 실패(일시적)로" in home  # "오늘" 줄
     assert "스레드(상태 확인 2회 연속 실패(일시적))" in home  # 할 일 목록
     assert "인스타그램(로그인 필요)" in home and "로그인이 필요해 멈춘 플랫폼" not in home
+
+
+def test_old_pause_without_reason_is_shown_above_the_kind_table(env) -> None:
+    """리뷰: 종류를 모르는 멈춤은 표의 어느 줄에도 붙지 않으므로 표 위에 진행 중으로 보인다."""
+    env["repo"].set_setting(PAUSED_KEY, ["instagram"])
+    html = env["client"].get("/incidents").text
+    notice = html.index("진행 중 · 인스타그램: 자동 게시·답글 멈춤, 이유 미기록")
+    assert notice < html.index("종류별 요약")

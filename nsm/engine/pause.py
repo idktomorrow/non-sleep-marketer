@@ -4,7 +4,7 @@
 화면·알림·실행 기록은 이 이유를 그대로 쓴다. 이유가 없는 예전 멈춤은 "이유 미기록"으로 보인다.
 
 이유: `auth`(로그인 풀림·계정 불일치), `transient`(상태 확인이 연속으로 일시적 실패), `ui_changed`·
-`config_or_bug`(상태 확인 실패), `manual`(사람이 멈춤).
+`config_or_bug`(상태 확인 실패), `manual`(사람이 멈춤, 지금은 쓰는 곳 없이 표시만 준비).
 """
 
 from __future__ import annotations
@@ -32,7 +32,12 @@ def short_reason(info: dict[str, Any] | None) -> str:
     if reason == "auth":
         return "로그인 필요"
     if reason == "transient":
-        return f"상태 확인 {(info or {}).get('failures') or 2}회 연속 실패(일시적)"
+        n = (info or {}).get("failures")
+        return (
+            f"상태 확인 {n}회 연속 실패(일시적)"
+            if isinstance(n, int) and n > 1
+            else "상태 확인 실패(일시적)"
+        )
     if reason == "manual":
         return "수동으로 멈춤"
     if reason in ("ui_changed", "config_or_bug", "rate_limited"):
@@ -45,9 +50,8 @@ def reason_text(
 ) -> str:
     """장애 화면·"오늘" 줄에 쓰는 문장."""
     reason = (info or {}).get("reason")
-    tail = {"auth": "다시 로그인하면 풀림", "manual": "사람이 다시 켜야 풀림"}.get(
-        reason or "", "다음 점검에서 정상이면 풀림"
-    )
+    # health는 점검이 성공하면 이유와 상관없이 푼다(수동 멈춤도 마찬가지)
+    tail = "다시 로그인하면 풀림" if reason == "auth" else "다음 상태 점검에서 정상이면 풀림"
     since = ""
     if fmt_time and (info or {}).get("since"):
         try:
@@ -75,5 +79,5 @@ def pause_notice(platform: str, info: dict[str, Any], detail: str) -> tuple[str,
     return (
         f"{platform} 상태 확인 실패",
         f"{platform} {short_reason(info)}로 자동 게시·답글을 멈췄습니다. "
-        f"다음 점검(30분 안)에서 정상이면 다시 시작합니다. ({detail})",
+        f"다음 상태 점검에서 정상이면 다시 시작합니다. ({detail})",
     )

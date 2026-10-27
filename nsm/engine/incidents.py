@@ -15,7 +15,7 @@ from pathlib import Path
 
 from nsm.domain.errors import evidence_dir, kind_of
 from nsm.domain.policy import local_day_bounds, under_cost_cap
-from nsm.engine.context import JobContext
+from nsm.engine.context import JobContext, is_interrupted
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ def record_incident(
     ctx: JobContext, platform: str, job: str, stage: str, exc: BaseException, action: str
 ) -> str | None:
     """실패를 남기고, 할 수 있으면 진단한다. 진단 문장(없으면 None)을 돌려준다 — 알림 끝에 붙인다."""
-    if ctx.shutting_down() or getattr(exc, "code", None) == "interrupted":
+    if is_interrupted(ctx, exc):
         return None  # 끄는 순간 끊긴 것은 실패가 아니다(C33): 기록·진단하지 않는다
     kind = kind_of(exc)
     where = evidence_dir(exc)

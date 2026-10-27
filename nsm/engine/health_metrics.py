@@ -6,7 +6,7 @@ import logging
 from datetime import timedelta
 
 from nsm.domain.errors import KindedError, kind_of, policy_for
-from nsm.engine.context import JobContext, JobResult
+from nsm.engine.context import JobContext, JobResult, is_interrupted
 from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.pause import (
     HEALTH_STREAK_KEY,
@@ -43,6 +43,7 @@ def run_health(ctx: JobContext) -> JobResult:
     now = ctx.clock.now()
     for platform, adapter in ctx.adapters.items():
         if until := blocked_until(adapter, now):
+            streak.pop(platform, None)  # 쉬는 동안은 "연속"이 끊긴다
             limited.append(resting(ctx, platform, until))
             continue
         err: BaseException | None = None
@@ -50,19 +51,17 @@ def run_health(ctx: JobContext) -> JobResult:
             h = adapter.health()
             ok, detail = h.logged_in, h.detail
         except Exception as e:  # noqa: BLE001
-            if ctx.shutting_down() or getattr(e, "code", None) == "interrupted":
+            if is_interrupted(ctx, e):
                 _interrupted(result, platform, e)
                 continue
             if until := rest_until(e):  # 오류 종류 표(ADR 0054): 요청 제한은 쉬기만
+                streak.pop(platform, None)
                 record_incident(ctx, platform, "health", "health", e, "쉬기")
                 limited.append(resting(ctx, platform, until))
                 continue
             err = e
             ok, detail = False, f"상태 확인 실패({policy_for(e).label}): {e}"
-        if ctx.shutting_down():  # 끄는 중에 본 "로그인 안 됨"도 믿지 않는다
-            _interrupted(result, platform, None)
-            continue
-        if ok:
+        if ok:  # 성공은 끄는 중이어도 믿는다(멈춤을 푸는 쪽은 안전하다)
             streak.pop(platform, None)
             if platform in paused:
                 paused.discard(platform)
@@ -70,6 +69,9 @@ def run_health(ctx: JobContext) -> JobResult:
                 ctx.notifier.notify(
                     f"{platform} 다시 연결됨", f"{platform} 자동 활동을 다시 시작합니다", "info"
                 )
+            continue
+        if is_interrupted(ctx):  # 끄는 중에 본 "로그인 안 됨"은 믿지 않는다
+            _interrupted(result, platform, None)
             continue
         if platform in paused:
             continue  # 이미 멈춤: 같은 실패를 30분마다 다시 쌓지 않는다
@@ -111,6 +113,9 @@ def run_health(ctx: JobContext) -> JobResult:
     info = {k: v for k, v in info.items() if k in paused}
     if info != before[1]:
         ctx.repo.set_setting(PAUSE_INFO_KEY, info)
+    streak = {
+        p: n for p, n in streak.items() if p in ctx.adapters
+    }  # 빠진 플랫폼의 옛 횟수는 버린다
     if streak != before[2]:
         ctx.repo.set_setting(HEALTH_STREAK_KEY, streak)
     result.counts.update(paused=sorted(paused))

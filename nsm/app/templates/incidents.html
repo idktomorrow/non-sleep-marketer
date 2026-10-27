@@ -3,6 +3,7 @@
 <h1>장애</h1>
 <p class="muted small">실패를 종류별로 묶어 보여 줍니다(오류 종류 표, ADR 0054). 프로그램은 표대로 재시도·쉬기·멈추기·사람에게 넘기기를 자동으로 하고, 코드를 스스로 고치지는 않습니다. "화면 변경"은 Claude가 증거를 보고 원인 추정을 붙입니다(최대 하루 5회).</p>
 
+{% for o in others %}<div class="notice warn">진행 중 · {{ o.text }}</div>{% endfor %}
 <h2>종류별 요약 <span class="hint">최근 {{ days }}일</span></h2>
 <div class="table-wrap"><table class="incident-kinds"><tr><th>종류</th><th>횟수</th><th>처음 · 마지막</th><th>지금 상태</th><th>자동으로 취한 조치</th></tr>
 {% for k in kinds %}<tr>
@@ -13,7 +14,6 @@
 <td class="small muted">{{ k.action }}</td>
 </tr>{% endfor %}
 </table></div>
-{% for o in others %}<p class="notice warn small">{{ o.text }}</p>{% endfor %}
 
 <h2>최근 실패</h2>
 {% if failures %}

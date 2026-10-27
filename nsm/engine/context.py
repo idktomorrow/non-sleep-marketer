@@ -55,6 +55,11 @@ class JobContext:
         return self.config.settings.timezone
 
 
+def is_interrupted(ctx: Any, e: BaseException | None = None) -> bool:
+    """프로그램을 끄는 중이거나, 예외가 Ctrl+C로 끊긴 것(C33). runner·실패 기록·health가 같은 기준을 쓴다."""
+    return bool(ctx.shutting_down()) or getattr(e, "code", None) == "interrupted"
+
+
 @dataclass
 class JobResult:
     job: str

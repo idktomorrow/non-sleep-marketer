@@ -151,3 +151,38 @@ def test_old_pause_flag_without_reason_still_works(ctx: JobContext) -> None:
     ctx.adapters["instagram"].outcome = False
     r = run_health(ctx)  # 이미 멈춤: 다시 알리지 않고 이유도 지어내지 않는다
     assert r.counts["paused_why"] == {"instagram": "이유 미기록"}
+
+
+def test_success_while_shutting_down_still_unpauses(ctx: JobContext) -> None:
+    """리뷰: 끄는 순간 점검이 성공했으면 멈춤을 푼다(0008과 같은 '재시작 뒤에도 멈춤'을 만들지 않게)."""
+    ctx.repo.set_setting(PAUSED_KEY, ["threads"])
+    ctx.shutting_down = lambda: True
+    result = run_health(ctx)
+    assert _paused(ctx) == [] and "다시 연결" in ctx.notifier.calls[-1][0]
+    assert not result.interrupted
+
+
+def test_rest_or_removed_platform_breaks_the_streak(ctx: JobContext) -> None:
+    """리뷰: 쉬는 동안이나 빠졌다 돌아온 플랫폼의 옛 실패를 '연속'으로 세지 않는다."""
+    from datetime import timedelta
+
+    a = ctx.adapters["threads"]
+    a.outcome = PlatformError("threads: 시간 초과", "transient")
+    run_health(ctx)
+    a.blocked_until = ctx.clock.now() + timedelta(hours=1)
+    run_health(ctx)  # 요청 제한으로 쉬는 중
+    a.blocked_until = None
+    run_health(ctx)
+    assert _paused(ctx) == []  # 쉬기 전 1회 + 지금 1회는 연속이 아님
+    ctx.adapters = {"instagram": ctx.adapters["instagram"]}
+    run_health(ctx)
+    assert "threads" not in ctx.repo.get_setting(HEALTH_STREAK_KEY, {})
+
+
+def test_single_failure_reason_wording() -> None:
+    from nsm.engine.pause import reason_text, short_reason
+
+    assert short_reason({"reason": "transient", "failures": 1}) == "상태 확인 실패(일시적)"
+    assert short_reason({"reason": "transient"}) == "상태 확인 실패(일시적)"
+    assert "다음 상태 점검에서 정상이면 풀림" in reason_text({"reason": "manual"})
+    assert reason_text(None).startswith("자동 게시·답글 멈춤, 이유 미기록")
