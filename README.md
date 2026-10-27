@@ -121,6 +121,7 @@ uv run nsm run       # 실행. 대시보드: http://127.0.0.1:8765 (끄기: Ctrl
 | 인터페이스·소유권 약속 | [contracts.md](docs/contracts.md) |
 | 이슈 목록 | [issues.md](docs/issues.md) · [GitHub Issues](https://github.com/idktomorrow/non-sleep-marketer/issues) |
 | 왜 이렇게 정했나 | [adr/](docs/adr/README.md) · [planning-decisions](docs/planning-decisions.md) · [mvp-review](docs/mvp-review.md) |
+| 운영 중 겪은 장애 | [incidents/](docs/incidents/README.md) |
 | 진행 기록 | [devlog/](docs/devlog/README.md) · [retro/](docs/retro/README.md) · [CHANGELOG](CHANGELOG.md) |
 | 외부 서비스 확인 결과 | [day1-verification.md](docs/day1-verification.md) |
 | 모르는 말 | [glossary.md](docs/glossary.md) |
