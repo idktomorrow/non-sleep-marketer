@@ -79,5 +79,6 @@ main 직접 push 금지와 PR 필수는 팀 규칙이다. GitHub 룰셋은 걸�
 | 사용설명서 | `docs/user-guide.md` | C·F·G·H에서 절 채움 | 최종 사용자 관점 |
 | 구현 아키텍처 | `docs/architecture.md` | 배치마다 상태 표 갱신 | 지금 실제 구조 |
 | CHANGELOG | `CHANGELOG.md` | 배치 머지마다 | 변경 이력 |
+| 장애 기록 | `docs/incidents/NNNN-YYYY-MM-DD-slug.md` | 운영 장애를 고친 뒤(템플릿 `0000-template.md`) | 증상·영향·원인·재발 방지, 오류 체계가 어떻게 보였을지 |
 | 주간 회고 | `docs/retro/week-N.md` | 7·14일차 | 프로세스 개선 |
 | 학습 색인 | `docs/learning-index.md` | 14일차 | devlog의 "배운 것" 모음 |
