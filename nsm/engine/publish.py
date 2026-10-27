@@ -25,7 +25,8 @@ from nsm.domain.policy import (
 )
 from nsm.domain.quality import card_sources, sources_line
 from nsm.engine.context import JobContext, JobResult
-from nsm.engine.rate_limit import blocked_until, rest_until, resting
+from nsm.engine.incidents import record_incident, with_diagnosis
+from nsm.engine.rate_limit import blocked_until, rest_until, resting, retry_at
 from nsm.store.repo import InvalidTransitionError
 
 log = logging.getLogger(__name__)
@@ -143,6 +144,19 @@ def _back_to_review(ctx: JobContext, content_id: str, reason: str) -> None:
         ctx.repo.transition_content(content_id, "pending_review", reason=reason)
 
 
+def _failure_action(ctx: JobContext, e: BaseException, attempts: int) -> str:
+    """표(ADR 0054)대로 이번 실패에 자동으로 할 일(장애 화면의 "취한 조치")."""
+    pol = policy_for(e)
+    if pol.retry == "until" and (until := retry_at(e)):
+        return f"{until.astimezone(ZoneInfo(ctx.tz)):%m-%d %H:%M}까지 쉬기"
+    if pol.retry == "none":
+        return "다시 하지 않고 원고를 검토로"
+    delays = ctx.config.settings.retry_delays_minutes
+    if attempts > len(delays):
+        return f"{attempts}회 실패로 포기, 원고를 검토로"
+    return f"{delays[attempts - 1]}분 뒤 다시({attempts}/{len(delays) + 1}회째)"
+
+
 UI_CHANGED_NOTIFIED_KEY = "ui_changed_notified"  # {플랫폼: 마지막 "화면 변경" 알림 시각}
 UI_CHANGED_NOTIFY_EVERY = timedelta(hours=6)
 
@@ -154,6 +168,7 @@ def _record_failure(
     attempts: int,
     msg: str,
     error: BaseException | None = None,
+    diagnosis: str | None = None,
 ) -> None:
     """오류 종류 표(ADR 0054)대로: 다시 해도 같은 실패(화면 변경)는 바로 검토로, 나머지는 간격대로 재시도."""
     delays = ctx.config.settings.retry_delays_minutes
@@ -170,8 +185,11 @@ def _record_failure(
             where = evidence_dir(error) if error is not None else None
             ctx.notifier.notify(
                 f"{pub.platform} 화면 변경",
-                f"{pub.platform} 게시 화면이 예상과 달라 다시 시도하지 않고 원고를 검토로 되돌렸습니다: {msg}"
-                + (f" · 증거 폴더: {where}" if where else ""),
+                with_diagnosis(
+                    f"{pub.platform} 게시 화면이 예상과 달라 다시 시도하지 않고 원고를 검토로 되돌렸습니다: {msg}"
+                    + (f" · 증거 폴더: {where}" if where else ""),
+                    diagnosis,
+                ),
                 "error",
             )
         return
@@ -179,7 +197,9 @@ def _record_failure(
         ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
         _back_to_review(ctx, content.id, f"{pub.platform} 게시 {attempts}회 실패: {msg}")
         ctx.notifier.notify(
-            "게시 포기", f"{pub.platform} 게시가 {attempts}회 실패했습니다: {msg}", "error"
+            "게시 포기",
+            with_diagnosis(f"{pub.platform} 게시가 {attempts}회 실패했습니다: {msg}", diagnosis),
+            "error",
         )
     else:
         retry_at = ctx.clock.now() + timedelta(minutes=delays[attempts - 1])
@@ -260,8 +280,11 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
     except Exception as e:  # noqa: BLE001
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 렌더 실패: {msg}")
+        diag = record_incident(
+            ctx, pub.platform, "publish", "render", e, _failure_action(ctx, e, attempts)
+        )
         try:
-            _record_failure(ctx, pub, content, attempts, msg, e)
+            _record_failure(ctx, pub, content, attempts, msg, e, diag)
         except Exception as e2:  # noqa: BLE001
             log.exception("게시 실패 기록 중 오류")
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
@@ -272,6 +295,9 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
         result.note(e)
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
+        diag = record_incident(
+            ctx, pub.platform, "publish", "publish", e, _failure_action(ctx, e, attempts)
+        )
         if until := rest_until(e):
             # 원고 탓이 아니다: 재시도 횟수를 쓰지 않고(포기·검토로 돌리지 않음) 쉬는 끝 시각에 다시
             resting(ctx, pub.platform, until)
@@ -280,7 +306,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
             )
             return "failed"
         try:
-            _record_failure(ctx, pub, content, attempts, msg, e)
+            _record_failure(ctx, pub, content, attempts, msg, e, diag)
         except Exception as e2:  # noqa: BLE001  실패 기록 실패가 다른 플랫폼 게시를 막지 않게
             log.exception("게시 실패 기록 중 오류")
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")

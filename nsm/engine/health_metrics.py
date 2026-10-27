@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from nsm.domain.errors import policy_for
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.incidents import record_incident
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, rest_until, resting, retry_at
 from nsm.engine.watchdog import check_stalls
@@ -34,7 +35,11 @@ def run_health(ctx: JobContext) -> JobResult:
             h = adapter.health()
             ok, detail = h.logged_in, h.detail
         except Exception as e:  # noqa: BLE001
-            if until := rest_until(e):  # 오류 종류 표(ADR 0054): 요청 제한만 쉬고, 나머지는 멈춘다
+            until = rest_until(e)  # 오류 종류 표(ADR 0054): 요청 제한만 쉬고, 나머지는 멈춘다
+            record_incident(
+                ctx, platform, "health", "health", e, "쉬기" if until else "자동 게시·답글 멈춤"
+            )
+            if until:
                 limited.append(resting(ctx, platform, until))
                 continue
             ok, detail = False, f"상태 확인 실패({policy_for(e).label}): {e}"
@@ -78,6 +83,7 @@ def run_metrics(ctx: JobContext) -> JobResult:
         try:
             _platform_metrics(ctx, platform, adapter, result, now, tally)
         except Exception as e:  # noqa: BLE001
+            record_incident(ctx, platform, "metrics", "metrics", e, "다음 지표 수집에 다시")
             until = retry_at(e)
             if until is None:
                 raise

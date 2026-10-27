@@ -957,6 +957,111 @@ class Repository:
             )
         )
 
+    # ------------------------------------------------------------ 실패 기록(E2, ADR 0055)
+
+    _FAILURE_COLS = (
+        "id, occurred_at, platform, job, stage, kind, message, evidence_dir, action, diagnosis"
+    )
+
+    def record_failure(
+        self,
+        *,
+        platform: str,
+        job: str,
+        stage: str,
+        kind: str,
+        message: str,
+        evidence_dir: str | None,
+        action: str,
+    ) -> str:
+        fid = new_id()
+        self.db.execute(
+            f"INSERT INTO failures ({self._FAILURE_COLS}, diagnosed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+            [fid, self._now(), platform, job, stage, kind, message, evidence_dir, action],
+        )
+        return fid
+
+    def set_failure_diagnosis(self, failure_id: str, text: str) -> None:
+        self.db.execute(
+            "UPDATE failures SET diagnosis = ?, diagnosed_at = ? WHERE id = ?",
+            [text, self._now(), failure_id],
+        )
+
+    @staticmethod
+    def _failure_row(r: tuple) -> dict[str, Any]:
+        return {
+            "id": r[0],
+            "occurred_at": from_db(r[1]),
+            "platform": r[2],
+            "job": r[3],
+            "stage": r[4],
+            "kind": r[5],
+            "message": r[6],
+            "evidence_dir": r[7],
+            "action": r[8],
+            "diagnosis": r[9],
+        }
+
+    def recent_failures(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.db.execute(
+            f"SELECT {self._FAILURE_COLS} FROM failures ORDER BY occurred_at DESC, rowid DESC LIMIT ?",
+            [limit],
+        )
+        return [self._failure_row(r) for r in rows]
+
+    def get_failure(self, failure_id: str) -> dict[str, Any] | None:
+        rows = self.db.execute(
+            f"SELECT {self._FAILURE_COLS} FROM failures WHERE id = ?", [failure_id]
+        )
+        return self._failure_row(rows[0]) if rows else None
+
+    def failure_summary(self, since: datetime) -> dict[str, dict[str, Any]]:
+        """종류별 {count, first, last, action(가장 최근 조치)}."""
+        rows = self.db.execute(
+            "SELECT kind, count(*), min(occurred_at), max(occurred_at), "
+            "arg_max(action, occurred_at), arg_max(platform, occurred_at) FROM failures "
+            "WHERE occurred_at >= ? GROUP BY kind",
+            [to_db(since)],
+        )
+        return {
+            r[0]: {
+                "count": int(r[1]),
+                "first": from_db(r[2]),
+                "last": from_db(r[3]),
+                "action": r[4],
+                "platform": r[5],
+            }
+            for r in rows
+        }
+
+    def latest_failure_kind(self, platform: str, job: str) -> str | None:
+        rows = self.db.execute(
+            "SELECT kind FROM failures WHERE platform = ? AND job = ? "
+            "ORDER BY occurred_at DESC, rowid DESC LIMIT 1",
+            [platform, job],
+        )
+        return rows[0][0] if rows else None
+
+    def last_diagnosis_at(self, platform: str, kind: str) -> datetime | None:
+        rows = self.db.execute(
+            "SELECT max(diagnosed_at) FROM failures WHERE platform = ? AND kind = ?",
+            [platform, kind],
+        )
+        return from_db(rows[0][0]) if rows and rows[0][0] is not None else None
+
+    def count_diagnoses_between(self, start: datetime, end: datetime) -> int:
+        rows = self.db.execute(
+            "SELECT count(*) FROM failures WHERE diagnosed_at >= ? AND diagnosed_at < ?",
+            [to_db(start), to_db(end)],
+        )
+        return int(rows[0][0])
+
+    def prune_failures(self, keep_days: int) -> int:
+        """실행 기록과 같은 보관 일수(run_log_keep_days)."""
+        cutoff = self._now() - timedelta(days=keep_days)
+        return self._count(self.db.execute("DELETE FROM failures WHERE occurred_at < ?", [cutoff]))
+
     def prune_runs(self, keep_days: int) -> int:
         """keep_days일보다 오래된 실행 기록을 지운다(C12). 원고·댓글·성과는 건드리지 않는다."""
         cutoff = self._now() - timedelta(days=keep_days)
