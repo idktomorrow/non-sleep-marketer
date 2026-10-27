@@ -53,7 +53,8 @@ def test_table_has_five_kinds_and_matches_current_behavior() -> None:
             "config_or_bug",
         }
     )
-    assert POLICIES["rate_limited"].retry == "until" and not POLICIES["rate_limited"].pause_platform
+    assert POLICIES["rate_limited"].retry == "until"
+    assert not POLICIES["rate_limited"].pause_on_health_failure
     assert POLICIES["ui_changed"].retry == "none" and POLICIES["ui_changed"].evidence
     for k in ("transient", "auth", "config_or_bug"):
         assert POLICIES[k].retry == "schedule"  # 지금처럼 15·60·240분
@@ -72,9 +73,11 @@ def test_kind_of_reads_attribute_retry_at_and_falls_back() -> None:
 @pytest.mark.parametrize(
     ("code", "message", "kind"),
     [
-        ("script", '"새로운 게시물" 메뉴 없음', "ui_changed"),
+        ("ui", '"새로운 게시물" 메뉴 없음', "ui_changed"),
         ("script", "locator.waitFor: Timeout 20000ms exceeded", "transient"),
+        ("script", "Target page, context or browser has been closed", "transient"),
         ("script", "file fetch 500", "transient"),
+        ("ratelimit", "HTTP ERROR 429", "rate_limited"),
         ("page", "페이지를 열 수 없음", "transient"),
         ("timeout", "Aside 응답 시간 초과", "transient"),
         ("cli", "Aside 결과 줄이 없음", "transient"),
@@ -175,6 +178,26 @@ def test_ui_changed_goes_straight_to_review_with_evidence_path(ctx: JobContext) 
     assert content.status == "pending_review" and "화면 변경" in content.review_reason
     title, body, level = ctx.notifier.calls[-1]
     assert "화면 변경" in title and "threads-20261027-010203" in body and level == "error"
+    # 다음 원고도 화면 변경으로 실패하면 6시간 안에는 알림을 다시 보내지 않는다
+    n = len(ctx.notifier.calls)
+    from nsm.engine.publish import _record_failure
+
+    other = ctx.repo.list_contents()[0]
+
+    def fresh_pub() -> str:  # 같은 원고·플랫폼의 게시는 하나뿐이라 지우고 새로 만든다
+        ctx.repo.db.execute(
+            "DELETE FROM publications WHERE content_id = ? AND platform = 'threads'", [other.id]
+        )
+        return ctx.repo.create_publications(other.id, ["threads"])[0]
+
+    pub2 = fresh_pub()
+    _record_failure(ctx, ctx.repo.get_publication(pub2), other, 1, "again", err)
+    assert ctx.repo.get_publication(pub2).status == "abandoned"
+    assert not [c for c in ctx.notifier.calls[n:] if "화면 변경" in c[0]]
+    ctx.clock.advance(hours=7)  # 6시간이 지나면 다시 알린다
+    pub3 = fresh_pub()
+    _record_failure(ctx, ctx.repo.get_publication(pub3), other, 1, "again", err)
+    assert [c for c in ctx.notifier.calls[n:] if "화면 변경" in c[0]]
 
 
 # ------------------------------------------------------------------ 엔진: health
@@ -222,11 +245,19 @@ def test_adapter_saves_evidence_and_appends_folder(clock, tmp_path, _isolated_ev
         "labels": ["닫기", "Authorization: Bearer xyz"],
         "screenshot": _PNG,
     }
-    a = ThreadsAdapter("@me", clock, repl=_Repl(AsideError("게시 버튼 없음", "script", ev)))
+    a = ThreadsAdapter("@me", clock, repl=_Repl(AsideError("게시 버튼 없음", "ui", ev)))
     with pytest.raises(PlatformError) as e:
         a.health()
     err = e.value
-    assert err.kind == "ui_changed" and err.evidence_dir and "(증거: " in str(err)
+    assert err.kind == "ui_changed" and err.evidence_dir
+    # 문구에는 폴더 이름만(집 폴더 경로가 알림·대시보드에 드러나지 않게)
+    assert f"(증거: {Path(err.evidence_dir).name})" in str(err) and str(
+        _isolated_evidence
+    ) not in str(err)
+    # 같은 종류는 한 시간에 한 번만 남긴다
+    with pytest.raises(PlatformError) as e2:
+        a.health()
+    assert e2.value.evidence_dir is None and len(list(_isolated_evidence.iterdir())) == 1
     d = Path(err.evidence_dir)
     assert d.parent == _isolated_evidence and d.name.startswith("threads-")
     assert (d / "screenshot.png").read_bytes().startswith(b"\x89PNG")
@@ -251,7 +282,7 @@ def test_evidence_save_failure_keeps_original_error(clock, monkeypatch, tmp_path
     blocker = tmp_path / "not-a-dir"
     blocker.write_text("x")  # 파일이라 그 아래 폴더를 만들 수 없다
     monkeypatch.setattr(evidence, "shots_dir", lambda: blocker / "shots")
-    a = ThreadsAdapter("@me", clock, repl=_Repl(AsideError("게시 버튼 없음", "script", {})))
+    a = ThreadsAdapter("@me", clock, repl=_Repl(AsideError("게시 버튼 없음", "ui", {})))
     with pytest.raises(PlatformError) as e:
         a.health()
     assert e.value.kind == "ui_changed" and e.value.evidence_dir is None

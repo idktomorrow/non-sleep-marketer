@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -25,7 +25,7 @@ from nsm.domain.policy import (
 )
 from nsm.domain.quality import card_sources, sources_line
 from nsm.engine.context import JobContext, JobResult
-from nsm.engine.rate_limit import blocked_until, resting, retry_at
+from nsm.engine.rate_limit import blocked_until, rest_until, resting
 from nsm.store.repo import InvalidTransitionError
 
 log = logging.getLogger(__name__)
@@ -143,6 +143,10 @@ def _back_to_review(ctx: JobContext, content_id: str, reason: str) -> None:
         ctx.repo.transition_content(content_id, "pending_review", reason=reason)
 
 
+UI_CHANGED_NOTIFIED_KEY = "ui_changed_notified"  # {플랫폼: 마지막 "화면 변경" 알림 시각}
+UI_CHANGED_NOTIFY_EVERY = timedelta(hours=6)
+
+
 def _record_failure(
     ctx: JobContext,
     pub: Publication,
@@ -157,13 +161,19 @@ def _record_failure(
     if pol is not None and pol.retry == "none":
         ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
         _back_to_review(ctx, content.id, f"{pub.platform} 게시 실패({pol.label}): {msg}")
-        where = evidence_dir(error) if error is not None else None
-        ctx.notifier.notify(
-            f"{pub.platform} 화면 변경",
-            f"{pub.platform} 게시 화면이 예상과 달라 다시 시도하지 않고 원고를 검토로 되돌렸습니다: {msg}"
-            + (f" · 증거 폴더: {where}" if where and where not in msg else ""),
-            "error",
-        )
+        seen = dict(ctx.repo.get_setting(UI_CHANGED_NOTIFIED_KEY, {}) or {})
+        now = ctx.clock.now()
+        last = seen.get(pub.platform)
+        if last is None or now - datetime.fromisoformat(last) >= UI_CHANGED_NOTIFY_EVERY:
+            seen[pub.platform] = now.isoformat()
+            ctx.repo.set_setting(UI_CHANGED_NOTIFIED_KEY, seen)
+            where = evidence_dir(error) if error is not None else None
+            ctx.notifier.notify(
+                f"{pub.platform} 화면 변경",
+                f"{pub.platform} 게시 화면이 예상과 달라 다시 시도하지 않고 원고를 검토로 되돌렸습니다: {msg}"
+                + (f" · 증거 폴더: {where}" if where else ""),
+                "error",
+            )
         return
     if attempts > len(delays):
         ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
@@ -262,7 +272,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
         result.note(e)
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
-        if policy_for(e).retry == "until" and (until := retry_at(e)):
+        if until := rest_until(e):
             # 원고 탓이 아니다: 재시도 횟수를 쓰지 않고(포기·검토로 돌리지 않음) 쉬는 끝 시각에 다시
             resting(ctx, pub.platform, until)
             ctx.repo.transition_publication(

@@ -148,3 +148,9 @@ def test_run_carries_failure_evidence_and_script_collects_it(monkeypatch, tmp_pa
     # 증거 수집은 catch 안(탭을 닫는 finally보다 먼저)이고, 쿠키·저장소는 읽지 않는다
     assert script.index("nsmEvidence()") < script.index("closeTab")
     assert "cookie" not in script.lower() and "localStorage" not in script
+    # 요청 제한·중단엔 모으지 않고, 남은 시간이 적으면 건너뛴다(원래 오류 코드를 잃지 않게)
+    assert "'ratelimit', 'interrupted'" in script and "nsmLeft() > 6000" in script
+    # 결과 줄이 잘리면 형식 오류가 아니라 AsideError(cli)
+    with pytest.raises(A.AsideError) as e2:
+        A.parse_output(A.MARKER + '{"ok": false, "evidence": {"screenshot": "AAAA')
+    assert e2.value.code == "cli"

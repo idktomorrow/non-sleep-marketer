@@ -15,7 +15,7 @@ from nsm.adapters.drivers.aside import AsideError, AsideRepl
 from nsm.adapters.platforms import PLATFORM_CAPABILITIES
 from nsm.config import paths
 from nsm.domain.models import Platform
-from nsm.ports import AdapterError, Clock, NotSupportedError  # noqa: F401  (AdapterError: 하위 클래스의 부모)
+from nsm.ports import AdapterError, Clock, NotSupportedError
 
 
 class PlatformError(AdapterError):
@@ -62,23 +62,21 @@ RATE_LIMIT_COOLDOWN = timedelta(hours=2)
 RATE_LIMIT_MAX = timedelta(hours=8)
 # 예외 메시지로만 알 수 있는 경우. ERR_HTTP_RESPONSE_CODE_FAILURE는 404·500에도 나와 넣지 않는다
 _RATE_LIMIT_TEXT = re.compile(r"HTTP ERROR 429|Too Many Requests")
-# Aside 스크립트의 오류 코드 → 오류 종류(E1). script는 "버튼·메뉴·대화상자를 못 찾음"(화면 변경)이지만,
-# Playwright 대기 시간 초과는 느린 페이지일 수 있어 일시적으로 본다(재시도해 본다)
+# Aside 스크립트의 오류 코드 → 오류 종류(E1). 'ui'는 스크립트가 직접 던진 "버튼·메뉴·대화상자를 못 찾음"
+# (화면 변경)뿐이다. 라벨 없는 예외('script': 탭이 닫힘, 실행 맥락 사라짐, net::ERR_…, 대기 시간 초과)는
+# 다시 하면 될 수 있어 일시적으로 본다(지금처럼 재시도)
 _KIND_BY_CODE = {
+    "ui": "ui_changed",
     "login": "auth",
     "mismatch": "auth",
-    "page": "transient",
-    "timeout": "transient",
-    "cli": "transient",
-    "interrupted": "transient",
-    "script": "ui_changed",
+    "ratelimit": "rate_limited",
 }
-_WAIT_TIMEOUT = re.compile(r"Timeout \d+ms exceeded|TimeoutError")
+EVIDENCE_EVERY = timedelta(
+    hours=1
+)  # 같은 플랫폼·같은 종류의 증거는 한 시간에 한 번(health·댓글 묶음 반복)
 
 
-def kind_for_code(code: str, message: str) -> str:
-    if code == "script" and (_WAIT_TIMEOUT.search(message) or message.startswith("file fetch")):
-        return "transient"
+def kind_for_code(code: str, message: str = "") -> str:
     return _KIND_BY_CODE.get(code, "transient")
 
 
@@ -121,6 +119,7 @@ class AsideAdapterBase:
         # 요청 제한으로 쉬는 중이면 그 끝 시각. 엔진(publish·reply)이 미리 보고 건너뛴다.
         self.blocked_until: datetime | None = None
         self._strikes = 0
+        self._evidence_at: dict[str, datetime] = {}  # 종류 → 마지막으로 증거를 남긴 시각
 
     def capabilities(self) -> set[str]:
         return set(PLATFORM_CAPABILITIES[self.platform])
@@ -169,9 +168,14 @@ class AsideAdapterBase:
         return PlatformError(f"{self.platform}: {e}", kind_for_code(e.code, str(e)))
 
     def _attach_evidence(self, err: PlatformError, e: AsideError) -> None:
-        """실패 증거를 남기고 오류 문구 끝에 폴더를 붙인다. 저장이 실패해도 원래 오류는 그대로."""
+        """실패 증거를 남기고 오류 문구 끝에 폴더 이름을 붙인다(전체 경로는 `evidence_dir`).
+        저장이 실패해도 원래 오류는 그대로. 같은 종류는 한 시간에 한 번만 남긴다."""
         from nsm.adapters.evidence import save_evidence
 
+        now = self._now()
+        last = self._evidence_at.get(err.kind)
+        if last is not None and now - last < EVIDENCE_EVERY:
+            return
         d = save_evidence(
             self.platform,
             self._now(),
@@ -181,8 +185,10 @@ class AsideAdapterBase:
             log_file=paths.logs_dir() / "nsm.log",
         )
         if d is not None:
+            self._evidence_at[err.kind] = now
             err.evidence_dir = str(d)
-            err.args = (f"{err.args[0]} (증거: {d})", *err.args[1:])
+            # 집 폴더 경로가 알림·대시보드에 드러나지 않게 이름만(logs\\shots 아래)
+            err.args = (f"{err.args[0]} (증거: {d.name})", *err.args[1:])
 
     def _rate_limited(self, now: datetime, e: Exception) -> RateLimitedError:
         self._strikes += 1

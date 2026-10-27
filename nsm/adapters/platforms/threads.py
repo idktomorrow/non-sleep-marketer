@@ -101,9 +101,9 @@ await pg.keyboard.insertText(ARGS.text);
 if (files.length) {
   await dlg.locator('input[type="file"]').first().setInputFiles(files);
   const ok = await nsmUntil(async () => (await dlg.locator('img[src^="blob:"], video').count()) >= files.length, 60000);
-  if (!ok) throw new NsmError('script', '이미지 미리보기가 나타나지 않음');
+  if (!ok) throw new NsmError('ui', '이미지 미리보기가 나타나지 않음');
 }
-if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('script', '게시 버튼 없음');
+if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('ui', '게시 버튼 없음');
 // 게시 버튼을 누른 뒤에는 오류로 돌리지 않는다: 오류 → 재시도 → 중복 게시가 될 수 있다.
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 90000);
 if (!closed) return { code: '', posted: 'unknown' };
@@ -128,10 +128,10 @@ for (let i = 0; i < 4 && !done; i++) {
   done = await nsmClickText(pg, '삭제');
   if (!done) { await pg.keyboard.press('Escape'); await sleep(400); }
 }
-if (!done) throw new NsmError('script', '삭제 메뉴 없음');
+if (!done) throw new NsmError('ui', '삭제 메뉴 없음');
 await sleep(800);
 const dlg = pg.locator('[role="dialog"]');
-if (!(await nsmClickText(dlg, '삭제'))) throw new NsmError('script', '삭제 확인 버튼 없음');
+if (!(await nsmClickText(dlg, '삭제'))) throw new NsmError('ui', '삭제 확인 버튼 없음');
 await sleep(2000);
 return { deleted: true };
 """
@@ -226,16 +226,16 @@ _REPLY = (
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.author + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
 const icon = await nsmUntil(() => nsmMarkIcon(pg, MAIN, '답글', 1), 30000);
-if (!icon) throw new NsmError('script', '댓글의 답글 버튼 없음');
+if (!icon) throw new NsmError('ui', '댓글의 답글 버튼 없음');
 await icon.click();
 await nsmWait(pg.locator('[role="dialog"] [contenteditable="true"]'));
 // 창에 인용된 원글이 그 댓글(작성자)인지 확인하고 쓴다
-if ((await pg.locator('[role="dialog"] a[href="/@' + ARGS.author + '"]').count()) === 0) throw new NsmError('script', '답글 창의 대상이 다름');
+if ((await pg.locator('[role="dialog"] a[href="/@' + ARGS.author + '"]').count()) === 0) throw new NsmError('ui', '답글 창의 대상이 다름');
 const dlg = pg.locator('[role="dialog"]');
 const box = await nsmWait(dlg.locator('[contenteditable="true"]'));
 await box.click();
 await pg.keyboard.insertText(ARGS.text);
-if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('script', '답글 게시 버튼 없음');
+if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('ui', '답글 게시 버튼 없음');
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다(사람이 다시 답하면 중복)
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 60000);
 if (!closed) return { code: '' };
@@ -271,19 +271,19 @@ const ok = await pg.evaluate(([code, key]) => {
   b.setAttribute('data-nsm-mark', key);
   return true;
 }, [ARGS.code, key]);
-if (!ok) throw new NsmError('script', '답글 메뉴(더 보기) 없음');
+if (!ok) throw new NsmError('ui', '답글 메뉴(더 보기) 없음');
 await pg.locator('[data-nsm-mark="' + key + '"]').click();
 await sleep(800);
-if (!(await nsmClickText(pg, '모두에게 숨기기'))) throw new NsmError('script', '"모두에게 숨기기" 메뉴 없음');
+if (!(await nsmClickText(pg, '모두에게 숨기기'))) throw new NsmError('ui', '"모두에게 숨기기" 메뉴 없음');
 await sleep(1200);
 const dlg = pg.locator('[role="dialog"]');
 if ((await dlg.count()) > 0) {
-  if (!(await nsmClickText(dlg, '숨기기'))) throw new NsmError('script', '숨기기 확인 버튼 없음');
+  if (!(await nsmClickText(dlg, '숨기기'))) throw new NsmError('ui', '숨기기 확인 버튼 없음');
   await sleep(1200);
 }
 // 숨긴 답글은 목록에서 빠진다. 그대로 보이면 숨기지 못한 것이다.
 await pg.reload(); await sleep(2500);
-if ((await pg.locator('a[href$="/post/' + ARGS.code + '"]').count()) > 0) throw new NsmError('script', '숨긴 뒤에도 댓글이 보임');
+if ((await pg.locator('a[href$="/post/' + ARGS.code + '"]').count()) > 0) throw new NsmError('ui', '숨긴 뒤에도 댓글이 보임');
 return { hidden: true };
 """
 )

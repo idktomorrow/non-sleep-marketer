@@ -8,7 +8,7 @@ from datetime import timedelta
 from nsm.domain.errors import policy_for
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.publish import PAUSED_KEY
-from nsm.engine.rate_limit import blocked_until, resting, retry_at
+from nsm.engine.rate_limit import blocked_until, rest_until, resting, retry_at
 from nsm.engine.watchdog import check_stalls
 
 log = logging.getLogger(__name__)
@@ -34,14 +34,10 @@ def run_health(ctx: JobContext) -> JobResult:
             h = adapter.health()
             ok, detail = h.logged_in, h.detail
         except Exception as e:  # noqa: BLE001
-            pol = policy_for(e)  # 오류 종류 표(ADR 0054)
-            if pol.retry == "until" and (until := retry_at(e)):
+            if until := rest_until(e):  # 오류 종류 표(ADR 0054): 요청 제한만 쉬고, 나머지는 멈춘다
                 limited.append(resting(ctx, platform, until))
                 continue
-            if not pol.pause_platform:
-                result.errors.append(f"{platform} 상태 확인 실패({pol.label}): {e}")
-                continue
-            ok, detail = False, f"상태 확인 실패({pol.label}): {e}"
+            ok, detail = False, f"상태 확인 실패({policy_for(e).label}): {e}"
         if not ok and platform not in paused:
             paused.add(platform)
             ctx.notifier.notify(

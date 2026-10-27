@@ -29,7 +29,9 @@ class ErrorPolicy:
     kind: ErrorKind
     label: str  # 사람에게 보이는 이름
     retry: RetryMode
-    pause_platform: bool  # health 점검이 이 종류로 실패하면 그 플랫폼의 자동 게시·답글을 멈추나
+    pause_on_health_failure: (
+        bool  # health 점검이 이 종류로 실패하면 그 플랫폼의 자동 게시·답글을 멈추나
+    )
     notify: str  # 언제 알리나(사람이 읽는 설명)
     to_human: str  # 언제 사람에게 넘기나(사람이 읽는 설명)
     evidence: bool  # 실패 순간 화면·대화상자·로그를 남기나
@@ -40,7 +42,7 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
         kind="transient",
         label="일시적(네트워크·시간 초과)",
         retry="schedule",
-        pause_platform=True,
+        pause_on_health_failure=True,
         notify="재시도를 다 쓰고 포기할 때",
         to_human="재시도를 다 쓰면 원고를 검토로 되돌림. 답글은 그 댓글을 사람 확인으로",
         evidence=True,
@@ -49,7 +51,7 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
         kind="rate_limited",
         label="요청 제한(HTTP 429)",
         retry="until",
-        pause_platform=False,
+        pause_on_health_failure=False,
         notify="쉬는 구간마다 한 번",
         to_human="넘기지 않음(쉬었다가 자동으로 다시)",
         evidence=False,
@@ -58,7 +60,7 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
         kind="auth",
         label="로그인·권한",
         retry="schedule",
-        pause_platform=True,
+        pause_on_health_failure=True,
         notify='health 점검이 플랫폼을 멈출 때("로그인 필요")',
         to_human="바로: 브라우저에서 다시 로그인해야 함. 로그인되면 health가 다시 켬",
         evidence=True,
@@ -67,7 +69,7 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
         kind="ui_changed",
         label="외부 화면 변경(버튼·대화상자를 못 찾음)",
         retry="none",
-        pause_platform=True,
+        pause_on_health_failure=True,
         notify="바로",
         to_human="바로: 원고를 검토로 되돌리고 증거 폴더를 알림에 붙임",
         evidence=True,
@@ -76,7 +78,7 @@ POLICIES: dict[ErrorKind, ErrorPolicy] = {
         kind="config_or_bug",
         label="설정 누락·프로그램 오류",
         retry="schedule",
-        pause_platform=True,
+        pause_on_health_failure=True,
         notify="재시도를 다 쓰고 포기할 때",
         to_human="재시도를 다 쓰면 원고를 검토로 되돌림",
         evidence=True,
