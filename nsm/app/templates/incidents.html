@@ -13,6 +13,7 @@
 <td class="small muted">{{ k.action }}</td>
 </tr>{% endfor %}
 </table></div>
+{% for o in others %}<p class="notice warn small">{{ o.text }}</p>{% endfor %}
 
 <h2>최근 실패</h2>
 {% if failures %}

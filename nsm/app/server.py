@@ -208,6 +208,12 @@ def create_app(state: AppState) -> FastAPI:
         except Exception:  # noqa: BLE001  색 값이 이상해도 화면은 떠야 한다
             return {"accent": "#1E3A5F", "accent_soft": "#F0F3F7"}
 
+    def paused_why() -> dict[str, str]:
+        from nsm.engine.pause import pause_info, short_reason
+
+        info = pause_info(state.repo)
+        return {p: short_reason(info.get(p)) for p in state.repo.get_setting(PAUSED_KEY, []) or []}
+
     def pending_count() -> int:
         return int(
             state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'pending_review'")[
@@ -242,6 +248,7 @@ def create_app(state: AppState) -> FastAPI:
                 "pending_count": pending_count(),
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": state.repo.get_setting(PAUSED_KEY, []),
+                "paused_why": paused_why(),
                 "has_reports": state.reports_dir is not None,
                 "js": job_status(),
                 "queue_count": queue_count(),
@@ -1065,6 +1072,7 @@ def create_app(state: AppState) -> FastAPI:
             request,
             "incidents.html",
             kinds=inc.kind_rows(state, now, live),
+            others=[o for o in live if not o.kind],  # 종류 밖의 멈춤(수동·이유 미기록)
             failures=state.repo.recent_failures(50),
             labels={k: short_label(k) for k in POLICIES},
             days=inc.SUMMARY_DAYS,

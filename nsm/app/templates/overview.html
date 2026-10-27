@@ -46,7 +46,7 @@
       {% if paused %}
       <li><div class="todo-item bad">
         <span class="todo-num">!</span>
-        <span class="todo-text"><b>로그인이 필요해 멈춘 플랫폼</b><span>{% for p in paused %}{{ p|ko_platform }}{% if not loop.last %}, {% endif %}{% endfor %} · Aside 브라우저에서 다시 로그인하면 30분 안에 다시 시작합니다</span></span></div></li>
+        <span class="todo-text"><b>자동 게시·답글이 멈춘 플랫폼</b><span>{% for p in paused %}{{ p|ko_platform }}({{ paused_why.get(p, '이유 미기록') }}){% if not loop.last %}, {% endif %}{% endfor %} · 다음 점검(30분 안)에서 정상이면 다시 시작합니다{% if '로그인 필요' in paused_why.values() %}. 로그인 필요는 Aside 브라우저에서 다시 로그인하세요{% endif %}</span></span></div></li>
       {% endif %}
       {% for st in stalls %}
       <li><a class="todo-item warn" href="/logs">
