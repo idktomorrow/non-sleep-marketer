@@ -14,6 +14,7 @@ from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from nsm.domain.errors import evidence_dir, policy_for
 from nsm.domain.models import Content, Platform, Publication, RenderedPost
 from nsm.domain.policy import (
     apply_labels,
@@ -143,9 +144,27 @@ def _back_to_review(ctx: JobContext, content_id: str, reason: str) -> None:
 
 
 def _record_failure(
-    ctx: JobContext, pub: Publication, content: Content, attempts: int, msg: str
+    ctx: JobContext,
+    pub: Publication,
+    content: Content,
+    attempts: int,
+    msg: str,
+    error: BaseException | None = None,
 ) -> None:
+    """오류 종류 표(ADR 0054)대로: 다시 해도 같은 실패(화면 변경)는 바로 검토로, 나머지는 간격대로 재시도."""
     delays = ctx.config.settings.retry_delays_minutes
+    pol = policy_for(error) if error is not None else None
+    if pol is not None and pol.retry == "none":
+        ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
+        _back_to_review(ctx, content.id, f"{pub.platform} 게시 실패({pol.label}): {msg}")
+        where = evidence_dir(error) if error is not None else None
+        ctx.notifier.notify(
+            f"{pub.platform} 화면 변경",
+            f"{pub.platform} 게시 화면이 예상과 달라 다시 시도하지 않고 원고를 검토로 되돌렸습니다: {msg}"
+            + (f" · 증거 폴더: {where}" if where and where not in msg else ""),
+            "error",
+        )
+        return
     if attempts > len(delays):
         ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
         _back_to_review(ctx, content.id, f"{pub.platform} 게시 {attempts}회 실패: {msg}")
@@ -232,7 +251,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 렌더 실패: {msg}")
         try:
-            _record_failure(ctx, pub, content, attempts, msg)
+            _record_failure(ctx, pub, content, attempts, msg, e)
         except Exception as e2:  # noqa: BLE001
             log.exception("게시 실패 기록 중 오류")
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
@@ -243,7 +262,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
         result.note(e)
         msg = f"{type(e).__name__}: {e}"[:500]
         result.errors.append(f"{pub.platform} 게시 실패: {msg}")
-        if until := retry_at(e):
+        if policy_for(e).retry == "until" and (until := retry_at(e)):
             # 원고 탓이 아니다: 재시도 횟수를 쓰지 않고(포기·검토로 돌리지 않음) 쉬는 끝 시각에 다시
             resting(ctx, pub.platform, until)
             ctx.repo.transition_publication(
@@ -251,7 +270,7 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
             )
             return "failed"
         try:
-            _record_failure(ctx, pub, content, attempts, msg)
+            _record_failure(ctx, pub, content, attempts, msg, e)
         except Exception as e2:  # noqa: BLE001  실패 기록 실패가 다른 플랫폼 게시를 막지 않게
             log.exception("게시 실패 기록 중 오류")
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")

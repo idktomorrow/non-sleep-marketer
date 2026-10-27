@@ -11,6 +11,7 @@ import html
 import logging
 from datetime import datetime, timedelta
 
+from nsm.domain.errors import policy_for
 from nsm.domain.models import COMMENT_CATEGORIES, Comment
 from nsm.domain.policy import COMPLAINT_SCOPES, decide_comment, find_banned, local, should_act
 from nsm.engine.context import JobContext, JobResult
@@ -160,7 +161,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             )
         except Exception as e:  # noqa: BLE001
             result.note(e)
-            if until := retry_at(e):
+            if policy_for(e).retry == "until" and (until := retry_at(e)):
                 waits.append(resting(ctx, platform, until))
             else:
                 result.errors.append(f"{platform} 댓글 조회 실패: {e}")
@@ -176,7 +177,8 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             try:
                 outcome = _handle(ctx, adapter, c)
             except Exception as e:  # noqa: BLE001  한 댓글 실패가 나머지를 막지 않게
-                if until := retry_at(e):
+                # 표(ADR 0054): 요청 제한만 쉬었다 다시, 나머지는 다시 보내지 않고 그 댓글을 사람에게(C23)
+                if policy_for(e).retry == "until" and (until := retry_at(e)):
                     # 댓글 탓이 아니다: 'new'로 남겨 쉬고 나서 처리한다. 남은 댓글도 막히니 여기서 그만
                     waits.append(resting(ctx, platform, until))
                     break
@@ -289,7 +291,7 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
     try:
         reply_id = adapter.reply(c, text)
     except Exception as e:
-        if retry_at(e):
+        if policy_for(e).retry == "until" and retry_at(e):
             # 요청 제한은 글 페이지를 열기도 전에 막힌 것이라 보내지 않았다: 'new'로 되돌려 쉬고 나서 처리
             ctx.repo.update_comment(key, status="new")
         raise

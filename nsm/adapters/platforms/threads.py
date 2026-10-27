@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
     AsideAdapterBase,
+    PlatformError,
     RateLimitedError,
     check_upload_paths,
     norm_handle,
@@ -295,7 +296,7 @@ def _split_comment_id(external_id: str) -> tuple[str, str]:
     """
     author, _, code = external_id.partition(":")
     if not author or not code:
-        raise AdapterError(f"스레드 댓글 ID 형식이 아님: {external_id}")
+        raise PlatformError(f"스레드 댓글 ID 형식이 아님: {external_id}", "config_or_bug")
     return author, code
 
 

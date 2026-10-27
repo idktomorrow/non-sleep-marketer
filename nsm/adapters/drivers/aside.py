@@ -40,11 +40,15 @@ _SECRETISH = re.compile(
 
 
 class AsideError(RuntimeError):
-    """repl 실행 실패. `code`로 원인을 나눈다: login, mismatch, timeout, script, cli."""
+    """repl 실행 실패. `code`로 원인을 나눈다: login, mismatch, ratelimit, page, timeout, script, cli, interrupted.
 
-    def __init__(self, message: str, code: str = "script") -> None:
+    evidence: 스크립트가 실패한 순간 탭에서 모은 것(화면 base64, 대화상자 수, 보이는 글, 라벨, 주소). E1.
+    """
+
+    def __init__(self, message: str, code: str = "script", evidence: dict | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.evidence = evidence
 
 
 def scrub(text: str, limit: int = 300) -> str:
@@ -64,6 +68,26 @@ function nsmLeft() { return Math.max(0, __deadline - Date.now()); }
 class NsmError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
 async function nsmOpen(url) { const p = await openTab(url); __opened.push(p); return p; }
 async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: Math.max(1000, Math.min(ms || 20000, nsmLeft())) }); return loc.first(); }
+async function nsmEvidence() {
+  const pg = __opened[__opened.length - 1];
+  if (!pg) return null;
+  const ev = { url: pg.url() };
+  const info = await pg.evaluate(() => {
+    const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"]')).filter(vis);
+    const labels = [];
+    for (const el of document.querySelectorAll('svg title, [aria-label]')) {
+      const t = (el.tagName.toLowerCase() === 'title' ? el.textContent : el.getAttribute('aria-label')) || '';
+      if (t.trim() && labels.length < 200) labels.push(t.trim().slice(0, 120));
+    }
+    const text = ((document.body && document.body.innerText) || '').slice(0, 4000);
+    return { dialogs: dialogs.length, labels, text };
+  }).catch(() => ({}));
+  Object.assign(ev, info);
+  const shot = await pg.screenshot({ timeout: Math.max(1000, Math.min(8000, nsmLeft())) }).catch(() => null);
+  if (shot) ev.screenshot = Buffer.from(shot).toString('base64');
+  return ev;
+}
 async function nsmFiles() {
   const out = [];
   for (const f of (ARGS.__files || [])) {
@@ -83,6 +107,8 @@ try {
   __res = { ok: true, data: await (async () => { __BODY__ })() };
 } catch (e) {
   __res = { ok: false, code: (e && e.code) || 'script', error: String((e && e.message) || e) };
+  // 실패 증거(E1): 탭을 닫기 전에 마지막 탭의 화면과 대화상자 정보를 모은다. 쿠키·저장소는 읽지 않는다.
+  try { __res.evidence = await nsmEvidence(); } catch (e2) {}
 } finally {
   for (const p of __opened) { try { await closeTab(p); } catch (e) {} }
 }
@@ -207,7 +233,12 @@ class AsideRepl:
                 raise AsideError("Aside 응답 시간 초과", code="timeout") from e
         res = parse_output(proc.stdout, proc.stderr, proc.returncode)
         if not res.get("ok"):
-            raise AsideError(scrub(res.get("error", "")), code=res.get("code") or "script")
+            ev = res.get("evidence")
+            raise AsideError(
+                scrub(res.get("error", "")),
+                code=res.get("code") or "script",
+                evidence=ev if isinstance(ev, dict) else None,
+            )
         return res.get("data")
 
 

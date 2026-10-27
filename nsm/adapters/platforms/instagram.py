@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
     AsideAdapterBase,
+    PlatformError,
     RateLimitedError,
     check_upload_paths,
     norm_handle,
@@ -419,7 +420,7 @@ def _split_comment_id(external_id: str) -> tuple[str, str]:
     """댓글 ID는 "작성자:댓글ID"(글 페이지의 /c/<댓글ID>/ 링크). "/"는 대시보드 경로를 깨므로 쓰지 않는다."""
     author, _, cid = external_id.partition(":")
     if not author or not cid:
-        raise AdapterError(f"인스타그램 댓글 ID 형식이 아님: {external_id}")
+        raise PlatformError(f"인스타그램 댓글 ID 형식이 아님: {external_id}", "config_or_bug")
     return author, cid
 
 
@@ -437,7 +438,7 @@ class InstagramAdapter(AsideAdapterBase):
     def publish(self, post: RenderedPost) -> PublishResult:
         self._need("publish")
         if not post.images:
-            raise AdapterError("인스타그램 게시에는 이미지가 필요합니다")
+            raise PlatformError("인스타그램 게시에는 이미지가 필요합니다", "config_or_bug")
         images = check_upload_paths(post.images, self.media_dir)
         since = (self._now() - IDEMPOTENCY_WINDOW).isoformat()
         args = {"text": post.text, "probe": _probe(post.text), "since": since}

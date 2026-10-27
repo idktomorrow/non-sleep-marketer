@@ -49,6 +49,12 @@ def run_maintenance(ctx: JobContext) -> JobResult:
         )
         log.info("데이터 백업: %s", path)
     result.counts["runs_pruned"] = pruned
+    from nsm.adapters.evidence import prune_evidence
+
+    try:  # 실패 증거 폴더 정리(E1). 실패해도 다른 정리는 계속
+        result.counts["evidence_pruned"] = prune_evidence(ctx.clock.now(), s.evidence_keep_days)
+    except Exception as e:  # noqa: BLE001
+        log.warning("실패 증거 정리 실패: %s", e)
     # 자료 정리(C33)는 백업 뒤에: 오늘 백업에 정리 전 상태가 한 번 더 남게. 관련 없음 자료는 본문을 비우고
     # (제목·지문은 남겨 같은 글을 다시 모으지 않게), 더 오래되면 판정 기록을 지운다. 원고에 쓰인 자료는 영구
     result.counts["sources_blanked"] = ctx.repo.blank_stale_source_bodies(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+from nsm.domain.errors import policy_for
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import blocked_until, resting, retry_at
@@ -33,10 +34,14 @@ def run_health(ctx: JobContext) -> JobResult:
             h = adapter.health()
             ok, detail = h.logged_in, h.detail
         except Exception as e:  # noqa: BLE001
-            if until := retry_at(e):
+            pol = policy_for(e)  # 오류 종류 표(ADR 0054)
+            if pol.retry == "until" and (until := retry_at(e)):
                 limited.append(resting(ctx, platform, until))
                 continue
-            ok, detail = False, f"상태 확인 실패: {e}"
+            if not pol.pause_platform:
+                result.errors.append(f"{platform} 상태 확인 실패({pol.label}): {e}")
+                continue
+            ok, detail = False, f"상태 확인 실패({pol.label}): {e}"
         if not ok and platform not in paused:
             paused.add(platform)
             ctx.notifier.notify(
