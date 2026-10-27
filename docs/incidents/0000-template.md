@@ -1,6 +1,6 @@
 # NNNN. 제목 (한 줄, 사용자가 본 증상 중심)
 
-- 날짜: YYYY-MM-DD (처음 본 시각 ~ 끝난 시각, KST)
+- 날짜: YYYY-MM-DD (처음 본 시각 ~ 끝난 시각, KST). 파일 이름의 날짜는 시작한 날
 - 종류(ADR 0054 오류 종류 표): `transient` / `rate_limited` / `auth` / `ui_changed` / `config_or_bug` / 표 밖(예외 없는 조용한 실패 등)
 - 고친 것: PR #, 배치, ADR
 
