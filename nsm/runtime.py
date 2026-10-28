@@ -103,6 +103,43 @@ def make_live_adapters(cfg: AppConfig, clock: SystemClock) -> dict:
     return out
 
 
+def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) -> dict:
+    """API 키를 쓰는 부품을 한 번에 만든다. 처음 켤 때(build_context)와 키를 바꿀 때(refresh) 같은 길(C35)."""
+    from nsm.adapters.classifier import make_classifiers
+    from nsm.adapters.diagnosis import make_diagnoser
+    from nsm.adapters.generator import make_image_generator, make_text_generator
+    from nsm.adapters.sources.image_reader import make_image_reader
+
+    return {
+        "classifiers": make_classifiers(cfg, secrets, repo),
+        "text_generator": make_text_generator(cfg, secrets, repo),
+        "image_generator": make_image_generator(cfg, secrets, repo, paths.media_dir()),
+        "diagnoser": make_diagnoser(cfg, secrets, repo),
+        "read_image": make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
+    }
+
+
+def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
+    """만든 부품을 ctx에 끼운다. 다 만든 뒤에 한꺼번에(반쯤 바뀐 상태가 남지 않게)."""
+    classifiers = parts["classifiers"]
+    # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
+    classifiers.set_on_switch(
+        lambda a, b, e: ctx.notifier.notify(
+            "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
+        )
+    )
+    ctx.relevance_classifier = classifiers.relevance
+    ctx.topic_classifier = classifiers.topic
+    ctx.comment_classifier = classifiers.comment
+    ctx.classifier_name = classifiers.name
+    ctx.text_generator = parts["text_generator"]
+    ctx.image_generator = parts["image_generator"]
+    ctx.diagnoser = parts["diagnoser"]
+    for src in ctx.sources:
+        if src.name == "upload":
+            src.read_image = parts["read_image"]
+
+
 def build_context(
     cfg: AppConfig,
     db: Database,
@@ -110,10 +147,7 @@ def build_context(
     secrets: SecretStore | None = None,
     notifier=None,
 ) -> JobContext:
-    from nsm.adapters.classifier import make_classifiers
-    from nsm.adapters.diagnosis import make_diagnoser
     from nsm.adapters.sources.google_trends import GoogleTrendsSource
-    from nsm.adapters.sources.image_reader import make_image_reader
     from nsm.adapters.sources.upload import UploadSource
 
     secrets = secrets or KeyringSecretStore()
@@ -125,14 +159,11 @@ def build_context(
             Path(c.upload_dir) if c.upload_dir else paths.uploads_dir(),
             clock,
             is_known=repo.has_url_hash,
-            read_image=make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
         )
     ]
     if c.google_trends:
         sources.append(GoogleTrendsSource(clock, tz=cfg.settings.timezone))
     sources += _web_sources(cfg, clock, stack)
-    classifiers = make_classifiers(cfg, secrets, repo)
-    from nsm.adapters.generator import make_image_generator, make_text_generator
     from nsm.render import get_renderer
 
     ctx = JobContext(
@@ -141,25 +172,13 @@ def build_context(
         clock=clock,
         notifier=notifier or LogNotifier(),
         sources=sources,
-        relevance_classifier=classifiers.relevance,
-        topic_classifier=classifiers.topic,
-        comment_classifier=classifiers.comment,
-        classifier_name=classifiers.name,
-        text_generator=make_text_generator(cfg, secrets, repo),
-        image_generator=make_image_generator(cfg, secrets, repo, paths.media_dir()),
-        diagnoser=make_diagnoser(cfg, secrets, repo),
         adapters=make_platform_adapters(cfg, clock),
         media_dir=paths.media_dir(),
         preview_dir=paths.preview_dir(),
         reports_dir=paths.reports_dir(),
         backups_dir=paths.backups_dir(),
     )
-    # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
-    classifiers.set_on_switch(
-        lambda a, b, e: ctx.notifier.notify(
-            "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
-        )
-    )
+    _install_secret_parts(ctx, make_secret_parts(cfg, secrets, repo))
     # 카드 스타일은 렌더할 때마다 현재 설정에서 읽는다: 대시보드 설정 저장이 재시작 없이 반영(S8)
     from nsm.render.character import character_art
 
@@ -170,6 +189,20 @@ def build_context(
         ),  # 설정 화면에서 바꾸면 다음 렌더부터(C17)
     )
     return ctx
+
+
+def refresh_secret_parts(ctx: JobContext, secrets: SecretStore) -> Callable | None:
+    """API 키가 바뀐 뒤 키를 쓰는 부품만 새로 만든다(C35). 작업 스레드에서 부른다(돌던 잡과 겹치지 않게).
+
+    플랫폼 어댑터·수집기는 키를 안 쓰므로 그대로. 다 만든 뒤 한꺼번에 끼우므로, 만들다 실패하면 예전 부품이 그대로 남는다.
+    새 이미지 읽기 함수를 돌려줘 대시보드 상태도 맞춘다.
+    """
+    parts = make_secret_parts(ctx.config, secrets, ctx.repo)
+    _install_secret_parts(ctx, parts)
+    log.info(
+        "API 키가 바뀌어 분류기·생성기·진단을 새로 만들었습니다(분류기: %s)", ctx.classifier_name
+    )
+    return parts["read_image"]
 
 
 def switch_preset(
@@ -277,7 +310,8 @@ def run_forever() -> None:
     scheduler = None
     try:
         notifier = DesktopNotifier(url)
-        ctx = build_context(cfg, db, drivers, notifier=notifier)
+        secrets = KeyringSecretStore()
+        ctx = build_context(cfg, db, drivers, secrets=secrets, notifier=notifier)
         ctx.shutting_down = stopping.is_set
         notifier.enabled = lambda: ctx.config.settings.desktop_notifications
         # 모든 알림을 대시보드 알림함(종 모양)에도 남긴다(데스크톱 알림을 꺼도 남음, N2)
@@ -327,7 +361,26 @@ def run_forever() -> None:
             switch_preset=lambda name: scheduler.submit(
                 lambda: switch_preset(ctx, db, name, set_config, presets)
             ),
+            secrets=secrets,
         )
+
+        def on_secrets_changed() -> None:
+            # 작업 스레드에서 다시 만든다: 돌던 잡은 옛 부품으로 끝나고 다음 작업부터 새 키(C35)
+            def _refresh() -> None:
+                state.read_image = refresh_secret_parts(ctx, secrets)
+
+            def _done(f) -> None:  # 실패를 삼키지 않는다(리뷰): 예전 부품이 그대로 남았다고 알린다
+                if (e := f.exception()) is not None:
+                    log.error("API 키 반영 실패: %s", type(e).__name__)
+                    ctx.notifier.notify(
+                        "API 키 반영 실패",
+                        f"새 키로 바꾸지 못해 예전 설정으로 계속합니다. nsm run을 다시 켜 주세요({type(e).__name__})",
+                        "error",
+                    )
+
+            scheduler.submit(_refresh).add_done_callback(_done)
+
+        state.on_secrets_changed = on_secrets_changed
         print(f"논슬립 마케터 실행 중. 대시보드: {url}  (끄려면 Ctrl+C)")
         server = uvicorn.Server(
             uvicorn.Config(create_app(state), host="127.0.0.1", port=port, log_level="warning")

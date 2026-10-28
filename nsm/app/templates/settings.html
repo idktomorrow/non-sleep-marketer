@@ -169,6 +169,28 @@
 </div>
 {% endif %}
 
+{% if can_keys %}
+<h2 id="api-keys">API 키 <span class="hint">Windows 자격 증명 관리자(keyring)에만 저장합니다. 값은 다시 보여 주지 않습니다</span></h2>
+<div class="panel">
+  {% if key_msg %}<div class="notice info">{{ key_msg }}</div>{% endif %}
+  {% if key_error %}<div class="notice bad">{{ key_error }}</div>{% endif %}
+  <div class="table-wrap"><table class="api-keys">
+    <tr><th>키</th><th>상태</th><th>저장·바꾸기</th><th></th></tr>
+    {% for k in keys %}
+    <tr>
+      <td><b>{{ k.label }}</b><br><span class="hint">{{ k.use }}</span></td>
+      <td>{% if k.present %}<span class="badge ok">등록됨</span>{% if k.env %}<br><span class="hint">환경 변수 키라 여기서는 못 지움</span>{% endif %}{% else %}<span class="muted">없음</span>{% endif %}
+        {% if key_check.name == k.name %}<br><span class="badge {{ 'ok' if key_check.ok else 'warn' }} key-check">{{ key_check.text }}</span>{% endif %}</td>
+      <td>{% if k.env %}<span class="hint">환경 변수 키가 먼저 쓰여 여기서는 바꿀 수 없습니다</span>{% else %}<form method="post" action="/settings/keys/{{ k.name }}" class="inline" autocomplete="off"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="password" name="value" autocomplete="off" spellcheck="false" aria-label="{{ k.label }} 키" placeholder="{{ '새 키를 넣으면 바꿉니다' if k.present else '키 붙여 넣기' }}"> <button class="btn-sm" type="submit">저장</button></form>{% endif %}</td>
+      <td class="nowrap">{% if k.present %}<form method="post" action="/settings/keys/{{ k.name }}/check" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit">확인</button></form>
+        {% if not k.env %}<form method="post" action="/settings/keys/{{ k.name }}/delete" class="inline" onsubmit="return confirm('{{ k.label }} 키를 지울까요?')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit">지우기</button></form>{% endif %}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="muted small" style="margin-bottom:0">저장할 때 먼저 확인해 틀린 키는 저장하지 않고, 재시작 없이 다음 작업부터 새 키를 씁니다. "확인"은 모델 목록만 조회해서 비용이 들지 않습니다. 게시 계정·드라이런·보호 모드는 여기서 바꾸지 않습니다(아래).</p>
+</div>
+{% endif %}
+
 <form id="notify-test-form" method="post" action="/notify/test"><input type="hidden" name="csrf" value="{{ csrf }}"></form>
 
 <h2>여기서 바꾸지 않는 것</h2>
@@ -177,7 +199,7 @@
   <ul style="margin-bottom:0">
     <li>모드: <b>{{ '드라이런(실제로 올리지 않음)' if cfg.settings.dry_run else '실계정' }}</b></li>
     <li>게시 계정: {% for p, h in cfg.settings.accounts.items() %}{{ p|ko_platform }} {{ h }}{% if not loop.last %}, {% endif %}{% else %}없음{% endfor %}</li>
-    <li>API 키(Claude, Gemini, OpenAI): Windows 자격 증명 관리자에 저장</li>
+    <li>API 키는 위 "API 키" 칸에서 바꿉니다(C35). 계정·모드처럼 잘못 바꾸면 실계정에 영향이 가는 것만 여기 남겼습니다</li>
   </ul>
 </div>
 
