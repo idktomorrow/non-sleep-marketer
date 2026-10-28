@@ -65,6 +65,7 @@ from nsm.app.settings_form import (
 from nsm.config.presets import DEFAULT_PRESET, PresetError, PresetStore, check_name
 from nsm.config.presets import same as preset_same
 from nsm.config.schema import AppConfig
+from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
@@ -143,7 +144,7 @@ class AppState:
     switch_preset: Callable[[str], Future] | None = None
     presets: PresetStore | None = None  # 없으면 기본 위치(<NSM_HOME>/presets)
     # API 키 칸(C35): 없으면 칸이 안 보인다. 저장·삭제 뒤 키를 쓰는 부품을 다시 만드는 콜백
-    secrets: Any | None = None
+    secrets: SecretStore | None = None
     on_secrets_changed: Callable[[], None] | None = None
     check_key: Callable[[str, str | None], tuple[str, int | None]] | None = None  # 테스트용 대체
 

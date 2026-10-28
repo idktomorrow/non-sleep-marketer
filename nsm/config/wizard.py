@@ -12,7 +12,7 @@ from typing import Protocol
 
 from nsm.config.paths import config_path, uploads_dir
 from nsm.config.schema import CARD_LOOK_FIELDS, AppConfig, BrandSettings, Settings
-from nsm.config.secrets import KEYS, KeyringSecretStore, SecretStore, mask
+from nsm.config.secrets import KEY_NAMES, KEY_USES, KEYS, KeyringSecretStore, SecretStore, mask
 from nsm.config.store import (
     ConfigNotFoundError,
     format_windows,
@@ -35,10 +35,8 @@ RISK_NOTICE = """\
 """
 
 KEY_LABELS = {
-    "anthropic_api_key": "Claude API 키 (글 생성·답글, 필수)",
-    "gemini_api_key": "Gemini API 키 (자료·댓글 분류, 무료 구간. 없으면 Claude로 분류)",
-    "openai_api_key": "OpenAI API 키 (AI 배경 이미지, 선택)",
-}
+    k: f"{KEY_NAMES[k]} API 키 ({KEY_USES[k]})" for k in KEY_NAMES
+}  # 설정 화면과 같은 설명
 
 
 class WizardAbortedError(Exception):

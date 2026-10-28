@@ -10,7 +10,18 @@ import os
 from typing import Protocol
 
 SERVICE = "non-sleep-marketer"
-KEYS = ("anthropic_api_key", "gemini_api_key", "openai_api_key")
+KEYS = (
+    "anthropic_api_key",
+    "gemini_api_key",
+    "openai_api_key",
+)  # 화면·마법사 순서(필수 → 무료 → 선택)
+# 키 이름과 쓰임: 마법사(nsm init)와 설정 화면(C35)이 같이 쓴다
+KEY_NAMES = {"anthropic_api_key": "Claude", "gemini_api_key": "Gemini", "openai_api_key": "OpenAI"}
+KEY_USES = {
+    "anthropic_api_key": "원고·답글을 씁니다. 필수",
+    "gemini_api_key": "자료·댓글을 분류합니다. 무료 구간(없으면 Claude로 분류)",
+    "openai_api_key": "표지 배경 이미지. 선택이며 기본은 꺼짐(설정 image_generation)",
+}
 ENV_NAMES = {
     "anthropic_api_key": ("NSM_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
     "openai_api_key": ("NSM_OPENAI_API_KEY", "OPENAI_API_KEY"),
@@ -25,6 +36,7 @@ class SecretStore(Protocol):
     def get(self, key: str) -> str | None: ...
     def set(self, key: str, value: str) -> None: ...
     def delete(self, key: str) -> None: ...
+    def is_env(self, key: str) -> bool: ...  # 환경 변수 키는 get이 먼저 돌려주고 delete로 못 지운다
 
 
 def _from_env(key: str) -> str | None:
@@ -62,7 +74,7 @@ class KeyringSecretStore:
     def delete(self, key: str) -> None:
         import keyring
 
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(Exception):  # 없는 키를 지우면 예외: 결과는 부른 쪽이 get으로 확인
             keyring.delete_password(self.service, key)
 
 

@@ -191,6 +191,7 @@ def _transport(status: int, body: str, seen: list) -> httpx.MockTransport:
         ("openai_api_key", 429, '{"error": {"code": "insufficient_quota"}}', "limit"),
         ("gemini_api_key", 400, '{"error": {"status": "FAILED_PRECONDITION"}}', "limit"),
         ("anthropic_api_key", 503, "{}", "network"),
+        ("openai_api_key", 404, "{}", "unknown"),
     ],
 )
 def test_check_key_classifies_responses(name, status, body, expected) -> None:
@@ -214,3 +215,42 @@ def test_check_text_never_includes_response_body() -> None:
     assert check_text("invalid", 401) == "키가 틀렸거나 만료됨"
     assert check_text("limit", 429) == "키는 맞지만 한도·결제 확인 필요(HTTP 429)"
     assert check_text("network", None) == "연결 실패(네트워크·시간 초과)"
+
+
+# ------------------------------------------------------------------ 리뷰 반영
+
+
+def test_invalid_new_key_does_not_replace_working_key(env) -> None:
+    """리뷰: 저장 전에 새 키를 확인한다. 틀린 키가 잘 되던 키를 덮어쓰지 않는다."""
+    env["secrets"].set("anthropic_api_key", KEY)
+    env["state"].check_key = lambda n, v: ("invalid", 401) if v == KEY2 else ("ok", 200)
+    r = _post(env, "/settings/keys/anthropic_api_key", value=KEY2)
+    html = _page(env, r)
+    assert "틀렸거나 만료돼 저장하지 않았습니다" in html
+    assert env["secrets"].get("anthropic_api_key") == KEY and env["changed"] == []
+
+
+@pytest.mark.parametrize("result", [("network", None), ("limit", 429)])
+def test_unverifiable_new_key_is_still_saved(env, result) -> None:
+    env["state"].check_key = lambda n, v: result
+    _post(env, "/settings/keys/openai_api_key", value=KEY)
+    assert env["secrets"].get("openai_api_key") == KEY and env["changed"] == [1]
+
+
+def test_saving_over_env_key_is_refused(env) -> None:
+    """리뷰: 환경 변수가 먼저 읽히므로 저장해도 쓰이지 않는다. 저장하지 않고 안내한다."""
+    env["secrets"].env["anthropic_api_key"] = "fake-claude-env-key-GGGGGGGGGGGG"
+    html = _page(env)
+    row = html[html.index("<b>Claude</b>") : html.index("<b>Gemini</b>")]
+    assert 'name="value"' not in row and "환경 변수 키가 먼저 쓰여" in row
+    r = _post(env, "/settings/keys/anthropic_api_key", value=KEY)
+    assert "여기 저장해도 쓰이지 않습니다" in _page(env, r)
+    assert env["secrets"].values.get("anthropic_api_key") is None and env["changed"] == []
+
+
+def test_failed_delete_is_not_reported_as_deleted(env) -> None:
+    """리뷰: keyring이 지우기를 못 했으면 지웠다고 말하지 않는다."""
+    env["secrets"].delete = lambda name: None  # 지우기가 조용히 실패
+    r = _post(env, "/settings/keys/gemini_api_key/delete")
+    assert "지우지 못했습니다" in _page(env, r)
+    assert env["changed"] == []
