@@ -38,6 +38,7 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
+from nsm.app.keys import install_keys_routes, key_status
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
@@ -141,6 +142,10 @@ class AppState:
     # 프리셋 전환(C29): 작업 스레드에서 DB까지 갈아끼우므로 Future. 없으면 프리셋 칸이 안 보인다
     switch_preset: Callable[[str], Future] | None = None
     presets: PresetStore | None = None  # 없으면 기본 위치(<NSM_HOME>/presets)
+    # API 키 칸(C35): 없으면 칸이 안 보인다. 저장·삭제 뒤 키를 쓰는 부품을 다시 만드는 콜백
+    secrets: Any | None = None
+    on_secrets_changed: Callable[[], None] | None = None
+    check_key: Callable[[str, str | None], tuple[str, int | None]] | None = None  # 테스트용 대체
 
 
 _ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
@@ -367,6 +372,15 @@ def create_app(state: AppState) -> FastAPI:
             },
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
+            "keys": key_status(state.secrets),
+            "can_keys": state.secrets is not None,
+            "key_msg": q.get("key_msg"),
+            "key_error": q.get("key_error"),
+            "key_check": {
+                "name": q.get("key_check"),
+                "text": q.get("key_check_text"),
+                "ok": q.get("key_check_code") == "ok",
+            },
             # 캐릭터를 바꾸면 일러스트형 견본 주소도 바뀌게(브라우저 캐시 때문에 옛 견본이 남지 않게)
             "character_fp": character_art(b).fingerprint,
         }
@@ -1136,5 +1150,7 @@ def create_app(state: AppState) -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    install_keys_routes(app, state, check_csrf)  # API 키 칸(C35)
 
     return app

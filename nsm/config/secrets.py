@@ -50,6 +50,10 @@ class KeyringSecretStore:
         except Exception:  # noqa: BLE001  (백엔드 없는 환경)
             return None
 
+    def is_env(self, key: str) -> bool:
+        """환경 변수로 들어온 키인가. 프로그램은 환경 변수를 지울 수 없다(설정 화면 안내, C35)."""
+        return _from_env(key) is not None
+
     def set(self, key: str, value: str) -> None:
         import keyring
 
@@ -65,11 +69,17 @@ class KeyringSecretStore:
 class MemorySecretStore:
     """테스트용."""
 
-    def __init__(self, values: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, values: dict[str, str] | None = None, env: dict[str, str] | None = None
+    ) -> None:
         self.values = dict(values or {})
+        self.env = dict(env or {})  # 환경 변수 흉내: get에는 보이고 delete로는 안 지워진다
+
+    def is_env(self, key: str) -> bool:
+        return key in self.env
 
     def get(self, key: str) -> str | None:
-        return self.values.get(key)
+        return self.env.get(key) or self.values.get(key)
 
     def set(self, key: str, value: str) -> None:
         self.values[key] = value
