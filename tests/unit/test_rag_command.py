@@ -82,3 +82,51 @@ def test_real_lock_from_another_process_gives_korean_help(tmp_path: Path) -> Non
     finally:
         holder.kill()
         holder.wait()
+
+
+def test_bad_inputs_are_reported_in_korean(app_config, docs: Path, tmp_path: Path) -> None:
+    from nsm.rag.command import IndexInputError
+
+    out: list[str] = []
+    db = tmp_path / "r.duckdb"
+    with pytest.raises(IndexInputError, match="겹침"):
+        _run(app_config, db, docs, out, overlap=600)
+    with pytest.raises(IndexInputError, match="조각 크기"):
+        _run(app_config, db, docs, out, size=0)  # 0을 기본값으로 바꿔치지 않는다
+    with pytest.raises(IndexInputError, match="문서 폴더가 없습니다"):
+        _run(app_config, db, tmp_path / "nope", out)
+
+
+def test_settings_reject_overlap_not_below_size() -> None:
+    from pydantic import ValidationError
+
+    from nsm.config.schema import RagSettings
+
+    with pytest.raises(ValidationError):
+        RagSettings(chunk_chars=100, chunk_overlap=200)
+
+
+def test_daily_cost_cap_skips_embedding(app_config, docs: Path, tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    from nsm.store.db import Database
+    from nsm.store.repo import Repository
+    from tests.fakes import FixedClock
+
+    db_path = tmp_path / "cap.duckdb"
+    db = Database(db_path)
+    Repository(db, FixedClock(datetime.now(UTC))).record_cost("llm", "anthropic", 999.0, "x")
+    db.close()
+    emb = FakeEmbedder()
+    out: list[str] = []
+    _run(app_config, db_path, docs, out, secrets=object(), embedder_factory=lambda *a: emb)
+    assert emb.calls == [] and any("비용 상한" in line for line in out)
+
+
+def test_db_is_closed_after_run(app_config, docs: Path, tmp_path: Path) -> None:
+    """다른 프로세스가 바로 열 수 있어야 한다(연결을 쥐고 있지 않음)."""
+    db = tmp_path / "closed.duckdb"
+    _run(app_config, db, docs, [], secrets=object(), embedder_factory=lambda *a: FakeEmbedder())
+    code = f"import duckdb; duckdb.connect(r'{db}').close(); print('ok')"
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    assert r.stdout.strip() == "ok", r.stderr[-300:]

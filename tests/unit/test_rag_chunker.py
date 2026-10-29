@@ -88,3 +88,11 @@ def test_no_overlap_when_disabled_and_bad_settings_rejected() -> None:
     assert joined.count("문장100입니다.") == 1
     with pytest.raises(ValueError):
         chunk_markdown("o.md", "x", size=100, overlap=100)
+
+
+def test_long_list_keeps_its_line_breaks() -> None:
+    items = "\n".join(f"- 항목 {i}: 목록 줄은 줄바꿈을 지켜야 합니다" for i in range(30))
+    chunks = chunk_markdown("l.md", f"# 목록\n\n{items}\n", size=200, overlap=0)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert all(line.startswith("- 항목") for line in c.body.splitlines())

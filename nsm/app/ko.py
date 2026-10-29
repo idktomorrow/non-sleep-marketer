@@ -41,7 +41,7 @@ COMMENT_STATUS = {
     "ignored": "넘김",
     "resolved": "처리 완료",
 }
-COST_KIND = {"llm": "글 생성", "image": "배경 이미지", "classifier": "자료 분류"}
+COST_KIND = {"llm": "글 생성", "image": "배경 이미지", "classifier": "자료 분류·문서 색인"}
 
 # 잡 이름 → (짧은 이름, 하는 일). "지금 실행" 버튼과 실행 기록에 쓴다.
 JOBS: dict[str, tuple[str, str]] = {

@@ -2,26 +2,33 @@
 
 from __future__ import annotations
 
-from fnmatch import fnmatch
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from nsm.rag.ports import Document
 
 
 def default_docs_root() -> Path:
-    """저장소의 docs 폴더(이 패키지 기준 ../../docs)."""
-    return Path(__file__).resolve().parents[2] / "docs"
+    """저장소의 docs 폴더. 소스에서 실행하면 패키지 기준 ../../docs, 아니면 지금 폴더의 docs.
+
+    둘 다 없으면 없는 경로를 돌려주고, 부르는 쪽(`nsm index`)이 "문서 폴더가 없습니다"로 멈춘다.
+    """
+    here = Path(__file__).resolve().parents[2] / "docs"
+    return here if here.is_dir() else Path.cwd() / "docs"
+
+
+def matches(rel: str, pattern: str) -> bool:
+    """포함·제외 목록의 한 항목. 둘 다 docs 기준 경로로 같은 규칙:
+    "폴더/"는 그 폴더 아래 전부(맨 위 기준), 나머지는 경로 전체에 대한 패턴(`*`는 폴더 경계를 넘지 않음)."""
+    if pattern.endswith("/"):
+        return rel.startswith(pattern)
+    if "/" not in pattern and "/" in rel:
+        return False  # "*.md" 같은 패턴은 맨 위 파일에만(하위 폴더까지 통째로 빠지지 않게)
+    return fnmatchcase(rel, pattern)
 
 
 def excluded(rel: str, patterns: list[str]) -> bool:
-    """제외 목록: "presentation/"처럼 /로 끝나면 그 폴더 아래 전부, 아니면 경로 패턴(fnmatch)."""
-    for p in patterns:
-        if p.endswith("/"):
-            if rel.startswith(p) or f"/{p}" in f"/{rel}":
-                return True
-        elif fnmatch(rel, p):
-            return True
-    return False
+    return any(matches(rel, p) for p in patterns)
 
 
 class DocsFolderSource:
@@ -37,7 +44,7 @@ class DocsFolderSource:
     def _wanted(self, rel: str) -> bool:
         if excluded(rel, self.exclude):
             return False
-        return any(rel.startswith(p) if p.endswith("/") else fnmatch(rel, p) for p in self.include)
+        return any(matches(rel, p) for p in self.include)
 
     def documents(self) -> list[Document]:
         out = []

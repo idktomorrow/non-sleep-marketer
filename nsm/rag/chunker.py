@@ -110,13 +110,13 @@ def _split_table(text: str, size: int) -> list[str]:
     return out
 
 
-def _split_long(text: str, size: int) -> list[str]:
-    """문단 하나가 너무 길 때: 문장 경계에서, 문장도 길면 공백에서 자른다."""
-    pieces = [p for p in re.split(r"(?<=[.!?])\s+|(?<=다\.)\s*|(?<=요\.)\s*|\n", text) if p.strip()]
+def _split_sentences(line: str, size: int) -> list[str]:
+    """한 줄이 목표보다 길 때: 문장 경계에서, 문장도 길면 공백에서."""
+    pieces = [p for p in re.split(r"(?<=[.!?])\s+|(?<=다\.)\s*|(?<=요\.)\s*", line) if p.strip()]
     out: list[str] = []
     cur = ""
     for p in pieces:
-        while len(p) > size:  # 문장 하나가 목표보다 길다: 공백에서
+        while len(p) > size:
             cut = p.rfind(" ", 0, size)
             cut = cut if cut > size // 2 else size
             if cur:
@@ -132,6 +132,26 @@ def _split_long(text: str, size: int) -> list[str]:
             cur = joined
     if cur:
         out.append(cur)
+    return out
+
+
+def _split_long(text: str, size: int) -> list[str]:
+    """글 블록이 너무 길 때: 줄 단위로 담아 줄바꿈(목록 항목)을 지키고, 한 줄이 길면 문장에서 자른다."""
+    out: list[str] = []
+    cur: list[str] = []
+    cur_len = 0
+    for line in text.split("\n"):
+        parts = [line] if len(line) <= size else _split_sentences(line, size)
+        for part in parts:
+            add = len(part) + (1 if cur else 0)
+            if cur and cur_len + add > size:
+                out.append("\n".join(cur))
+                cur, cur_len = [], 0
+                add = len(part)
+            cur.append(part)
+            cur_len += add
+    if cur:
+        out.append("\n".join(cur))
     return out
 
 

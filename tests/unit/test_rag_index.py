@@ -331,3 +331,49 @@ def test_max_embed_per_run_defers_the_rest(docs: Path) -> None:
     assert rep.embedded == 1 and rep.deferred == 1 and rep.without_vector == 1
     rep = _index(db, docs, FakeEmbedder(), max_embed=1)
     assert rep.embedded == 1 and rep.deferred == 0 and rep.without_vector == 0
+
+
+# ------------------------------------------------------------------ 리뷰 반영
+
+
+def test_dimension_change_re_embeds_even_with_same_model(docs: Path) -> None:
+    db = Database()
+    _index(db, docs, FakeEmbedder(dim=8))
+    wider = FakeEmbedder(dim=16)
+    rep = _index(db, docs, wider)
+    assert sum(len(c) for c in wider.calls) == 2 and rep.reused == 0
+    assert {r[0] for r in db.execute("SELECT len(embedding) FROM doc_chunks")} == {16}
+
+
+def test_empty_source_does_not_wipe_the_index(docs: Path, tmp_path: Path) -> None:
+    from nsm.rag.indexer import EmptySourceError
+
+    db = Database()
+    _index(db, docs, FakeEmbedder())
+    empty = tmp_path / "typo-docs"
+    empty.mkdir()
+    with pytest.raises(EmptySourceError):
+        _index(db, empty, FakeEmbedder())
+    assert db.execute("SELECT count(*) FROM doc_chunks")[0][0] == 2
+
+
+def test_unchanged_file_with_missing_vectors_is_filled_in_place(docs: Path) -> None:
+    from datetime import timedelta
+
+    db = Database()
+    _index(db, docs, None)  # 키 없이 조각만
+    index_documents(
+        db, _source(docs), FakeEmbedder(), size=500, overlap=80, now=NOW + timedelta(hours=1)
+    )
+    rows = db.execute("SELECT created_at, embedding IS NOT NULL FROM doc_chunks")
+    assert all(ok for _, ok in rows)
+    assert {c for c, _ in rows} == {NOW.replace(tzinfo=None)}  # 다시 쓰지 않고 그 자리에서 채움
+
+
+def test_include_and_exclude_follow_the_same_root_anchored_rules(tmp_path: Path) -> None:
+    from nsm.rag.sources import matches
+
+    assert matches("samples/a.md", "samples/") and not matches("devlog/samples/a.md", "samples/")
+    assert matches("adr/0001.md", "adr/") and not matches("old/adr/0001.md", "adr/")
+    assert matches("README.md", "*.md") and not matches("adr/0001.md", "*.md")
+    assert matches("adr/0000-template.md", "adr/0000-template.md")

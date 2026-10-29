@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
@@ -126,6 +126,12 @@ class RagSettings(_Model):
     embed_max_per_run: int = Field(default=900, ge=1, le=100000)
     # 입력 100만 토큰당 달러. 무료 구간은 0원, 유료(Standard)는 0.20(2026-10-30 가격표)
     embedding_usd_per_mtok: float = Field(default=0.0, ge=0, le=10)
+
+    @model_validator(mode="after")
+    def _overlap_below_size(self) -> RagSettings:
+        if self.chunk_overlap >= self.chunk_chars:
+            raise ValueError("rag.chunk_overlap은 rag.chunk_chars보다 작아야 합니다")
+        return self
 
 
 class Settings(_Model):

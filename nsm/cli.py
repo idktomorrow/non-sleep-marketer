@@ -86,7 +86,7 @@ def index(
     """문서 색인(개발·점검용, R1): docs를 조각내고 Gemini 임베딩을 붙여 DB에 저장. 기본은 증분."""
     from nsm.config.presets import workspace_db_path
     from nsm.config.store import load_config
-    from nsm.rag.command import DbLockedError, run_index
+    from nsm.rag.command import DbLockedError, IndexInputError, run_index
 
     cfg = load_config()
     target = db or workspace_db_path(cfg)
@@ -102,6 +102,9 @@ def index(
             overlap=overlap,
             echo=typer.echo,
         )
+    except IndexInputError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from None
     except DbLockedError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(2) from None

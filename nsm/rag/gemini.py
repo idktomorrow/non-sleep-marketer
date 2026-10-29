@@ -5,7 +5,8 @@
   (조각 첫 줄의 제목 경로를 title로).
 - 묶음 요청 사이에 간격을 둔다. 429는 한 번 기다렸다 다시 보내고, 그래도 막히면 오류 종류 표의 `rate_limited`
   (`kind`·`retry_at`)로 올린다. 5xx·연결 오류는 `transient`.
-- 비용은 `CostSink`에 `classifier` 종류로, ref "embedding"으로 적는다(CostKind는 동결, ADR 0056).
+- 비용은 `CostSink`에 `classifier` 종류로, ref "embedding"으로 적는다(CostKind는 동결, ADR 0056). 대시보드 비용 표에는
+  "자료 분류·문서 색인"으로 보인다. 쓴 토큰이 없으면 적지 않는다.
 - 키는 헤더로만 보내고 오류 문구에 남기지 않는다.
 """
 
@@ -132,7 +133,7 @@ class GeminiEmbedder:
             )
         tokens = int((data.get("usageMetadata") or {}).get("promptTokenCount") or 0)
         self.tokens += tokens
-        if self.cost_sink is not None:
+        if self.cost_sink is not None and tokens:
             # CostKind가 동결(llm·image·classifier)이라 새 종류를 못 넣는다: 생성이 아닌 판정·색인 쪽인 classifier로
             self.cost_sink.record_cost(
                 "classifier", "gemini", tokens / 1_000_000 * self.usd_per_mtok, "embedding"

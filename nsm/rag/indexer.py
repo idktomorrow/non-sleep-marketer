@@ -1,8 +1,10 @@
 """문서 색인(R1, ADR 0056). CLI(`nsm index`)와 분리된 함수라 R3에서 maintenance 잡·대시보드 버튼이 그대로 부른다.
 
 증분 규칙:
-- 파일마다 조각을 다시 만들고, 같은 출처·경로에서 **내용 해시가 같고 벡터가 있고 임베딩 모델이 같은** 예전 조각은
-  벡터를 그대로 쓴다(임베딩을 다시 부르지 않는다).
+- 파일마다 조각을 다시 만들고, 같은 출처·경로에서 **내용 해시가 같고 벡터가 있고 임베딩 모델·차원이 같은** 예전
+  조각은 벡터를 그대로 쓴다(임베딩을 다시 부르지 않는다). 차원 설정을 바꾸면 다시 임베딩한다(차원이 섞이지 않게).
+- 파일 내용이 그대로면 행을 다시 쓰지 않고, 벡터가 없는 조각만 그 자리에서 채운다.
+- 출처에서 문서를 하나도 못 찾았는데 저장된 조각이 있으면 지우지 않고 멈춘다(경로 실수로 색인이 날아가지 않게).
 - 나머지(새 조각, 벡터가 NULL이던 조각, 모델이 바뀐 조각)만 임베딩한다. 키가 없으면 조각만 저장하고 벡터는 NULL.
 - 출처에서 사라진 파일의 조각은 지운다.
 - 임베딩이 도중에 실패하면(요청 제한 등) 거기까지 저장하고 남은 조각은 NULL로 둔다. 다음 색인이 이어서 한다.
@@ -84,6 +86,10 @@ def chunk_stats(by_file: dict[str, list[Chunk]]) -> ChunkStats:
     )
 
 
+class EmptySourceError(Exception):
+    """출처에서 문서를 하나도 못 찾았는데 저장된 조각은 있다: 경로가 틀렸을 가능성. 지우지 않고 멈춘다(리뷰)."""
+
+
 def index_documents(
     db: Database,
     source: DocumentSource,
@@ -99,34 +105,50 @@ def index_documents(
     report = IndexReport(no_key=embedder is None)
     by_file = chunk_source(source, size, overlap)
     report.files = len(by_file)
-    if rebuild:
-        db.execute("DELETE FROM doc_chunks WHERE source_kind = ?", [kind])
-    # 사라진 파일
     stored = {
         r[0]
         for r in db.execute("SELECT DISTINCT path FROM doc_chunks WHERE source_kind = ?", [kind])
     }
-    for gone in sorted(stored - set(by_file)):
+    if not by_file and stored:
+        # 문서 폴더 경로를 잘못 주면 "전부 사라짐"으로 보여 색인을 통째로 지운다. 그러지 않는다
+        raise EmptySourceError(
+            f"문서를 하나도 찾지 못했습니다(저장된 파일 {len(stored)}개는 그대로 둡니다). 문서 폴더 경로를 확인하세요"
+        )
+    if rebuild:
+        db.execute("DELETE FROM doc_chunks WHERE source_kind = ?", [kind])
+        stored = set()
+    for gone in sorted(stored - set(by_file)):  # 사라진 파일
         db.execute("DELETE FROM doc_chunks WHERE source_kind = ? AND path = ?", [kind, gone])
         report.deleted_files.append(gone)
     model = embedder.model if embedder else None
+    dim = embedder.dim if embedder else None
+
+    def usable(vec_len: int | None, vec_model: str | None) -> bool:
+        """예전 벡터를 그대로 써도 되나: 있고, 모델·차원이 지금 임베더와 같다(키가 없으면 있는 것은 둔다)."""
+        if vec_len is None:
+            return False
+        return embedder is None or (vec_model == model and vec_len == dim)
+
     pending: list[str] = []  # 임베딩할 조각 id
     texts: dict[str, str] = {}
     created = to_db(now)
     for path, chunks in by_file.items():
-        # 파일이 그대로면(순번·해시가 같고 모두 같은 모델 벡터가 있으면) 건드리지 않는다: 두 번째 실행을 빠르게
-        same = db.execute(
-            "SELECT seq, content_hash, embedding IS NOT NULL, embed_model FROM doc_chunks "
+        report.chunks += len(chunks)
+        rows = db.execute(
+            "SELECT id, seq, content_hash, len(embedding), embed_model FROM doc_chunks "
             "WHERE source_kind = ? AND path = ? ORDER BY seq",
             [kind, path],
         )
-        if [(r[0], r[1]) for r in same] == [(c.seq, content_hash(c.text)) for c in chunks] and all(
-            r[2] and (model is None or r[3] == model) for r in same
-        ):
-            report.reused += len(chunks)
-            report.chunks += len(chunks)
+        if [(r[1], r[2]) for r in rows] == [(c.seq, content_hash(c.text)) for c in chunks]:
+            # 파일 내용이 그대로: 다시 쓰지 않고, 벡터가 없거나 모델·차원이 다른 조각만 임베딩 대기에
+            for (cid, _seq, _h, vlen, vmodel), c in zip(rows, chunks, strict=True):
+                if usable(vlen, vmodel):
+                    report.reused += 1
+                else:
+                    pending.append(cid)
+                    texts[cid] = c.text
             continue
-        old: dict[str, tuple[str | None, list[float] | None]] = {
+        old = {
             h: (m, v)
             for h, m, v in db.execute(
                 "SELECT content_hash, embed_model, embedding FROM doc_chunks WHERE source_kind = ? AND path = ?",
@@ -140,7 +162,7 @@ def index_documents(
                 h = content_hash(text)
                 cid = f"{kind}:{path}#{c.seq}"
                 old_model, old_vec = old.get(h, (None, None))
-                keep = old_vec is not None and (model is None or old_model == model)
+                keep = usable(len(old_vec) if old_vec is not None else None, old_model)
                 conn.execute(
                     "INSERT INTO doc_chunks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::FLOAT[], ?)",
                     [
@@ -162,7 +184,6 @@ def index_documents(
                 else:
                     pending.append(cid)
                     texts[cid] = text
-        report.chunks += len(chunks)
     if embedder is not None and pending:
         if max_embed is not None and len(pending) > max_embed:
             report.deferred = len(pending) - max_embed  # 하루 한도 안에서 멈춤: 다음 실행이 이어서
