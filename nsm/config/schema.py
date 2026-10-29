@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
@@ -85,6 +85,55 @@ class ModelSettings(_Model):
     image: str = "gpt-image-2.5-flare"
 
 
+class RagSettings(_Model):
+    """문서 색인(R1, ADR 0056). 값은 2026-10-30 Gemini 공식 문서 기준."""
+
+    # 조각 크기·겹침(글자). 300·500·800 비교 뒤 500/80(devlog R1)
+    chunk_chars: int = Field(default=500, ge=100, le=4000)
+    chunk_overlap: int = Field(default=80, ge=0, le=1000)
+    # docs 기준 경로. "폴더/"는 그 아래 전부, 나머지는 파일 패턴
+    include: list[str] = Field(
+        default_factory=lambda: [
+            "adr/",
+            "devlog/",
+            "incidents/",
+            "user-guide.md",
+            "architecture.md",
+            "contracts.md",
+            "glossary.md",
+        ]
+    )
+    exclude: list[str] = Field(
+        default_factory=lambda: [
+            "presentation/",
+            "learning/",
+            "samples/",
+            "adr/0000-template.md",
+            "incidents/0000-template.md",
+        ]
+    )
+    # Gemini 임베딩: 최신 모델 gemini-embedding-2(기본 3072차원, 권장 768·1536·3072, 768은 자동 정규화)
+    embedding_model: str = "gemini-embedding-2"
+    embedding_dim: int = Field(default=768, ge=128, le=3072)
+    # 한 번에 묶는 조각 수. 공식 문서에 상한이 없고 예전 API는 100이 상한이라 100
+    embed_batch_size: int = Field(default=100, ge=1, le=100)
+    # 묶음 요청 사이 간격(초). 무료 구간은 "모델별 분당 100건"이고 묶음 안의 조각 하나하나를 1건으로 센다
+    # (2026-10-30 429 응답의 quotaId EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier, 값 100으로 확인).
+    # 100개 묶음이면 1분에 한 번이라 61초. 유료면 줄여도 된다
+    embed_interval_seconds: float = Field(default=61.0, ge=0, le=600)
+    # 한 번 실행에 임베딩할 최대 조각 수. 무료 구간 하루 한도가 1,000조각이고 막힌 시도도 세어져서, 넘기기 전에 스스로 멈춘다.
+    # 남은 조각은 다음 날 실행이 이어서 한다. 유료면 늘려도 된다
+    embed_max_per_run: int = Field(default=900, ge=1, le=100000)
+    # 입력 100만 토큰당 달러. 무료 구간은 0원, 유료(Standard)는 0.20(2026-10-30 가격표)
+    embedding_usd_per_mtok: float = Field(default=0.0, ge=0, le=10)
+
+    @model_validator(mode="after")
+    def _overlap_below_size(self) -> RagSettings:
+        if self.chunk_overlap >= self.chunk_chars:
+            raise ValueError("rag.chunk_overlap은 rag.chunk_chars보다 작아야 합니다")
+        return self
+
+
 class Settings(_Model):
     dry_run: bool = True
     timezone: str = "Asia/Seoul"
@@ -149,6 +198,7 @@ class Settings(_Model):
     preset: str = "기본"  # 지금 쓰는 프리셋(페르소나+브랜드+DB 묶음, C29 ADR 0049)
     collect: CollectSettings = Field(default_factory=CollectSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
+    rag: RagSettings = Field(default_factory=RagSettings)
 
     @field_validator("classifier", mode="before")
     @classmethod
