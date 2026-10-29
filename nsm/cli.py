@@ -71,6 +71,43 @@ def run(
         run_forever()
 
 
+@app.command("index")
+def index(
+    dry_run: bool = typer.Option(False, "--dry-run", help="API·DB 없이 조각 통계만 출력"),
+    rebuild: bool = typer.Option(False, "--rebuild", help="저장된 조각을 지우고 전부 다시 임베딩"),
+    stats: bool = typer.Option(False, "--stats", help="저장된 조각 수·파일 수·벡터 없는 조각 수"),
+    db: Path | None = typer.Option(None, "--db", help="대상 DB 파일(기본: 지금 프리셋의 DB)"),
+    docs: Path | None = typer.Option(None, "--docs", help="문서 폴더(기본: 저장소 docs)"),
+    chunk_chars: int | None = typer.Option(
+        None, "--chunk-chars", help="조각 크기 실험용(기본: 설정값)"
+    ),
+    overlap: int | None = typer.Option(None, "--overlap", help="겹침 실험용(기본: 설정값)"),
+) -> None:
+    """문서 색인(개발·점검용, R1): docs를 조각내고 Gemini 임베딩을 붙여 DB에 저장. 기본은 증분."""
+    from nsm.config.presets import workspace_db_path
+    from nsm.config.store import load_config
+    from nsm.rag.command import DbLockedError, run_index
+
+    cfg = load_config()
+    target = db or workspace_db_path(cfg)
+    try:
+        code = run_index(
+            cfg,
+            target,
+            docs=docs,
+            dry_run=dry_run,
+            rebuild=rebuild,
+            stats=stats,
+            size=chunk_chars,
+            overlap=overlap,
+            echo=typer.echo,
+        )
+    except DbLockedError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from None
+    raise typer.Exit(code)
+
+
 @app.command("render-preview")
 def render_preview(
     deck: Path = typer.Argument(..., exists=True, help="카드 덱 JSON"),

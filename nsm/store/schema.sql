@@ -152,3 +152,19 @@ CREATE TABLE IF NOT EXISTS notifications (
     link VARCHAR,                       -- 누르면 갈 대시보드 경로
     read_at TIMESTAMP
 );
+
+-- 문서 조각과 임베딩(R1, ADR 0056). 벡터는 가변 길이 FLOAT[]: 차원 설정을 바꿔도 표를 고치지 않고,
+-- R2 검색은 list_cosine_similarity(또는 FLOAT[N]으로 바꿔) 쓴다
+CREATE TABLE IF NOT EXISTS doc_chunks (
+    id VARCHAR PRIMARY KEY,            -- "<출처 종류>:<경로>#<순번>"
+    source_kind VARCHAR NOT NULL,      -- "docs", 나중에 수집 자료 등
+    path VARCHAR NOT NULL,             -- 출처 안의 경로
+    heading_path VARCHAR NOT NULL,     -- "파일명 > 상위 제목 > 소제목"
+    seq INTEGER NOT NULL,
+    text VARCHAR NOT NULL,             -- 첫 줄 제목 경로 + 본문
+    chars INTEGER NOT NULL,
+    content_hash VARCHAR NOT NULL,     -- text의 sha256: 같으면 임베딩을 다시 부르지 않는다
+    embed_model VARCHAR,               -- 벡터를 만든 모델(없으면 NULL)
+    embedding FLOAT[],                 -- 키가 없거나 요청 제한이면 NULL, 다음 색인에서 이어서
+    created_at TIMESTAMP NOT NULL
+);
