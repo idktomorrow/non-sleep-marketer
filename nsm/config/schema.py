@@ -124,6 +124,8 @@ class RagSettings(_Model):
     # 한 번 실행에 임베딩할 최대 조각 수. 무료 구간 하루 한도가 1,000조각이고 막힌 시도도 세어져서, 넘기기 전에 스스로 멈춘다.
     # 남은 조각은 다음 날 실행이 이어서 한다. 유료면 늘려도 된다
     embed_max_per_run: int = Field(default=900, ge=1, le=100000)
+    # 하루에 보낼 수 있는 총 건수(색인 + 질문, 태평양 날짜 기준 장부). 무료 구간 1,000. 실행당 900이면 질문 몫 100이 남는다
+    embed_daily_limit: int = Field(default=1000, ge=1, le=1000000)
     # 입력 100만 토큰당 달러. 무료 구간은 0원, 유료(Standard)는 0.20(2026-10-30 가격표)
     embedding_usd_per_mtok: float = Field(default=0.0, ge=0, le=10)
 

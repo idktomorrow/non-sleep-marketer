@@ -46,6 +46,7 @@ ORDER = (
     "metrics",
     "weekly_report",
     "maintenance",
+    "index",
 )
 
 

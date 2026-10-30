@@ -881,6 +881,11 @@ class Repository:
         )
         return self._run_rows(rows)
 
+    def last_run_at(self, job: str) -> datetime | None:
+        """job의 마지막 시작 시각(설정 화면 문서 색인 줄, R2). 실행 기록 전체를 훑지 않는다."""
+        row = self.db.execute("SELECT max(started_at) FROM run_logs WHERE job = ?", [job])
+        return from_db(row[0][0]) if row and row[0][0] else None
+
     def last_success_at(self, days: int = 30) -> dict[str, datetime]:
         """작업마다 최근 days일 안에서 마지막으로 성공한 시각."""
         rows = self.db.execute(

@@ -137,6 +137,10 @@ def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
     ctx.text_generator = parts["text_generator"]
     ctx.image_generator = parts["image_generator"]
     ctx.diagnoser = parts["diagnoser"]
+    from nsm.rag.budget import close_embedder
+
+    if ctx.embedder is not parts["embedder"]:
+        close_embedder(ctx.embedder)  # 옛 HTTP 연결을 닫는다(키를 여러 번 바꿔도 새지 않게)
     ctx.embedder = parts["embedder"]
     for src in ctx.sources:
         if src.name == "upload":

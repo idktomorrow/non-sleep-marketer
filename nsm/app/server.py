@@ -360,11 +360,10 @@ def create_app(state: AppState) -> FastAPI:
         from nsm.rag.indexer import stored_stats
 
         st = stored_stats(state.repo.db, "docs")
-        last = next((r for r in state.repo.latest_runs(30) if r["job"] == "index"), None)
         return {
             "chunks": st["chunks"],
             "without_vector": st["without_vector"],
-            "last": last["started_at"] if last else None,
+            "last": state.repo.last_run_at("index"),
             "time": state.get_config().settings.rag.index_time,
         }
 
