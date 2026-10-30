@@ -319,3 +319,114 @@ def test_truncated_answer_is_marked() -> None:
     )
     hit = Hit("adr/a.md", "adr/a.md > 가", "본문", 0.9)
     assert a.answer("429", [hit]).text.endswith("…(답이 길어 잘렸습니다)")
+
+
+# ------------------------------------------------------------------ R3 리뷰 반영
+
+
+def test_failed_query_embedding_still_counts_in_the_ledger(env) -> None:
+    from nsm.rag.budget import used_today
+    from nsm.rag.gemini import EmbeddingError
+
+    class Broken(FakeEmbedder):
+        def embed_query(self, question: str) -> list[float]:
+            raise EmbeddingError("429", "rate_limited")
+
+    env["holder"]["emb"] = Broken()
+    r = _ask(env, "보호 모드가 뭐야")
+    assert r.status_code == 400 and "rate_limited" in r.text
+    assert used_today(env["repo"], env["state"].clock.now()) == 1  # 막힌 시도도 한도를 쓴다
+
+
+def test_incomplete_eval_is_not_saved_and_counts_attempts(env) -> None:
+    from nsm.rag.budget import used_today
+    from nsm.rag.gemini import EmbeddingError
+
+    class Flaky(FakeEmbedder):
+        def embed_query(self, question: str) -> list[float]:
+            if len(self.queries) >= 2:
+                raise EmbeddingError("429", "rate_limited")
+            return super().embed_query(question)
+
+    env["holder"]["emb"] = Flaky()
+    r = env["client"].post(
+        "/ask/eval", data={"csrf": env["state"].csrf_token}, follow_redirects=False
+    )
+    assert "eval_error" in r.headers["location"]
+    assert env["repo"].db.execute("SELECT count(*) FROM doc_eval")[0][0] == 0
+    assert used_today(env["repo"], env["state"].clock.now()) == 3  # 성공 2 + 막힌 1
+
+
+def test_quotes_in_chunks_are_not_turned_into_entities() -> None:
+    hit = Hit("adr/a.md", 'adr/a.md > "보호" 모드', 'adr/a.md\n"보호 모드"는 a < b & c', 0.9)
+    p = build_prompt("보호", [hit])
+    assert '"보호 모드"는 a &lt; b &amp; c' in p and "&quot;보호 모드&quot;" not in p
+    assert 'source="adr/a.md &gt; &quot;보호&quot; 모드"' in p  # 속성값만 따옴표 이스케이프
+
+
+def test_thinking_rejection_is_remembered() -> None:
+    class Picky(FakeMessages):
+        def create(self, **kw):
+            self.calls.append(kw)
+            if "thinking" in kw:
+                raise RuntimeError("thinking not supported")
+            return super().create(**kw)
+
+    picky = Picky()
+    a = ClaudeAnswerer(SimpleNamespace(messages=picky), "claude-sonnet-5-5", None)
+    hit = Hit("adr/a.md", "adr/a.md > 가", "본문", 0.9)
+    a.answer("가", [hit])
+    a.answer("나", [hit])
+    with_thinking = [c for c in picky.calls if "thinking" in c]
+    assert len(with_thinking) == 1  # 두 번째 질문부터는 바로 끄기 없이
+
+
+def test_not_in_docs_answer_is_recorded_as_not_grounded(env) -> None:
+    env["msgs"].text = "문서에 그 내용이 없습니다."
+    html = _ask(env, "보호 모드가 뭐야").text
+    assert env["repo"].db.execute("SELECT grounded FROM doc_qa")[0][0] is False
+    recent = html[html.index("<h2>최근 질문</h2>") :]
+    assert "근거 없음" in recent
+
+
+def test_concurrent_questions_respect_the_daily_cap(env) -> None:
+    import threading
+    import time as _t
+
+    env["cfg"].settings.rag.qa_daily_limit = 1
+
+    class Slow(FakeMessages):
+        def create(self, **kw):
+            _t.sleep(0.2)
+            return super().create(**kw)
+
+    env["holder"]["ans"] = ClaudeAnswerer(
+        SimpleNamespace(messages=Slow()), "claude-haiku-5-5", None
+    )
+    codes: list[int] = []
+    ts = [
+        threading.Thread(target=lambda: codes.append(_ask(env, "보호 모드가 뭐야").status_code))
+        for _ in range(3)
+    ]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert sorted(codes) == [200, 400, 400]
+    assert env["repo"].db.execute("SELECT count(*) FROM doc_qa")[0][0] == 1
+
+
+def test_refresh_closes_previous_answerer_client(db, app_config) -> None:
+    from contextlib import ExitStack
+
+    from nsm.config.secrets import MemorySecretStore
+    from nsm.runtime import build_context, refresh_secret_parts
+
+    app_config.settings.collect.naver = False
+    secrets = MemorySecretStore({"anthropic_api_key": "fake-claude-key-BBBBBBBBBBBBBBBBBBBB"})
+    with ExitStack() as stack:
+        ctx = build_context(app_config, db, stack, secrets=secrets)
+        old = ctx.answerer
+        assert old is not None
+        refresh_secret_parts(ctx, secrets)
+        assert ctx.answerer is not old and old.client._client.is_closed

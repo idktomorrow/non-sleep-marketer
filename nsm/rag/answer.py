@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html
 import json
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -20,8 +21,7 @@ from typing import Any
 
 from nsm.adapters.pricing import claude_cost
 from nsm.ports import AdapterError, CostSink
-from nsm.rag.budget import add_used, plan_embedding
-from nsm.rag.search import Hit, search
+from nsm.rag.search import Hit
 from nsm.store.db import to_db
 
 TIMEOUT_S = 60.0
@@ -42,6 +42,12 @@ SYSTEM = (
 
 
 def _esc(v: Any) -> str:
+    """경계 안 본문: <, >, &만 바꾼다(닫는 태그로 경계를 깨지 못하게). 따옴표는 그대로 둬야 Claude가
+    &quot; 같은 글자를 답에 옮기지 않는다(R3 리뷰)."""
+    return html.escape("" if v is None else str(v), quote=False)
+
+
+def _attr(v: Any) -> str:
     return html.escape("" if v is None else str(v), quote=True)
 
 
@@ -51,7 +57,7 @@ def build_prompt(question: str, hits: list[Hit]) -> str:
         "<docs>",
     ]
     for i, h in enumerate(hits, 1):
-        parts.append(f'<chunk n="{i}" source="{_esc(h.heading_path)}">')
+        parts.append(f'<chunk n="{i}" source="{_attr(h.heading_path)}">')
         parts.append(_esc(h.text))
         parts.append("</chunk>")
     parts.append("</docs>")
@@ -67,11 +73,20 @@ class Answer:
     usd: float
 
 
+class AnswerError(AdapterError):
+    """답을 못 만듦. 그래도 쓴 비용(`usd`)을 함께 넘긴다(동시 질문끼리 섞이지 않게 인스턴스에 두지 않음)."""
+
+    def __init__(self, message: str, usd: float = 0.0) -> None:
+        super().__init__(message)
+        self.usd = usd
+
+
 class ClaudeAnswerer:
     def __init__(self, client: Any, model: str, cost_sink: CostSink | None) -> None:
         self.client = client
         self.model = model
         self.cost_sink = cost_sink
+        self.thinking_off_ok = True  # 생각 끄기를 거절하는 모델이면 한 번 알고 나서는 보내지 않는다
 
     def _create(self, prompt: str) -> Any:
         """생각(thinking)을 끄고 부른다: haiku가 생각에 출력 한도(700)를 다 써서 답 글이 비었다(2026-10-30 실측,
@@ -82,44 +97,46 @@ class ClaudeAnswerer:
             "system": SYSTEM,
             "messages": [{"role": "user", "content": prompt}],
         }
-        try:
-            return self.client.messages.create(
-                **base, max_tokens=700, thinking={"type": "disabled"}
-            )
-        except Exception as e:  # noqa: BLE001
-            if "thinking" not in str(e).lower():
-                raise
-            return self.client.messages.create(**base, max_tokens=4000)
+        if self.thinking_off_ok:
+            try:
+                return self.client.messages.create(
+                    **base, max_tokens=700, thinking={"type": "disabled"}
+                )
+            except Exception as e:  # noqa: BLE001
+                if "thinking" not in str(e).lower():
+                    raise
+                self.thinking_off_ok = False
+        return self.client.messages.create(**base, max_tokens=4000)
 
     def answer(self, question: str, hits: list[Hit]) -> Answer:
-        """빈 답이 오면 한 번만 다시 부른다. 실패해도 쓴 비용은 `spent`에 남는다(기록용)."""
+        """빈 답이 오면 한 번만 다시 부른다. 실패해도 쓴 비용은 AnswerError.usd로 넘긴다."""
         prompt = build_prompt(question, hits)
-        self.spent = 0.0
+        spent = 0.0
         last = ""
         for _ in range(2):
             try:
                 response = self._create(prompt)
             except Exception as e:  # noqa: BLE001  시간 초과·키·연결 문제
-                raise AdapterError(f"답변 호출 실패({type(e).__name__})") from e
+                raise AnswerError(f"답변 호출 실패({type(e).__name__})", spent) from e
             usage = getattr(response, "usage", None)
             if usage is not None:
                 usd = claude_cost(self.model, usage.input_tokens, usage.output_tokens)
-                self.spent += usd
+                spent += usd
                 if self.cost_sink:
                     # 비용 종류는 동결 계약(CostKind)이라 llm, ref "qa"로 문서 질문을 구분한다
                     self.cost_sink.record_cost("llm", "anthropic", usd, "qa")
             stop = getattr(response, "stop_reason", None)
             if stop == "refusal":
-                raise AdapterError("답변을 거절함")
+                raise AnswerError("답변을 거절함", spent)
             text = "".join(
                 getattr(b, "text", "") for b in response.content if getattr(b, "type", "") == "text"
             ).strip()
             if text:
                 if stop == "max_tokens":  # 한도에서 잘린 답을 끝난 답처럼 보이지 않게
                     text += " …(답이 길어 잘렸습니다)"
-                return Answer(text, self.model, self.spent)
+                return Answer(text, self.model, spent)
             last = f"답변이 비어 있음(stop_reason={stop})"
-        raise AdapterError(last)
+        raise AnswerError(last, spent)
 
 
 def make_answerer(cfg: Any, secrets: Any, cost_sink: CostSink | None) -> ClaudeAnswerer | None:
@@ -165,6 +182,11 @@ def questions_today(db: Any, start: datetime, end: datetime) -> int:
     return int(row[0][0])
 
 
+_ASK_LOCK = (
+    threading.Lock()
+)  # 동시에 들어온 질문을 한 줄로: 하루 상한을 넘지 않게(로컬 1인 대시보드라 충분)
+
+
 def ask_docs(
     cfg: Any,
     repo: Any,
@@ -174,7 +196,15 @@ def ask_docs(
     now: datetime,
 ) -> QaResult:
     """질문 하나: 검사 → 검색(Gemini 1건, 하루 장부) → 근거 없으면 Claude 없이 → 있으면 Claude → doc_qa에 저장."""
+    with _ASK_LOCK:
+        return _ask_docs(cfg, repo, embedder, answerer, question, now)
+
+
+def _ask_docs(
+    cfg: Any, repo: Any, embedder: Any, answerer: Any, question: str, now: datetime
+) -> QaResult:
     from nsm.domain.policy import local_day_bounds, under_cost_cap
+    from nsm.rag.budget import SearchUnavailable, budgeted_search
 
     r = cfg.settings.rag
     q = " ".join(question.split())
@@ -187,17 +217,11 @@ def ask_docs(
         raise QuestionRejected(
             f"오늘 질문 수 상한({r.qa_daily_limit}개)에 닿았습니다. 내일 다시 물어 주세요"
         )
-    plan = plan_embedding(cfg, repo, embedder, now, 1)  # 키·비용 상한·Gemini 하루 장부(R2)
-    if plan.embedder is None:
-        raise QuestionRejected(f"질문을 찾아볼 수 없습니다: {plan.note}")
     t0 = time.monotonic()
-    try:
-        res = search(repo.db, plan.embedder, q, k=r.search_k, min_score=r.min_score)
-    except Exception as e:  # noqa: BLE001  429·연결 오류
-        raise QuestionRejected(
-            f"질문을 임베딩하지 못했습니다({getattr(e, 'kind', '') or type(e).__name__})"
-        ) from e
-    add_used(repo, now, 1)
+    try:  # 키·비용 상한·Gemini 하루 장부(실패한 시도도 셈)
+        res = budgeted_search(cfg, repo, embedder, q, r.search_k, r.min_score, now)
+    except SearchUnavailable as e:
+        raise QuestionRejected(f"질문을 찾아볼 수 없습니다: {e}") from e
     out = QaResult(id=uuid.uuid4().hex, question=q, answer=NO_GROUND_ANSWER, grounded=res.grounded)
     if res.grounded:
         out.sources = [
@@ -220,9 +244,13 @@ def ask_docs(
             try:
                 a = answerer.answer(q, res.hits)
                 out.answer, out.model, out.usd = a.text, a.model, a.usd
-            except AdapterError as e:
+                if a.text.strip().startswith(NOT_IN_DOCS.rstrip(".")):
+                    out.grounded = (
+                        False  # 조각은 찾았지만 답이 없었다: 근거 없음으로 센다(기록·배지)
+                    )
+            except AnswerError as e:
                 out.error, out.answer = f"답을 만들지 못했습니다: {e}", ""
-                out.usd = getattr(answerer, "spent", 0.0)  # 실패해도 쓴 비용은 기록
+                out.usd = e.usd  # 실패해도 쓴 비용은 기록
     else:
         # 근거 없음: Claude를 부르지 않는다. 비슷한 문서 제목만(기준값 아래 후보)
         out.similar = list(dict.fromkeys(h.heading_path for h in res.candidates[:3]))

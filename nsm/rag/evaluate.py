@@ -107,10 +107,11 @@ def run_eval(
         try:
             res = search(repo.db, plan.embedder, q["q"], k=5, min_score=0.0)
         except Exception as e:  # noqa: BLE001  한도 등으로 중간에 멈추면 거기까지
-            out.error = (
-                f"{len(out.details)}번째에서 멈춤: {getattr(e, 'kind', '') or type(e).__name__}"
-            )
-            break
+            add_used(repo, now, sent + 1)  # 막힌 시도도 하루 한도에 세어진다
+            raise EvalRejected(
+                f"{len(out.details) + 1}번째 질문에서 멈춰 측정을 남기지 않았습니다"
+                f"({getattr(e, 'kind', '') or type(e).__name__}). 질문 일부로 만든 표는 다른 측정과 비교되지 않습니다"
+            ) from e
         sent += 1
         out.details.append(
             {
