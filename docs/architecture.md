@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-10-30 (R2: 문서 검색 `nsm/rag/search.py`·`nsm ask`, 색인 잡 `index`(매일 20:00, ADR 0057). R1: 문서 조각·임베딩 색인 `nsm/rag/`·`doc_chunks`·`nsm index`(ADR 0056). C35: 설정 화면 API 키 칸·키 확인·재시작 없는 반영(ADR 0028 개정 1). E4: health 끄는 중 멈춤 없음·일시적 실패는 연속 2회에 멈춤·멈춤 이유 저장(ADR 0054 개정 1). E3: 장애 기록 `docs/incidents/`. E2: 장애 화면·failures 표·자동 진단(ADR 0055). E1: 오류 종류 표·실패 증거(ADR 0054). C34: 같은 소식 기준 강화·판정 캐시에 비교 기준 기록·오늘 쓴 주제 뒤로·관련성 '글의 중심'. C33: 중단 표시·자료 정리·해시태그 상한·짧은 표기(ADR 0053). C32: 댓글 2차 판정·스팸 자동 처리(ADR 0052). C31: 원고 품질 하한·같은 소식 제외·소재 상한(ADR 0051). C30: 구글 뉴스 RSS 소스(ADR 0050). C29: 프리셋(작업 공간, DB 분리, ADR 0049). C28: "오늘" 화면 비율·다음 게시 줄바꿈. C27: 분류기 Gemini 무료 구간·jev 제거(ADR 0048). C9: 인스타그램 요청 제한(429) 쉬기·댓글 확인 간격, ADR 0038. C10: 작업 요약을 사람이 읽는 문장으로. C11: 실행 기록은 작업 상태 표 + 변화가 있던 실행만, ADR 0040. C12: 안정화(계속 0건 알림, 데이터 백업, 실행 기록 정리, 스케줄러 종료 경합), ADR 0041. C13: 대시보드 간단·고급 모드, ADR 0042. C14: 카드 가상인물 배지는 표지·마지막 장에만, ADR 0043. C15: 키워드로 원고 만들기·수집 제외어, ADR 0044. C16: 올린 이미지를 읽어 자료로, ADR 0045. C17: 캐릭터·로고 그림, ADR 0046. C18: 댓글 답글이 원고에 쓴 자료까지 봄, ADR 0047. C19: 캐릭터 AI 표기 기본 끔. C20: 동봉 캐릭터 빼고 기본 "없음", 카드 캐릭터 260px. C21~C25: 인스타그램 화면 변경·답글 스레드·확인 안 된 답글·실패 상황 검증. C26: 버전 표시·다음 게시 시각). `v0.4-quality`(2026-10-15: S-β 계약 테스트, S-γ 품질 체크리스트·표지 썸네일 가독성, S8 카드 스타일 clean·photo·illust와 설정 화면 견본 선택까지 머지. 세 배치 모두 메인 담당(ADR 0034), 카드 스타일은 ADR 0036 채택, 원고별 스타일은 ADR 0037 제안으로 남음) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
+> 갱신: 2026-10-30 (R3: 문서 질문 탭 `/ask`·답변 `nsm/rag/answer.py`·측정 `nsm/rag/evaluate.py`·`doc_qa`·`doc_eval`(ADR 0058). R2: 문서 검색 `nsm/rag/search.py`·`nsm ask`, 색인 잡 `index`(매일 20:00, ADR 0057). R1: 문서 조각·임베딩 색인 `nsm/rag/`·`doc_chunks`·`nsm index`(ADR 0056). C35: 설정 화면 API 키 칸·키 확인·재시작 없는 반영(ADR 0028 개정 1). E4: health 끄는 중 멈춤 없음·일시적 실패는 연속 2회에 멈춤·멈춤 이유 저장(ADR 0054 개정 1). E3: 장애 기록 `docs/incidents/`. E2: 장애 화면·failures 표·자동 진단(ADR 0055). E1: 오류 종류 표·실패 증거(ADR 0054). C34: 같은 소식 기준 강화·판정 캐시에 비교 기준 기록·오늘 쓴 주제 뒤로·관련성 '글의 중심'. C33: 중단 표시·자료 정리·해시태그 상한·짧은 표기(ADR 0053). C32: 댓글 2차 판정·스팸 자동 처리(ADR 0052). C31: 원고 품질 하한·같은 소식 제외·소재 상한(ADR 0051). C30: 구글 뉴스 RSS 소스(ADR 0050). C29: 프리셋(작업 공간, DB 분리, ADR 0049). C28: "오늘" 화면 비율·다음 게시 줄바꿈. C27: 분류기 Gemini 무료 구간·jev 제거(ADR 0048). C9: 인스타그램 요청 제한(429) 쉬기·댓글 확인 간격, ADR 0038. C10: 작업 요약을 사람이 읽는 문장으로. C11: 실행 기록은 작업 상태 표 + 변화가 있던 실행만, ADR 0040. C12: 안정화(계속 0건 알림, 데이터 백업, 실행 기록 정리, 스케줄러 종료 경합), ADR 0041. C13: 대시보드 간단·고급 모드, ADR 0042. C14: 카드 가상인물 배지는 표지·마지막 장에만, ADR 0043. C15: 키워드로 원고 만들기·수집 제외어, ADR 0044. C16: 올린 이미지를 읽어 자료로, ADR 0045. C17: 캐릭터·로고 그림, ADR 0046. C18: 댓글 답글이 원고에 쓴 자료까지 봄, ADR 0047. C19: 캐릭터 AI 표기 기본 끔. C20: 동봉 캐릭터 빼고 기본 "없음", 카드 캐릭터 260px. C21~C25: 인스타그램 화면 변경·답글 스레드·확인 안 된 답글·실패 상황 검증. C26: 버전 표시·다음 게시 시각). `v0.4-quality`(2026-10-15: S-β 계약 테스트, S-γ 품질 체크리스트·표지 썸네일 가독성, S8 카드 스타일 clean·photo·illust와 설정 화면 견본 선택까지 머지. 세 배치 모두 메인 담당(ADR 0034), 카드 스타일은 ADR 0036 채택, 원고별 스타일은 ADR 0037 제안으로 남음) · 약속은 [contracts.md](contracts.md), 이 문서는 "지금 실제로 어떻게 돌아가는가". 배치마다 맨 아래 구현 상태 표를 갱신한다.
 
 ## 1. 한 장 요약
 
@@ -130,6 +130,7 @@ erDiagram
 | `nsm/app/keys.py`, `nsm/runtime.refresh_secret_parts` | 완료 | 라우트(등록·덮어쓰기·삭제·CSRF·형식·환경 변수·값 미노출) + 키 확인 7가지 응답 + 재생성 | C35 | 설정 화면 API 키 칸. keyring에만 저장, 모델 목록 조회로 확인(비용 0), 저장 뒤 키를 쓰는 부품만 작업 스레드에서 재생성(ADR 0028 개정 1) |
 | `nsm/rag/`(chunker·sources·gemini·indexer·command), `nsm index` | 완료 | 단위(조각 규칙·증분·삭제·제외·키 없음·왕복·가짜 HTTP·실제 잠금) | R1 | 문서 조각·임베딩 색인(6-3절, ADR 0056). 검색·화면은 R2·R3 |
 | `nsm/rag/search.py`, `nsm/engine/doc_index.py`, `nsm ask` | 완료 | 단위(순위·k·기준값·벡터 없음·비용, 잡 상한·키 없음·한도·실행 기록·비용 상한, 화면 줄, ask 출력, 질문 파일) | R2 | 문서 검색과 색인 잡(6-3절, ADR 0057). 답 만들기·챗봇 화면은 R3 |
+| `nsm/rag/answer.py`, `nsm/rag/evaluate.py`, `nsm/app/ask.py` | 완료 | 라우트·단위(근거 없음이면 Claude 0번, 인용, 경계, CSRF, 길이, 하루 상한, 비용, 기록, 이스케이프, 측정·Claude 안 부름, 빈 답·잘림·생각 끄기) | R3 | 문서 질문 화면(6-4절, ADR 0058) |
 | `tests/contracts/` | 완료 | 경계 2(어댑터 계약) | S-β, G | `test_platform_contract.py`: 드라이런(threads·instagram)으로 게시 → 주소, 댓글(since), 답글, 숨기기(capability 없으면 NotSupportedError), 지표 가용성 매트릭스, health. 실계정은 가짜 실행기로 같은 약속, `-m contract`로 읽기 전용 확인. 게시·삭제까지 하는 실계정 계약은 `test_threads_live.py`·`test_instagram_live.py`. 소유권은 S-β 동안 메인(ADR 0034) |
 | `tests/render/` | 완료 | 경계 3 | S-α·S-γ·S8 | PNG 크기·표기 슬롯·광고 배지·AI 캡션·극단 입력·스레드 충돌·표지 썸네일 가독성·제목 빈 줄(S-γ) S8: 스타일 × 템플릿 PNG·넘침, 표기 슬롯 동일, 코드 배경 AI 표기 없음, 글자 HTML·CTA 띠 없음, 세 스타일 썸네일 가독성, 밝은 브랜드 색 대비(`test_card_styles.py`) |
 | `tests/app/` | 완료 | 라우트 | F | 승인·폐기·수정·토글·댓글 답글/완료·CSRF·경로 조작 차단 |
@@ -161,6 +162,13 @@ erDiagram
 - `nsm index`는 개발·점검용(`--dry-run`·`--rebuild`·`--stats`·`--db`).
 - R2(ADR 0057): 잡 `index`(`nsm/engine/doc_index.py`)가 매일 `rag.index_time`(20:00)에 `index_documents`를 부른다. 증분, 하루 900조각. 키 없음·비용 상한·429면 알림 없이 끝내고 다음 날 이어서. 켤 때는 안 돈다. 임베더는 `ctx.embedder`(키를 바꾸면 `refresh_secret_parts`가 새로 만듦).
 - 검색 `nsm/rag/search.search(db, embedder, question, k, min_score)`: 질문을 "task: search result | query: …"로 임베딩(ref "embedding-query"), 같은 모델·차원 조각과 `list_cosine_similarity` 전수 비교, 기준값 아래는 버리고 남는 게 없으면 "근거 없음". `nsm ask`는 개발용 출력. 답 만들기와 화면은 R3.
+
+## 6-4. 문서 질문 (R3, ADR 0058)
+
+- `nsm/rag/answer.ask_docs`: 길이(200자)·하루 질문 수(50)·임베딩 장부 검사 → `search` → 근거 없으면 Claude 없이 "문서에서 근거를 찾지 못했습니다" → 있으면 `ClaudeAnswerer`(models.qa = haiku, 생각 끔, `<docs>` 데이터 경계, 문장마다 [번호], 비용 llm·ref "qa", 하루 비용 상한) → `doc_qa`에 저장.
+- `nsm/rag/evaluate.run_eval`: 질문 파일 20개로 검색만(Gemini 20건) → 기준값 0.60·0.65·0.70 표 → `doc_eval`.
+- 화면 `nsm/app/ask.py`·`ask.html`(고급 모드 "문서 질문"): 답·근거(펼치기)·비슷한 문서·검색 측정·최근 질문 20개. 임베더·답변기는 `AppState.get_rag`로 `ctx`에서 받아 키를 바꾸면 새 것.
+- 스키마 v7: `doc_qa`, `doc_eval`.
 
 ## 7. 설계와 구현의 차이
 

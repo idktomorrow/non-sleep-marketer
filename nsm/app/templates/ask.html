@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>문서 질문</h1>
+<p class="muted small">프로젝트 문서(ADR·devlog·장애 기록·설명서·architecture·contracts·용어집)에서 비슷한 조각을 찾아, 그 조각만 근거로 답합니다. 근거가 기준값({{ '%.2f'|format(min_score) }})을 넘지 못하면 지어내지 않고 "근거를 찾지 못했습니다"라고 답합니다. 문서 조각 {{ stats.chunks }}개 중 벡터 없는 조각 {{ stats.without_vector }}개.</p>
+
+{% if not has_embedder %}<div class="notice warn">Gemini 키가 없어 질문을 찾아볼 수 없습니다. 설정 → API 키에서 넣어 주세요.</div>{% endif %}
+{% if not has_answerer %}<div class="notice warn">Claude 키가 없어 답은 만들지 않고 근거 조각만 보여 드립니다.</div>{% endif %}
+
+<form method="post" action="/ask" class="panel ask-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="ask-q"><b>질문</b></label>
+  <div class="ask-row"><input id="ask-q" type="text" name="question" maxlength="{{ max_chars }}" value="{{ question }}" placeholder="보호 모드가 뭐야" autocomplete="off" required>
+  <button class="btn-primary" type="submit">묻기</button></div>
+  <p class="hint" style="margin-bottom:0">{{ hint }} · {{ max_chars }}자까지 · 질문 하나에 Gemini 1건(무료 하루 한도에 포함)과 Claude 약 1원</p>
+</form>
+
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+{% if result %}
+<div class="panel ask-answer">
+  <p class="muted small" style="margin-top:0">{{ result.question }}</p>
+  {% if result.answer %}<div class="answer-text">{{ result.answer }}</div>{% endif %}
+  {% if result.error %}<div class="notice warn">{{ result.error }}</div>{% endif %}
+  <p class="hint">{% if result.model %}{{ result.model }} · ${{ '%.4f'|format(result.usd) }} · {% endif %}{{ result.ms }}ms</p>
+  {% if result.sources %}
+  <h3>근거</h3>
+  <ol class="ask-sources">
+  {% for s in result.sources %}<li><details><summary><b>[{{ s.n }}]</b> {{ s.heading }} <span class="badge">{{ '%.3f'|format(s.score) }}</span></summary><pre class="chunk-text">{{ s.text }}</pre></details></li>{% endfor %}
+  </ol>
+  {% elif result.similar %}
+  <h3>비슷한 문서 <span class="hint">기준값 아래라 근거로 쓰지 않았습니다</span></h3>
+  <ul class="ask-similar">{% for t in result.similar %}<li>{{ t }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2 id="eval">검색 측정 <span class="hint">질문 20개(답 있는 15·없는 5)를 지금 DB로. 검색만 하고 Claude는 부르지 않음(Gemini 20건)</span></h2>
+<div class="panel">
+  {% if eval_msg %}<div class="notice info">{{ eval_msg }}</div>{% endif %}
+  {% if eval_error %}<div class="notice bad">{{ eval_error }}</div>{% endif %}
+  <form method="post" action="/ask/eval" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit">검색 측정</button></form>
+  {% for e in evals %}
+  <h3>{{ e.ran_at|kst }} · 조각 {{ e.chunks }}개, 벡터 없음 {{ e.without_vector }}개{% if e.error %} · <span class="muted">{{ e.error }}</span>{% endif %}</h3>
+  <div class="table-wrap"><table class="eval-table"><tr><th>기준값</th><th>답 있는 질문에 답함</th><th>상위 1개 정답</th><th>상위 3개 정답</th><th>답 없는 질문 "근거 없음"</th></tr>
+  {% for r in e.rows %}<tr{% if (r.threshold - min_score)|abs < 0.001 %} class="current"{% endif %}><td>{{ '%.2f'|format(r.threshold) }}{% if (r.threshold - min_score)|abs < 0.001 %} (지금){% endif %}</td><td>{{ r.answered }}/{{ r.answerable }}</td><td>{{ r.top1 }}/{{ r.answerable }}</td><td>{{ r.top3 }}/{{ r.answerable }}</td><td>{{ r.rejected }}/{{ r.unanswerable }}</td></tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="muted small">아직 측정 기록이 없습니다.</p>{% endfor %}
+</div>
+
+<h2>최근 질문</h2>
+{% if recent %}
+<div class="table-wrap"><table class="ask-recent"><tr><th>시각</th><th>질문</th><th>답</th><th>근거</th><th>비용</th></tr>
+{% for q in recent %}<tr><td class="small">{{ q.asked_at|kst }}</td><td>{{ q.question }}</td><td class="small">{{ (q.answer or q.error or '')|truncate(120) }}</td><td>{% if q.grounded %}<span class="badge ok">{{ q.sources|length }}개</span>{% else %}<span class="badge">근거 없음</span>{% endif %}</td><td class="small">${{ '%.4f'|format(q.usd) }}</td></tr>{% endfor %}
+</table></div>
+{% else %}<p class="muted small">아직 질문이 없습니다.</p>{% endif %}
+{% endblock %}

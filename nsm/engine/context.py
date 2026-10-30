@@ -49,6 +49,8 @@ class JobContext:
     diagnoser: Any | None = None
     # 문서 색인·검색 임베더(R2). Gemini 키가 없으면 None. 키를 바꾸면 refresh_secret_parts가 새로 만든다
     embedder: Any | None = None
+    # 문서 질문 답변기(R3). Claude 키가 없으면 None. 키를 바꾸면 refresh_secret_parts가 새로 만든다
+    answerer: Any | None = None
     docs_root: Path | None = None  # 색인할 문서 폴더(없으면 저장소 docs). 테스트가 바꾼다
     # 프로그램을 끄는 중인가(C33). 끄는 순간 돌던 잡의 오류는 "실패"가 아니라 "중단"으로 적는다
     shutting_down: Callable[[], bool] = field(default_factory=lambda: lambda: False)

@@ -29,6 +29,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from nsm import app_version
 from nsm.adapters.sources.image_reader import is_image
+from nsm.app.ask import install_ask_routes
 from nsm.app.card_editor import (
     MAX_UPLOAD_BYTES,
     EditError,
@@ -147,6 +148,8 @@ class AppState:
     secrets: SecretStore | None = None
     on_secrets_changed: Callable[[], None] | None = None
     check_key: Callable[[str, str | None], tuple[str, int | None]] | None = None  # 테스트용 대체
+    # 문서 질문(R3): (임베더, 답변기)를 돌려준다. 없으면 탭은 보이되 "키가 없어…" 안내
+    get_rag: Callable[[], tuple[Any, Any]] | None = None
 
 
 _ASSET_CACHE: dict[str, tuple[tuple[float, int], str]] = {}
@@ -1166,5 +1169,6 @@ def create_app(state: AppState) -> FastAPI:
         return {"status": "ok"}
 
     install_keys_routes(app, state, check_csrf)  # API 키 칸(C35)
+    install_ask_routes(app, state, check_csrf, page)  # 문서 질문(R3)
 
     return app

@@ -154,7 +154,7 @@ def test_migration_from_v5_adds_doc_chunks(tmp_path: Path) -> None:
     c.execute("INSERT INTO schema_version VALUES (5)")
     c.close()
     db = Database(path)
-    assert db.schema_version == 6
+    assert db.schema_version >= 6  # 이후 버전으로 계속 올라간다
     assert db.execute("SELECT count(*) FROM doc_chunks")[0][0] == 0
 
 
