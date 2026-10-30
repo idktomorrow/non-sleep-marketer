@@ -124,8 +124,27 @@ class RagSettings(_Model):
     # 한 번 실행에 임베딩할 최대 조각 수. 무료 구간 하루 한도가 1,000조각이고 막힌 시도도 세어져서, 넘기기 전에 스스로 멈춘다.
     # 남은 조각은 다음 날 실행이 이어서 한다. 유료면 늘려도 된다
     embed_max_per_run: int = Field(default=900, ge=1, le=100000)
+    # 하루에 보낼 수 있는 총 건수(색인 + 질문, 태평양 날짜 기준 장부). 무료 구간 1,000. 실행당 900이면 질문 몫 100이 남는다
+    embed_daily_limit: int = Field(default=1000, ge=1, le=1000000)
     # 입력 100만 토큰당 달러. 무료 구간은 0원, 유료(Standard)는 0.20(2026-10-30 가격표)
     embedding_usd_per_mtok: float = Field(default=0.0, ge=0, le=10)
+
+    # 색인 잡(R2): 하루 한 번, 이 시각(HH:MM, 현지). 무료 구간 하루 한도는 태평양 시간 자정(한국 오후 4~5시)에 풀린다
+    index_time: str = "20:00"
+    # 검색(R2): 상위 몇 개, 이 점수(코사인 유사도) 아래는 "근거 없음". 값은 실제 질문 20개로 고름(ADR 0057)
+    search_k: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+
+    @field_validator("index_time")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        try:
+            h, m = (int(x) for x in v.split(":"))
+        except ValueError:
+            raise ValueError("rag.index_time은 HH:MM 형식이어야 합니다") from None
+        if not (0 <= h < 24 and 0 <= m < 60):
+            raise ValueError("rag.index_time은 00:00~23:59여야 합니다")
+        return f"{h:02d}:{m:02d}"
 
     @model_validator(mode="after")
     def _overlap_below_size(self) -> RagSettings:

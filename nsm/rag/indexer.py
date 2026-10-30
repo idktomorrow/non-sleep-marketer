@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -100,6 +101,7 @@ def index_documents(
     now: datetime,
     rebuild: bool = False,
     max_embed: int | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> IndexReport:
     kind = source.kind
     report = IndexReport(no_key=embedder is None)
@@ -188,7 +190,7 @@ def index_documents(
         if max_embed is not None and len(pending) > max_embed:
             report.deferred = len(pending) - max_embed  # 하루 한도 안에서 멈춤: 다음 실행이 이어서
             pending = pending[:max_embed]
-        _embed_pending(db, embedder, pending, texts, report)
+        _embed_pending(db, embedder, pending, texts, report, should_stop or (lambda: False))
     report.without_vector = int(
         db.execute(
             "SELECT count(*) FROM doc_chunks WHERE source_kind = ? AND embedding IS NULL", [kind]
@@ -198,16 +200,30 @@ def index_documents(
 
 
 def _embed_pending(
-    db: Database, embedder: Embedder, ids: list[str], texts: dict[str, str], report: IndexReport
+    db: Database,
+    embedder: Embedder,
+    ids: list[str],
+    texts: dict[str, str],
+    report: IndexReport,
+    should_stop: Callable[[], bool],
 ) -> None:
     step = max(1, getattr(embedder, "batch_size", 100))
+    if hasattr(embedder, "should_stop"):
+        embedder.should_stop = should_stop  # 묶음 사이 기다림(61초)도 끄는 중이면 끊는다
     for i in range(0, len(ids), step):
+        if should_stop():
+            report.error, report.error_kind = "프로그램 종료 중이라 멈춤", "interrupted"
+            return
         part = ids[i : i + step]
         try:
             vectors = embedder.embed([texts[c] for c in part])
         except Exception as e:  # noqa: BLE001  거기까지 저장하고 남은 조각은 다음 색인에서
             report.error = str(e)[:200]
-            report.error_kind = getattr(e, "kind", "") or ""
+            report.error_kind = (
+                "interrupted"
+                if getattr(e, "code", "") == "interrupted"
+                else getattr(e, "kind", "") or ""
+            )
             log.warning("임베딩 중단(%s): %s", report.error_kind or type(e).__name__, report.error)
             return
         with db.transaction() as conn:

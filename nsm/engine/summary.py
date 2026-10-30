@@ -153,6 +153,19 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
     return parts or ["정리할 것 없음"]
 
 
+def _index(c: dict[str, Any]) -> list[str]:
+    parts = [
+        f"조각 {_n(c, 'chunks')}개, 벡터 없음 {_n(c, 'without_vector')}개, 이번에 보냄 {_n(c, 'sent')}개"
+    ]
+    if c.get("seconds") is not None:
+        parts.append(f"{c['seconds']}초")
+    if _n(c, "deleted_files"):
+        parts.append(f"지운 파일 {_n(c, 'deleted_files')}개")
+    if c.get("note"):
+        parts.append(str(c["note"]))
+    return parts
+
+
 _JOBS = {
     "collect": _collect,
     "generate": _generate,
@@ -163,6 +176,7 @@ _JOBS = {
     "metrics": _metrics,
     "weekly_report": _weekly,
     "maintenance": _maintenance,
+    "index": _index,
 }
 
 

@@ -104,7 +104,7 @@ def _index(
     cfg, db, db_path, source, size, overlap, rebuild, secrets, embedder_factory, echo
 ) -> int:
     from nsm.domain.clock import SystemClock
-    from nsm.domain.policy import local_day_bounds, under_cost_cap
+    from nsm.rag.budget import add_used, close_embedder, plan_embedding
     from nsm.rag.indexer import EmptySourceError
     from nsm.store.repo import Repository
 
@@ -118,37 +118,29 @@ def _index(
 
         embedder_factory = make_embedder
     repo = Repository(db, SystemClock())
-    embedder = embedder_factory(cfg, secrets, repo)  # 비용은 costs 표에(일일 상한에 포함)
-    made = embedder  # 비용 상한으로 안 써도 만든 HTTP 연결은 닫는다
+    made = embedder_factory(cfg, secrets, repo)  # 비용은 costs 표에(일일 상한에 포함)
     now = datetime.now(UTC)
-    over_cap = False
-    if embedder is not None:
-        start, end = local_day_bounds(now, cfg.settings.timezone)
-        if not under_cost_cap(repo.cost_between(start, end), cfg.settings.daily_cost_cap_usd):
-            over_cap, embedder = (
-                True,
-                None,
-            )  # 다른 유료 경로처럼 오늘 비용 상한이면 임베딩하지 않는다
+    # 키·비용 상한·오늘 남은 무료 한도(색인 잡과 같은 판단, nsm/rag/budget.py)
+    plan = plan_embedding(cfg, repo, made, now, r.embed_max_per_run)
     try:
         t0 = time.monotonic()
         try:
             rep = index_documents(
                 db,
                 source,
-                embedder,
+                plan.embedder,
                 size=size,
                 overlap=overlap,
                 now=now,
                 rebuild=rebuild,
-                max_embed=r.embed_max_per_run,
+                max_embed=plan.max_embed,
             )
         except EmptySourceError as e:
             raise IndexInputError(str(e)) from e
         took = time.monotonic() - t0
+        add_used(repo, now, rep.embedded)
     finally:
-        close = getattr(getattr(made, "client", None), "close", None)
-        if close:
-            close()
+        close_embedder(made)  # 상한으로 안 써도 만든 HTTP 연결은 닫는다
     echo(f"DB: {db_path}")
     echo(
         f"파일 {rep.files}개 · 조각 {rep.chunks}개 · 벡터 그대로 {rep.reused}개 · 새로 임베딩 {rep.embedded}개 · "
@@ -156,23 +148,23 @@ def _index(
     )
     if rep.deleted_files:
         echo(f"지운 파일 {len(rep.deleted_files)}개: {', '.join(rep.deleted_files[:5])}")
-    if embedder is not None:
-        tokens = getattr(embedder, "tokens", 0)
+    if plan.embedder is not None:
+        tokens = getattr(plan.embedder, "tokens", 0)
         usd = tokens / 1_000_000 * r.embedding_usd_per_mtok
-        echo(f"임베딩 {embedder.model} {embedder.dim}차원 · 입력 {tokens:,}토큰 · 비용 ${usd:.4f}")
-    if over_cap:
         echo(
-            "오늘 비용 상한(daily_cost_cap_usd)에 닿아 임베딩하지 않고 조각만 저장했습니다. 내일 다시 실행하세요."
+            f"임베딩 {plan.embedder.model} {plan.embedder.dim}차원 · 입력 {tokens:,}토큰 · 비용 ${usd:.4f}"
         )
-    if rep.deferred:
-        echo(
-            f"실행당 상한({r.embed_max_per_run}조각, 무료 구간 하루 한도 1,000조각 안)에 닿아 {rep.deferred}조각은 미뤘습니다. "
-            "내일 다시 실행하면 이어서 합니다."
-        )
-    if rep.no_key and not over_cap:
+    if made is None:
         echo(
             "Gemini 키가 없어 조각만 저장하고 벡터는 만들지 않았습니다. "
             "설정 화면 API 키 칸(또는 nsm init)에서 Gemini 키를 넣고 다시 실행하면 벡터 없는 조각만 이어서 임베딩합니다."
+        )
+    elif plan.note:
+        echo(f"{plan.note}. 내일 다시 실행하세요.")
+    if rep.deferred:
+        echo(
+            f"오늘 상한({plan.max_embed}조각, 무료 구간 하루 한도 {r.embed_daily_limit}건 안)에 닿아 {rep.deferred}조각은 미뤘습니다. "
+            "내일 다시 실행하면 이어서 합니다."
         )
     if rep.error:
         echo(
@@ -181,3 +173,72 @@ def _index(
         )
         return 1
     return 0
+
+
+def run_ask(
+    cfg: Any,
+    db_path: Path,
+    question: str,
+    *,
+    k: int | None = None,
+    secrets: Any = None,
+    embedder_factory: Callable[..., Any] | None = None,
+    echo: Callable[[str], None] = print,
+) -> int:
+    """`nsm ask`: 상위 조각을 점수·경로와 함께 출력한다. 답은 만들지 않는다(R3).
+
+    기준값을 넘는 조각이 없으면 "근거 없음"과 함께 기준값 아래 후보도 보여 준다(기준값을 맞출 때 보려고).
+    """
+    from nsm.domain.clock import SystemClock
+    from nsm.rag.budget import add_used, close_embedder, plan_embedding
+    from nsm.rag.search import NO_GROUND, search
+    from nsm.store.repo import Repository
+
+    r = cfg.settings.rag
+    db = open_db(db_path)
+    try:
+        if secrets is None:
+            from nsm.config.secrets import KeyringSecretStore
+
+            secrets = KeyringSecretStore()
+        if embedder_factory is None:
+            from nsm.rag.gemini import make_embedder
+
+            embedder_factory = make_embedder
+        repo = Repository(db, SystemClock())
+        made = embedder_factory(cfg, secrets, repo)  # 질문 비용 기록
+        try:
+            if made is None:
+                echo(
+                    "Gemini 키가 없어 질문을 임베딩할 수 없습니다. 설정 화면 API 키 칸에서 Gemini 키를 넣으세요."
+                )
+                return 1
+            now = datetime.now(UTC)
+            plan = plan_embedding(cfg, repo, made, now, 1)  # 비용 상한·오늘 남은 한도
+            if plan.embedder is None:
+                echo(f"질문을 임베딩하지 않았습니다: {plan.note}")
+                return 1
+            try:
+                res = search(db, plan.embedder, question, k=k or r.search_k, min_score=r.min_score)
+            except Exception as e:  # noqa: BLE001  한도(429)·연결 오류: 파이썬 오류 대신 한국어로
+                echo(
+                    f"질문을 임베딩하지 못했습니다({getattr(e, 'kind', '') or type(e).__name__}): {str(e)[:160]}"
+                )
+                return 1
+            add_used(repo, now, 1 if res.question else 0)
+        finally:
+            close_embedder(made)
+        top = f"{res.top_score:.3f}" if res.top_score is not None else "없음"
+        echo(f"질문: {res.question}")
+        echo(f"기준값 {r.min_score:.2f} · 1등 점수 {top}")
+        shown = res.hits
+        if not res.grounded:
+            echo(f"→ {NO_GROUND}(기준값을 넘는 조각이 없습니다). 기준값 아래 후보:")
+            shown = res.candidates
+        for i, h in enumerate(shown, 1):
+            first = " ".join(h.text.split("\n", 1)[-1].split())[:160]
+            echo(f"{i}. [{h.score:.3f}] {h.heading_path}")
+            echo(f"   {first}")
+        return 0
+    finally:
+        db.close()

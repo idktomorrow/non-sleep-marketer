@@ -310,27 +310,42 @@ class FakeDriver:
 
 
 class FakeEmbedder:
-    """R1 테스트용 결정적 임베더: 같은 글은 늘 같은 벡터. 네트워크 없음. 부른 글을 기록한다."""
+    """R1·R2 테스트용 결정적 임베더. 네트워크 없음.
+
+    글자 두 개씩(bigram)을 해시해 차원에 더하고 길이 1로 맞춘다. 같은 글은 늘 같은 벡터이고, 낱말이 겹치는 글끼리는
+    코사인 유사도가 높다(검색 순위 테스트가 뜻이 있게). 부른 글은 `calls`, 질문은 `queries`에 남는다.
+    """
 
     def __init__(
-        self, dim: int = 8, model: str = "fake-embed", fail_after: int | None = None
+        self, dim: int = 64, model: str = "fake-embed", fail_after: int | None = None
     ) -> None:
         self.dim = dim
         self.model = model
         self.batch_size = 100
         self.calls: list[list[str]] = []
+        self.queries: list[str] = []
         self.fail_after = fail_after  # 이만큼 묶음을 부른 뒤엔 요청 제한처럼 실패
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def _vec(self, text: str) -> list[float]:
         import hashlib
+        import math
 
+        v = [0.0] * self.dim
+        t = "".join(text.split())
+        for i in range(max(1, len(t) - 1)):
+            h = int.from_bytes(hashlib.md5(t[i : i + 2].encode("utf-8")).digest()[:4], "big")
+            v[h % self.dim] += 1.0
+        n = math.sqrt(sum(x * x for x in v)) or 1.0
+        return [round(x / n, 6) for x in v]
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
         if self.fail_after is not None and len(self.calls) >= self.fail_after:
             from nsm.rag.gemini import EmbeddingError
 
             raise EmbeddingError("가짜 요청 제한(HTTP 429)", "rate_limited")
         self.calls.append(list(texts))
-        out = []
-        for t in texts:
-            h = hashlib.sha256(t.encode("utf-8")).digest()
-            out.append([round(b / 255.0, 6) for b in h[: self.dim]])
-        return out
+        return [self._vec(t) for t in texts]
+
+    def embed_query(self, question: str) -> list[float]:
+        self.queries.append(question)
+        return self._vec(question)

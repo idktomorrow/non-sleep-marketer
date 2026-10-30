@@ -198,7 +198,7 @@ def test_gemini_batches_with_dimension_document_format_and_interval() -> None:
     )
     out = e.embed(["a.md > 제목\n본문1", "a.md > 제목\n본문2", "b.md\n본문3"])
     assert len(out) == 3 and all(len(v) == 4 for v in out)
-    assert len(seen) == 2 and sleeps == [1.5]  # 묶음 2번, 사이 간격 1번
+    assert len(seen) == 2 and sum(sleeps) == 1.5  # 묶음 2번, 사이 간격 1번
     req = seen[0]
     assert req.url.path.endswith("/models/gemini-embedding-2:batchEmbedContents")
     assert req.headers["x-goog-api-key"] == "fake-gemini-key-0000000000"
@@ -226,7 +226,7 @@ def test_gemini_minute_429_waits_once_then_raises_rate_limited() -> None:
     with pytest.raises(EmbeddingError) as exc:
         e.embed(["x\ny"])
     assert exc.value.kind == "rate_limited" and exc.value.retry_at is not None
-    assert len(seen) == 2 and len(sleeps) == 1
+    assert len(seen) == 2 and sum(sleeps) == 61
 
     from nsm.domain.errors import kind_of
 
@@ -290,7 +290,7 @@ def test_gemini_429_waits_the_retry_delay_from_the_response() -> None:
         sleep=sleeps.append,
     )
     assert len(e.embed(["x\ny"])) == 1
-    assert sleeps == [48.0]
+    assert sum(sleeps) == 48.0  # 1초씩 나눠 기다림(끄는 중이면 끊으려고)
 
 
 def test_gemini_daily_quota_stops_at_once_without_retrying() -> None:

@@ -111,6 +111,26 @@ def index(
     raise typer.Exit(code)
 
 
+@app.command("ask")
+def ask(
+    question: str = typer.Argument(..., help='묻고 싶은 것(예: "보호 모드가 뭐야")'),
+    db: Path | None = typer.Option(None, "--db", help="대상 DB 파일(기본: 지금 프리셋의 DB)"),
+    k: int | None = typer.Option(None, "--k", help="상위 몇 개(기본: 설정값 5)"),
+) -> None:
+    """문서 검색(개발용, R2): 비슷한 조각을 점수·경로와 함께 보여 줍니다. 답은 만들지 않습니다(R3)."""
+    from nsm.config.presets import workspace_db_path
+    from nsm.config.store import load_config
+    from nsm.rag.command import DbLockedError, run_ask
+
+    cfg = load_config()
+    try:
+        code = run_ask(cfg, db or workspace_db_path(cfg), question, k=k, echo=typer.echo)
+    except DbLockedError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2) from None
+    raise typer.Exit(code)
+
+
 @app.command("render-preview")
 def render_preview(
     deck: Path = typer.Argument(..., exists=True, help="카드 덱 JSON"),

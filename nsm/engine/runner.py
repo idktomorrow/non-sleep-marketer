@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext, JobResult, is_interrupted
+from nsm.engine.doc_index import run_index_job
 from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
 from nsm.engine.keyword import run_keyword_draft
@@ -26,6 +27,7 @@ JOBS: dict[str, Callable[[JobContext], JobResult]] = {
     "metrics": run_metrics,
     "weekly_report": run_weekly_report,
     "maintenance": run_maintenance,
+    "index": run_index_job,  # 문서 색인(R2)
 }
 
 

@@ -60,10 +60,22 @@ def quota_ids(r: httpx.Response) -> list[str]:
 
 
 class EmbeddingError(AdapterError):
-    def __init__(self, message: str, kind: str = "transient", retry_at: datetime | None = None):
+    def __init__(
+        self,
+        message: str,
+        kind: str = "transient",
+        retry_at: datetime | None = None,
+        code: str = "",
+    ):
         super().__init__(message)
         self.kind = kind
         self.retry_at = retry_at
+        self.code = code  # "interrupted"면 끄는 중(C33 판정)
+
+
+def as_query(question: str) -> str:
+    """질문 임베딩 형식(gemini-embedding-2 공식 권장, 검색 질문 쪽)."""
+    return f"task: search result | query: {question.strip()}"
 
 
 def as_document(text: str) -> str:
@@ -98,22 +110,45 @@ class GeminiEmbedder:
         self._now = now
         self.tokens = 0  # 이번 색인에서 쓴 입력 토큰(응답 usageMetadata)
         self.requests = 0  # 보낸 묶음 요청 수(간격은 요청 사이마다, 호출을 나눠 불러도)
+        self.should_stop: Callable[[], bool] = lambda: False  # 끄는 중이면 기다림을 끊는다(R2 리뷰)
+
+    def reset(self) -> None:
+        """실행 한 번의 시작: 첫 요청 앞에서 기다리지 않게, 토큰도 이번 실행 것만 세게(임베더가 오래 살아서, R2 리뷰)."""
+        self.requests = 0
+        self.tokens = 0
+
+    def _wait(self, seconds: float) -> None:
+        """기다리되 1초마다 끄는 중인지 본다. 끄는 중이면 중단 오류(실행 기록엔 "중단")."""
+        left = seconds
+        while left > 0:
+            if self.should_stop():
+                raise EmbeddingError(
+                    "프로그램 종료 중이라 임베딩을 멈춤", "transient", code="interrupted"
+                )
+            step = min(1.0, left)
+            self._sleep(step)
+            left -= step
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
-            out.extend(self._batch(texts[i : i + self.batch_size]))
+            part = texts[i : i + self.batch_size]
+            out.extend(self._batch([as_document(t) for t in part], "embedding"))
         return out
 
-    def _batch(self, texts: list[str]) -> list[list[float]]:
+    def embed_query(self, question: str) -> list[float]:
+        """검색 질문 하나(R2). 비용 ref는 "embedding-query"로 문서 색인과 구분한다."""
+        return self._batch([as_query(question)], "embedding-query")[0]
+
+    def _batch(self, texts: list[str], ref: str) -> list[list[float]]:
         if self.requests:
-            self._sleep(self.interval_s)  # 무료 구간 분당 한도에 맞춰 묶음 요청 사이를 띄운다
+            self._wait(self.interval_s)  # 무료 구간 분당 한도에 맞춰 묶음 요청 사이를 띄운다
         self.requests += 1
         body = {
             "requests": [
                 {
                     "model": f"models/{self.model}",
-                    "content": {"parts": [{"text": as_document(t)}]},
+                    "content": {"parts": [{"text": t}]},
                     "outputDimensionality": self.dim,
                 }
                 for t in texts
@@ -136,7 +171,7 @@ class GeminiEmbedder:
         if self.cost_sink is not None and tokens:
             # CostKind가 동결(llm·image·classifier)이라 새 종류를 못 넣는다: 생성이 아닌 판정·색인 쪽인 classifier로
             self.cost_sink.record_cost(
-                "classifier", "gemini", tokens / 1_000_000 * self.usd_per_mtok, "embedding"
+                "classifier", "gemini", tokens / 1_000_000 * self.usd_per_mtok, ref
             )
         return vectors
 
@@ -162,7 +197,7 @@ class GeminiEmbedder:
                 wait = min((delay or RATE_WAIT_S) + 1, RATE_WAIT_MAX_S)
                 if attempt < RATE_TRIES - 1:
                     log.info("Gemini 임베딩 요청 제한(429): %.0f초 기다렸다 다시", wait)
-                    self._sleep(wait)
+                    self._wait(wait)
                     continue
                 # 기다려도 막혔다: 오류 종류 표의 요청 제한으로 올린다
                 raise EmbeddingError(
