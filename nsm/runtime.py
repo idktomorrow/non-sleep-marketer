@@ -109,6 +109,7 @@ def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) ->
     from nsm.adapters.diagnosis import make_diagnoser
     from nsm.adapters.generator import make_image_generator, make_text_generator
     from nsm.adapters.sources.image_reader import make_image_reader
+    from nsm.rag.answer import make_answerer
     from nsm.rag.gemini import make_embedder
 
     return {
@@ -118,6 +119,7 @@ def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) ->
         "diagnoser": make_diagnoser(cfg, secrets, repo),
         "read_image": make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
         "embedder": make_embedder(cfg, secrets, repo),  # 문서 색인·검색(R2)
+        "answerer": make_answerer(cfg, secrets, repo),  # 문서 질문 답변(R3)
     }
 
 
@@ -142,6 +144,11 @@ def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
     if ctx.embedder is not parts["embedder"]:
         close_embedder(ctx.embedder)  # 옛 HTTP 연결을 닫는다(키를 여러 번 바꿔도 새지 않게)
     ctx.embedder = parts["embedder"]
+    if ctx.answerer is not parts["answerer"]:
+        old = getattr(getattr(ctx.answerer, "client", None), "close", None)
+        if old:
+            old()  # 옛 Claude 연결도 닫는다
+    ctx.answerer = parts["answerer"]
     for src in ctx.sources:
         if src.name == "upload":
             src.read_image = parts["read_image"]
@@ -369,6 +376,7 @@ def run_forever() -> None:
                 lambda: switch_preset(ctx, db, name, set_config, presets)
             ),
             secrets=secrets,
+            get_rag=lambda: (ctx.embedder, ctx.answerer),  # 문서 질문(R3): 키를 바꾸면 새 것
         )
 
         def on_secrets_changed() -> None:

@@ -256,3 +256,13 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 .incident-diagnosis { line-height: 1.6; }
 .incident-now a { color: inherit; }
 
+
+/* 문서 질문(R3) */
+.ask-row { display: flex; gap: 8px; margin-top: 6px; }
+.ask-row input[type="text"] { flex: 1; min-width: 0; }
+.answer-text { white-space: pre-wrap; line-height: 1.7; font-size: 15px; }
+.ask-sources { padding-left: 0; list-style: none; margin: 0; }
+.ask-sources li { margin: 6px 0; }
+.ask-sources summary { cursor: pointer; }
+.chunk-text { white-space: pre-wrap; font-size: 12px; background: var(--bg, #f6f7f9); padding: 8px; border-radius: 6px; max-height: 280px; overflow: auto; }
+.eval-table tr.current td { font-weight: 600; }

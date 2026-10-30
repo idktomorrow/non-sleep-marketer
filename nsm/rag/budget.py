@@ -57,3 +57,36 @@ def close_embedder(embedder: Any | None) -> None:
     close = getattr(getattr(embedder, "client", None), "close", None)
     if close:
         close()
+
+
+class SearchUnavailable(Exception):
+    """질문을 검색하지 못한 이유(키·비용 상한·하루 한도·429·연결). 화면·CLI가 그대로 보여 준다."""
+
+
+def budgeted_search(
+    cfg: Any,
+    repo: Any,
+    embedder: Any | None,
+    question: str,
+    k: int,
+    min_score: float,
+    now: datetime,
+):
+    """질문 하나 검색: 예산 판단 → 질문 임베딩(1건) → 장부. 화면(ask_docs)과 `nsm ask`가 같이 쓴다.
+
+    막힌 시도도 무료 하루 한도에 세어지므로(ADR 0056 실측) 실패해도 장부에 1건을 더한다.
+    """
+    from nsm.rag.search import search
+
+    plan = plan_embedding(cfg, repo, embedder, now, 1)
+    if plan.embedder is None:
+        raise SearchUnavailable(plan.note)
+    try:
+        res = search(repo.db, plan.embedder, question, k=k, min_score=min_score)
+    except Exception as e:  # noqa: BLE001  429·연결 오류
+        add_used(repo, now, 1)
+        raise SearchUnavailable(
+            f"질문을 임베딩하지 못했습니다({getattr(e, 'kind', '') or type(e).__name__}): {str(e)[:120]}"
+        ) from e
+    add_used(repo, now, 1 if res.question else 0)
+    return res

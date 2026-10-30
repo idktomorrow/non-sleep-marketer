@@ -190,8 +190,8 @@ def run_ask(
     기준값을 넘는 조각이 없으면 "근거 없음"과 함께 기준값 아래 후보도 보여 준다(기준값을 맞출 때 보려고).
     """
     from nsm.domain.clock import SystemClock
-    from nsm.rag.budget import add_used, close_embedder, plan_embedding
-    from nsm.rag.search import NO_GROUND, search
+    from nsm.rag.budget import SearchUnavailable, budgeted_search, close_embedder
+    from nsm.rag.search import NO_GROUND
     from nsm.store.repo import Repository
 
     r = cfg.settings.rag
@@ -213,19 +213,13 @@ def run_ask(
                     "Gemini 키가 없어 질문을 임베딩할 수 없습니다. 설정 화면 API 키 칸에서 Gemini 키를 넣으세요."
                 )
                 return 1
-            now = datetime.now(UTC)
-            plan = plan_embedding(cfg, repo, made, now, 1)  # 비용 상한·오늘 남은 한도
-            if plan.embedder is None:
-                echo(f"질문을 임베딩하지 않았습니다: {plan.note}")
-                return 1
-            try:
-                res = search(db, plan.embedder, question, k=k or r.search_k, min_score=r.min_score)
-            except Exception as e:  # noqa: BLE001  한도(429)·연결 오류: 파이썬 오류 대신 한국어로
-                echo(
-                    f"질문을 임베딩하지 못했습니다({getattr(e, 'kind', '') or type(e).__name__}): {str(e)[:160]}"
+            try:  # 화면과 같은 길: 예산 판단·질문 임베딩·장부(실패한 시도도 셈)
+                res = budgeted_search(
+                    cfg, repo, made, question, k or r.search_k, r.min_score, datetime.now(UTC)
                 )
+            except SearchUnavailable as e:
+                echo(f"질문을 검색하지 못했습니다: {e}")
                 return 1
-            add_used(repo, now, 1 if res.question else 0)
         finally:
             close_embedder(made)
         top = f"{res.top_score:.3f}" if res.top_score is not None else "없음"

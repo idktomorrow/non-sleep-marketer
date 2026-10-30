@@ -168,3 +168,30 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
     embedding FLOAT[],                 -- 키가 없거나 요청 제한이면 NULL, 다음 색인에서 이어서
     created_at TIMESTAMP NOT NULL
 );
+
+-- 문서 질문 기록(R3, ADR 0058): 어떤 질문이 많은지, 근거 없음이 얼마나 나오는지 보려고
+CREATE TABLE IF NOT EXISTS doc_qa (
+    id VARCHAR PRIMARY KEY,
+    asked_at TIMESTAMP NOT NULL,
+    question VARCHAR NOT NULL,
+    answer VARCHAR NOT NULL,
+    grounded BOOLEAN NOT NULL,       -- 기준값을 넘는 조각이 있었나
+    sources VARCHAR,                 -- JSON: [{n, path, heading, score}]
+    similar_titles VARCHAR,          -- JSON: 근거 없음일 때 기준값 아래 후보 제목(similar는 DuckDB 예약어)
+    model VARCHAR,                   -- 답한 모델(근거 없음이면 NULL: Claude를 부르지 않음)
+    usd DOUBLE NOT NULL DEFAULT 0,
+    ms INTEGER NOT NULL DEFAULT 0,
+    error VARCHAR
+);
+
+-- 검색 측정 기록(R3): 질문 파일 20개를 지금 DB로 돌린 결과. 벡터가 다 찬 뒤 다시 재서 전후를 비교한다
+CREATE TABLE IF NOT EXISTS doc_eval (
+    id VARCHAR PRIMARY KEY,
+    ran_at TIMESTAMP NOT NULL,
+    chunks INTEGER NOT NULL,
+    without_vector INTEGER NOT NULL,
+    summary VARCHAR NOT NULL,        -- JSON: 기준값별 표
+    details VARCHAR NOT NULL,        -- JSON: 질문별 1등 점수·경로·정답 여부
+    error VARCHAR
+);
+

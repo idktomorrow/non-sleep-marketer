@@ -81,6 +81,8 @@ class CollectSettings(_Model):
 class ModelSettings(_Model):
     generation: str = "claude-sonnet-5-5"
     classifier: str = "claude-haiku-5-5"
+    # 문서 질문 답변(R3, ADR 0058). 찾은 조각만 근거로 짧게 답하므로 생성 모델보다 싼 haiku
+    qa: str = "claude-haiku-5-5"
     gemini: str = "gemini-3.5-flash-lite"  # 무료 구간에서 되는 것을 확인한 모델(ADR 0048)
     image: str = "gpt-image-2.5-flare"
 
@@ -134,6 +136,9 @@ class RagSettings(_Model):
     # 검색(R2): 상위 몇 개, 이 점수(코사인 유사도) 아래는 "근거 없음". 값은 실제 질문 20개로 고름(ADR 0057)
     search_k: int = Field(default=5, ge=1, le=20)
     min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    # 문서 질문(R3): 질문 길이(길면 임베딩이 흐려져 검색이 나빠짐)와 하루 질문 수 상한
+    qa_max_chars: int = Field(default=200, ge=20, le=1000)
+    qa_daily_limit: int = Field(default=50, ge=1, le=1000)
 
     @field_validator("index_time")
     @classmethod
