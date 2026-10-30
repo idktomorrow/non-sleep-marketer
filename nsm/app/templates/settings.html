@@ -191,6 +191,9 @@
 </div>
 {% endif %}
 
+<h2 id="doc-index">문서 색인 <span class="hint">챗봇 준비(R2). 매일 {{ doc_index.time }}에 바뀐 문서만 자동으로</span></h2>
+<div class="panel small"><p class="doc-index-line" style="margin:0">문서 색인: 조각 {{ doc_index.chunks }}개, 벡터 없음 {{ doc_index.without_vector }}개, 마지막 실행 {{ doc_index.last|kst if doc_index.last else '아직 없음' }}</p></div>
+
 <form id="notify-test-form" method="post" action="/notify/test"><input type="hidden" name="csrf" value="{{ csrf }}"></form>
 
 <h2>여기서 바꾸지 않는 것</h2>

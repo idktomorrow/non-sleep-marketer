@@ -129,6 +129,7 @@ def schedule_text(cfg: AppConfig) -> dict[str, str]:
         "metrics": "매일 새벽 3시",
         "weekly_report": "매주 월요일 아침",
         "maintenance": "매일 새벽 4시 반",
+        "index": f"매일 {s.rag.index_time}",
     }
 
 

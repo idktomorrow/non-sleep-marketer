@@ -355,6 +355,19 @@ def create_app(state: AppState) -> FastAPI:
 
     # ------------------------------------------------------------------ 설정 (M17)
 
+    def doc_index_line() -> dict[str, Any]:
+        """설정 화면 한 줄(R2): 문서 색인 조각 수·벡터 없는 조각 수·마지막 실행 시각."""
+        from nsm.rag.indexer import stored_stats
+
+        st = stored_stats(state.repo.db, "docs")
+        last = next((r for r in state.repo.latest_runs(30) if r["job"] == "index"), None)
+        return {
+            "chunks": st["chunks"],
+            "without_vector": st["without_vector"],
+            "last": last["started_at"] if last else None,
+            "time": state.get_config().settings.rag.index_time,
+        }
+
     def settings_extra(request: Request) -> dict[str, Any]:
         b = state.get_config().brand
         q = request.query_params
@@ -374,6 +387,7 @@ def create_app(state: AppState) -> FastAPI:
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
             "keys": key_status(state.secrets),
+            "doc_index": doc_index_line(),
             "can_keys": state.secrets is not None,
             "key_msg": q.get("key_msg"),
             "key_error": q.get("key_error"),

@@ -66,6 +66,11 @@ class EmbeddingError(AdapterError):
         self.retry_at = retry_at
 
 
+def as_query(question: str) -> str:
+    """질문 임베딩 형식(gemini-embedding-2 공식 권장, 검색 질문 쪽)."""
+    return f"task: search result | query: {question.strip()}"
+
+
 def as_document(text: str) -> str:
     """조각 첫 줄(제목 경로)을 title로, 나머지를 text로(gemini-embedding-2 권장 형식)."""
     title, _, body = text.partition("\n")
@@ -102,10 +107,15 @@ class GeminiEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
-            out.extend(self._batch(texts[i : i + self.batch_size]))
+            part = texts[i : i + self.batch_size]
+            out.extend(self._batch([as_document(t) for t in part], "embedding"))
         return out
 
-    def _batch(self, texts: list[str]) -> list[list[float]]:
+    def embed_query(self, question: str) -> list[float]:
+        """검색 질문 하나(R2). 비용 ref는 "embedding-query"로 문서 색인과 구분한다."""
+        return self._batch([as_query(question)], "embedding-query")[0]
+
+    def _batch(self, texts: list[str], ref: str) -> list[list[float]]:
         if self.requests:
             self._sleep(self.interval_s)  # 무료 구간 분당 한도에 맞춰 묶음 요청 사이를 띄운다
         self.requests += 1
@@ -113,7 +123,7 @@ class GeminiEmbedder:
             "requests": [
                 {
                     "model": f"models/{self.model}",
-                    "content": {"parts": [{"text": as_document(t)}]},
+                    "content": {"parts": [{"text": t}]},
                     "outputDimensionality": self.dim,
                 }
                 for t in texts
@@ -136,7 +146,7 @@ class GeminiEmbedder:
         if self.cost_sink is not None and tokens:
             # CostKind가 동결(llm·image·classifier)이라 새 종류를 못 넣는다: 생성이 아닌 판정·색인 쪽인 classifier로
             self.cost_sink.record_cost(
-                "classifier", "gemini", tokens / 1_000_000 * self.usd_per_mtok, "embedding"
+                "classifier", "gemini", tokens / 1_000_000 * self.usd_per_mtok, ref
             )
         return vectors
 

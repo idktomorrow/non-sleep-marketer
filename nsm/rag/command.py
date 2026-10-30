@@ -181,3 +181,55 @@ def _index(
         )
         return 1
     return 0
+
+
+def run_ask(
+    cfg: Any,
+    db_path: Path,
+    question: str,
+    *,
+    k: int | None = None,
+    secrets: Any = None,
+    embedder_factory: Callable[..., Any] | None = None,
+    echo: Callable[[str], None] = print,
+) -> int:
+    """`nsm ask`: 상위 조각을 점수·경로와 함께 출력한다. 답은 만들지 않는다(R3)."""
+    from nsm.domain.clock import SystemClock
+    from nsm.rag.search import NO_GROUND, search
+    from nsm.store.repo import Repository
+
+    r = cfg.settings.rag
+    db = open_db(db_path)
+    try:
+        if secrets is None:
+            from nsm.config.secrets import KeyringSecretStore
+
+            secrets = KeyringSecretStore()
+        if embedder_factory is None:
+            from nsm.rag.gemini import make_embedder
+
+            embedder_factory = make_embedder
+        embedder = embedder_factory(cfg, secrets, Repository(db, SystemClock()))  # 질문 비용 기록
+        if embedder is None:
+            echo(
+                "Gemini 키가 없어 질문을 임베딩할 수 없습니다. 설정 화면 API 키 칸에서 Gemini 키를 넣으세요."
+            )
+            return 1
+        try:
+            res = search(db, embedder, question, k=k or r.search_k, min_score=r.min_score)
+        finally:
+            close = getattr(getattr(embedder, "client", None), "close", None)
+            if close:
+                close()
+        top = f"{res.top_score:.3f}" if res.top_score is not None else "없음"
+        echo(f"질문: {res.question}")
+        echo(f"기준값 {r.min_score:.2f} · 1등 점수 {top}")
+        if not res.grounded:
+            echo(f"→ {NO_GROUND}(기준값을 넘는 조각이 없습니다)")
+        for i, h in enumerate(res.hits, 1):
+            first = " ".join(h.text.split("\n", 1)[-1].split())[:160]
+            echo(f"{i}. [{h.score:.3f}] {h.heading_path}")
+            echo(f"   {first}")
+        return 0
+    finally:
+        db.close()

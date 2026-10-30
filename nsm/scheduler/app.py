@@ -38,6 +38,7 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
     first, last = windows[0], windows[-1]
     collect_times = {_at(first.start, 20), _at(last.start, 20)}
     gen_h, gen_m = _at(first.start, 50)
+    idx_h, idx_m = (int(x) for x in cfg.settings.rag.index_time.split(":"))
     triggers: dict[str, Any] = {
         "health": IntervalTrigger(minutes=30, jitter=120, timezone=tz),
         "generate": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
@@ -49,6 +50,8 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
         "weekly_report": CronTrigger(day_of_week="mon", hour=8, minute=0, jitter=600, timezone=tz),
         # 데이터 백업·실행 기록 정리(C12). 지표(03:10) 뒤, 다른 작업이 드문 새벽
         "maintenance": CronTrigger(hour=4, minute=30, jitter=600, timezone=tz),
+        # 문서 색인(R2): Gemini 무료 하루 한도가 풀린 뒤(태평양 자정 = 한국 오후 4~5시) 하루 한 번
+        "index": CronTrigger(hour=idx_h, minute=idx_m, jitter=600, timezone=tz),
     }
     for i, (h, m) in enumerate(sorted(collect_times)):
         triggers[f"collect#{i}"] = CronTrigger(hour=h, minute=m, jitter=1800, timezone=tz)

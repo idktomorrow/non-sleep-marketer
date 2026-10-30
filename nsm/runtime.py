@@ -109,6 +109,7 @@ def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) ->
     from nsm.adapters.diagnosis import make_diagnoser
     from nsm.adapters.generator import make_image_generator, make_text_generator
     from nsm.adapters.sources.image_reader import make_image_reader
+    from nsm.rag.gemini import make_embedder
 
     return {
         "classifiers": make_classifiers(cfg, secrets, repo),
@@ -116,6 +117,7 @@ def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) ->
         "image_generator": make_image_generator(cfg, secrets, repo, paths.media_dir()),
         "diagnoser": make_diagnoser(cfg, secrets, repo),
         "read_image": make_image_reader(cfg, secrets, repo, paths.upload_text_dir()),
+        "embedder": make_embedder(cfg, secrets, repo),  # 문서 색인·검색(R2)
     }
 
 
@@ -135,6 +137,7 @@ def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
     ctx.text_generator = parts["text_generator"]
     ctx.image_generator = parts["image_generator"]
     ctx.diagnoser = parts["diagnoser"]
+    ctx.embedder = parts["embedder"]
     for src in ctx.sources:
         if src.name == "upload":
             src.read_image = parts["read_image"]

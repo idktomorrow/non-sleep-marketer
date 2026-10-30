@@ -1,0 +1,75 @@
+# R2 검색 품질 측정용 질문(실제 docs 기준). answerable: true면 expected의 파일 중 하나가 상위에 나오면 정답.
+# heading은 정답 조각의 제목 경로에 들어 있어야 하는 말(사람이 확인할 때 참고).
+# 실제 Gemini로 재는 측정은 네트워크가 필요해 자동 테스트에 넣지 않는다(devlog R2). pytest는 이 파일의 형식과
+# FakeEmbedder로 결정적 동작만 본다.
+questions:
+  - q: 보호 모드가 뭐야
+    answerable: true
+    expected: [adr/0008-autopublish-guardrails.md, user-guide.md]
+    heading: 보호
+  - q: 네이버 블로그는 왜 게시 안 해
+    answerable: true
+    expected: [adr/0016-drop-naver-blog-publishing.md]
+    heading: 네이버 블로그
+  - q: 429가 나면 어떻게 돼
+    answerable: true
+    expected: [adr/0038-instagram-rate-limit-rest.md, user-guide.md, incidents/0002-2026-10-14-instagram-429-as-logout.md]
+    heading: 요청 제한
+  - q: 드라이런은 뭐고 왜 먼저 해
+    answerable: true
+    expected: [adr/0005-dry-run-first.md, user-guide.md]
+    heading: 드라이런
+  - q: 인스타그램 화면이 바뀌어 게시가 실패하면 다시 시도해?
+    answerable: true
+    expected: [adr/0054-error-taxonomy-and-evidence.md]
+    heading: 결정
+  - q: 장애 화면에서 뭘 볼 수 있어
+    answerable: true
+    expected: [adr/0055-incident-view-and-diagnosis.md, user-guide.md]
+    heading: 장애
+  - q: Claude 자동 진단은 하루에 몇 번까지 해
+    answerable: true
+    expected: [adr/0055-incident-view-and-diagnosis.md]
+    heading: 자동 진단
+  - q: API 키는 어디에 저장돼
+    answerable: true
+    expected: [user-guide.md, adr/0028-dashboard-settings.md, glossary.md]
+    heading: 키
+  - q: 분류기를 왜 Gemini로 바꿨어
+    answerable: true
+    expected: [adr/0048-gemini-classifier-replaces-jev.md, incidents/0006-2026-10-20-jev-trial-ended.md]
+    heading: Gemini
+  - q: 극장판 흥행 소식이 반복 게시된 이유는
+    answerable: true
+    expected: [incidents/0007-2026-10-13-same-news-repeated.md, adr/0051-content-quality-floor.md]
+    heading: 같은 소식
+  - q: 인스타그램 답글이 새 댓글로 달린 원인은
+    answerable: true
+    expected: [incidents/0005-2026-10-16-instagram-reply-as-new-comment.md]
+    heading: 답글
+  - q: 프리셋은 어떻게 쓰는 거야
+    answerable: true
+    expected: [user-guide.md, adr/0049-presets-as-workspaces.md]
+    heading: 프리셋
+  - q: 가상인물 표기는 카드 어디에 넣어
+    answerable: true
+    expected: [adr/0043-virtual-person-badge-cover-and-outro.md, adr/0019-label-wording-and-placement.md, user-guide.md]
+    heading: 가상인물
+  - q: 게시가 실패하면 몇 분 뒤에 다시 시도해
+    answerable: true
+    expected: [adr/0054-error-taxonomy-and-evidence.md, user-guide.md, incidents/0004-2026-10-18-instagram-notification-dialog.md]
+    heading: 재시도
+  - q: nsm run을 끄는 순간 로그인 필요 알림이 온 이유는
+    answerable: true
+    expected: [incidents/0008-2026-10-26-restart-paused-platforms.md, adr/0054-error-taxonomy-and-evidence.md]
+    heading: 재시작
+  - q: 오늘 서울 날씨 어때
+    answerable: false
+  - q: 비트코인 지금 가격 알려줘
+    answerable: false
+  - q: 점심 메뉴 추천해줘
+    answerable: false
+  - q: 2026 월드컵 우승팀은 어디야
+    answerable: false
+  - q: 파이썬 리스트 정렬하는 법
+    answerable: false

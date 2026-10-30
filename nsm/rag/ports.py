@@ -32,3 +32,7 @@ class Embedder(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]:
         """문서 조각 임베딩. 길이와 순서는 입력과 같다. 실패하면 예외(요청 제한은 kind="rate_limited")."""
         ...
+
+    def embed_query(self, question: str) -> list[float]:
+        """검색 질문 임베딩(R2). 같은 모델·차원이어야 문서 조각과 비교된다."""
+        ...

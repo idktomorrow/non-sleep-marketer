@@ -127,6 +127,23 @@ class RagSettings(_Model):
     # 입력 100만 토큰당 달러. 무료 구간은 0원, 유료(Standard)는 0.20(2026-10-30 가격표)
     embedding_usd_per_mtok: float = Field(default=0.0, ge=0, le=10)
 
+    # 색인 잡(R2): 하루 한 번, 이 시각(HH:MM, 현지). 무료 구간 하루 한도는 태평양 시간 자정(한국 오후 4~5시)에 풀린다
+    index_time: str = "20:00"
+    # 검색(R2): 상위 몇 개, 이 점수(코사인 유사도) 아래는 "근거 없음". 값은 실제 질문 20개로 고름(ADR 0057)
+    search_k: int = Field(default=5, ge=1, le=20)
+    min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+
+    @field_validator("index_time")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        try:
+            h, m = (int(x) for x in v.split(":"))
+        except ValueError:
+            raise ValueError("rag.index_time은 HH:MM 형식이어야 합니다") from None
+        if not (0 <= h < 24 and 0 <= m < 60):
+            raise ValueError("rag.index_time은 00:00~23:59여야 합니다")
+        return f"{h:02d}:{m:02d}"
+
     @model_validator(mode="after")
     def _overlap_below_size(self) -> RagSettings:
         if self.chunk_overlap >= self.chunk_chars:
