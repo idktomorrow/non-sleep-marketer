@@ -190,7 +190,6 @@ def test_gemini_batches_with_dimension_document_format_and_interval() -> None:
         "gemini-embedding-2",
         4,
         batch_size=2,
-        interval_s=1.5,
         usd_per_mtok=0.20,
         cost_sink=sink,
         client=_client([_ok(2, 4), _ok(1, 4)], seen),
@@ -198,7 +197,7 @@ def test_gemini_batches_with_dimension_document_format_and_interval() -> None:
     )
     out = e.embed(["a.md > 제목\n본문1", "a.md > 제목\n본문2", "b.md\n본문3"])
     assert len(out) == 3 and all(len(v) == 4 for v in out)
-    assert len(seen) == 2 and sum(sleeps) == 1.5  # 묶음 2번, 사이 간격 1번
+    assert len(seen) == 2 and sum(sleeps) == 0  # 분당 한도 안이라 기다리지 않는다(R3b)
     req = seen[0]
     assert req.url.path.endswith("/models/gemini-embedding-2:batchEmbedContents")
     assert req.headers["x-goog-api-key"] == "fake-gemini-key-0000000000"

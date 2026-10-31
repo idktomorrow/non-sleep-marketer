@@ -114,9 +114,10 @@ def test_wait_between_batches_stops_when_shutting_down() -> None:
         "m",
         2,
         batch_size=1,
-        interval_s=61,
+        per_minute=1,  # 한 건 보내면 1분 창이 차서 다음 건은 기다려야 한다
         client=_client([_ok(1, 2)]),
         sleep=sleeps.append,
+        mono=lambda: 0.0,
     )
     stop = {"now": False}
     e.should_stop = lambda: stop["now"]
@@ -127,10 +128,10 @@ def test_wait_between_batches_stops_when_shutting_down() -> None:
     assert exc.value.code == "interrupted" and sum(sleeps) == 0
 
 
-def test_reset_skips_wait_before_first_request_of_a_new_run() -> None:
+def test_reset_counts_tokens_per_run_without_waiting() -> None:
     sleeps: list[float] = []
     e = GeminiEmbedder(
-        "k" * 30, "m", 2, interval_s=61, client=_client([_ok(1, 2), _ok(1, 2)]), sleep=sleeps.append
+        "k" * 30, "m", 2, client=_client([_ok(1, 2), _ok(1, 2)]), sleep=sleeps.append
     )
     e.embed(["a\nb"])
     e.reset()  # 다음 날 실행
