@@ -66,14 +66,29 @@ def test_single_question_does_not_wait() -> None:
     assert clock.slept == [] and len(sent) == 2
 
 
-def test_question_right_after_a_full_batch_waits_only_the_remaining_time() -> None:
+def test_batch_right_after_a_full_batch_waits_only_the_remaining_time() -> None:
     clock, sent = Clock(), []
     e = _embedder(clock, sent)
     e.embed([f"t\n{i}" for i in range(100)])  # 색인 묶음 100건: 1분 창이 찼다
-    clock.t += 20  # 20초 뒤 질문
-    e.embed_query("보호 모드가 뭐야")
+    clock.t += 20
+    e.embed(["t\n다음 묶음"])
     assert 40 <= sum(clock.slept) <= 41  # 남은 40초(+여유 0.5초)만
     assert sent[-1][0] - sent[0][0] >= 60
+
+
+def test_question_waits_a_little_but_not_a_minute() -> None:
+    """질문은 10초 안이면 기다렸다 보내고, 더 길면 기다리지 않고 "약 N초 뒤"로 바로 알린다(화면을 붙잡지 않게)."""
+    clock, sent = Clock(), []
+    e = _embedder(clock, sent)
+    e.embed([f"t\n{i}" for i in range(100)])
+    clock.t += 20  # 40초 남음
+    with pytest.raises(EmbeddingError) as exc:
+        e.embed_query("보호 모드가 뭐야")
+    assert exc.value.code == "not_sent" and exc.value.kind == "rate_limited"
+    assert "약 41초 뒤" in str(exc.value) and clock.slept == [] and len(sent) == 1
+    clock.t += 35  # 5초 남음
+    e.embed_query("보호 모드가 뭐야")
+    assert 5 <= sum(clock.slept) <= 6 and len(sent) == 2
 
 
 def test_small_batch_after_partial_window_does_not_wait() -> None:
@@ -101,7 +116,7 @@ def test_waiting_stops_when_shutting_down() -> None:
     e.embed([f"t\n{i}" for i in range(100)])
     e.should_stop = lambda: True
     with pytest.raises(EmbeddingError) as exc:
-        e.embed_query("질문")  # 창이 찼으니 기다려야 하는데, 끄는 중이라 바로 끊는다
+        e.embed(["t\n다음 묶음"])  # 창이 찼으니 기다려야 하는데, 끄는 중이라 바로 끊는다
     assert exc.value.code == "interrupted" and clock.slept == [] and len(sent) == 1
 
 
@@ -116,3 +131,74 @@ def test_old_interval_setting_is_accepted_but_ignored(app_config) -> None:
         app_config, MemorySecretStore({"gemini_api_key": "fake-gemini-key-AAAAAAAAAAAAAAAAAAAA"})
     )
     assert e.per_minute == 100 and not hasattr(e, "interval_s")
+
+
+def test_retry_after_429_is_counted_in_the_window() -> None:
+    """429 뒤 다시 보낸 묶음도 1분 창에 센다(창이 실제보다 적게 세지 않게)."""
+    clock = Clock()
+    calls = {"n": 0}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429)
+        n = len(__import__("json").loads(req.content)["requests"])
+        return httpx.Response(200, json={"embeddings": [{"values": [0.1] * 4} for _ in range(n)]})
+
+    e = GeminiEmbedder(
+        "k" * 30,
+        "m",
+        4,
+        per_minute=100,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=clock.sleep,
+        mono=clock.mono,
+    )
+    e.embed([f"t\n{i}" for i in range(50)])
+    assert e._used == 100  # 처음 50 + 다시 보낸 50
+
+
+def test_batches_larger_than_the_per_minute_limit_are_split() -> None:
+    clock, sent = Clock(), []
+    e = _embedder(clock, sent)
+    e.per_minute = 30
+    e.embed([f"t\n{i}" for i in range(70)])
+    assert [n for _, n in sent] == [30, 30, 10]
+
+
+def test_concurrent_callers_never_overflow_the_window() -> None:
+    """색인(작업 스레드)과 질문(웹 스레드)이 동시에 보내도 1분에 한도를 넘지 않는다."""
+    import threading
+    import time as real_time
+
+    sent: list[tuple[float, int]] = []
+    lock = threading.Lock()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        n = len(__import__("json").loads(req.content)["requests"])
+        with lock:
+            sent.append((real_time.monotonic(), n))
+        return httpx.Response(200, json={"embeddings": [{"values": [0.1] * 4} for _ in range(n)]})
+
+    e = GeminiEmbedder(
+        "k" * 30,
+        "m",
+        4,
+        per_minute=10,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=lambda s: None,  # 기다리지 않음: 창이 차면 query는 바로 not_sent
+    )
+    errors: list[str] = []
+
+    def ask() -> None:
+        try:
+            e.embed_query("q")
+        except EmbeddingError as err:
+            errors.append(err.code)
+
+    ts = [threading.Thread(target=ask) for _ in range(30)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert sum(n for _, n in sent) == 10 and errors.count("not_sent") == 20

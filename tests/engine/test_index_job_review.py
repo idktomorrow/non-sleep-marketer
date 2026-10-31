@@ -107,6 +107,10 @@ def _client(responses: list[httpx.Response]) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(lambda req: next(it)))
 
 
+def _no_sleep(s: float) -> None:
+    raise AssertionError("끄는 중인데 기다렸다")
+
+
 def test_wait_between_batches_stops_when_shutting_down() -> None:
     sleeps: list[float] = []
     e = GeminiEmbedder(
@@ -116,7 +120,7 @@ def test_wait_between_batches_stops_when_shutting_down() -> None:
         batch_size=1,
         per_minute=1,  # 한 건 보내면 1분 창이 차서 다음 건은 기다려야 한다
         client=_client([_ok(1, 2)]),
-        sleep=sleeps.append,
+        sleep=_no_sleep,  # 끄는 중 확인이 빠지면 멈춰 있지 않고 바로 실패하게
         mono=lambda: 0.0,
     )
     stop = {"now": False}

@@ -160,7 +160,7 @@ erDiagram
 - `nsm/rag/`: 자체 Protocol(`ports.py`의 `DocumentSource`·`Embedder`, 동결된 `nsm/ports/`와 별개), 제목 구조 조각 나누기(`chunker.py`), docs 폴더 출처(`sources.py`), Gemini 임베딩 REST(`gemini.py`, `batchEmbedContents`), 증분 색인 함수(`indexer.index_documents`), CLI 몸통(`command.py`).
 - 저장: 같은 DuckDB의 `doc_chunks`(스키마 v6), 벡터는 가변 `FLOAT[]`. 내용 해시·벡터·모델이 같으면 다시 임베딩하지 않는다.
 - `nsm index`는 개발·점검용(`--dry-run`·`--rebuild`·`--stats`·`--db`).
-- 분당 한도(R3b): `GeminiEmbedder`가 직전 1분 동안 보낸 (시각, 건수)를 들고, 이번 건수를 더해 `rag.embed_per_minute`(100)를 넘을 때만 넘지 않을 만큼 기다린다. 색인 묶음과 질문이 같은 창을 쓴다. 기다림은 1초마다 끄는 중인지 본다.
+- 분당 한도(R3b): `GeminiEmbedder`가 직전 1분 동안 보낸 (시각, 건수)를 들고, 이번 건수를 더해 `rag.embed_per_minute`(100)를 넘을 때만 넘지 않을 만큼 기다린다. 색인 묶음과 질문이 같은 창을 쓰고 자물쇠 안에서 센다. 질문은 10초 넘게 기다려야 하면 바로 "약 N초 뒤"로 알리고 장부에 세지 않는다. 기다림은 1초마다 끄는 중인지 본다(ADR 0059).
 - R2(ADR 0057): 잡 `index`(`nsm/engine/doc_index.py`)가 매일 `rag.index_time`(20:00)에 `index_documents`를 부른다. 증분, 하루 900조각. 키 없음·비용 상한·429면 알림 없이 끝내고 다음 날 이어서. 켤 때는 안 돈다. 임베더는 `ctx.embedder`(키를 바꾸면 `refresh_secret_parts`가 새로 만듦).
 - 검색 `nsm/rag/search.search(db, embedder, question, k, min_score)`: 질문을 "task: search result | query: …"로 임베딩(ref "embedding-query"), 같은 모델·차원 조각과 `list_cosine_similarity` 전수 비교, 기준값 아래는 버리고 남는 게 없으면 "근거 없음". `nsm ask`는 개발용 출력. 답 만들기와 화면은 R3.
 

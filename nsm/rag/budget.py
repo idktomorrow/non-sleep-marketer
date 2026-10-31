@@ -84,7 +84,8 @@ def budgeted_search(
     try:
         res = search(repo.db, plan.embedder, question, k=k, min_score=min_score)
     except Exception as e:  # noqa: BLE001  429·연결 오류
-        add_used(repo, now, 1)
+        if getattr(e, "code", "") != "not_sent":  # 분당 창이 차서 보내지도 않았으면 세지 않는다
+            add_used(repo, now, 1)
         raise SearchUnavailable(
             f"질문을 임베딩하지 못했습니다({getattr(e, 'kind', '') or type(e).__name__}): {str(e)[:120]}"
         ) from e

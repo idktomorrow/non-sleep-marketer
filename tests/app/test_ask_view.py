@@ -430,3 +430,22 @@ def test_refresh_closes_previous_answerer_client(db, app_config) -> None:
         assert old is not None
         refresh_secret_parts(ctx, secrets)
         assert ctx.answerer is not old and old.client._client.is_closed
+
+
+def test_question_not_sent_because_minute_window_is_full_is_not_counted(env) -> None:
+    """분당 창이 차서 보내지도 않은 질문은 하루 장부에 세지 않는다(R3b)."""
+    from nsm.rag.budget import used_today
+    from nsm.rag.gemini import EmbeddingError
+
+    class Full(FakeEmbedder):
+        def embed_query(self, question: str) -> list[float]:
+            raise EmbeddingError(
+                "Gemini 분당 한도가 차 있습니다. 약 41초 뒤 다시 물어 주세요",
+                "rate_limited",
+                code="not_sent",
+            )
+
+    env["holder"]["emb"] = Full()
+    r = _ask(env, "보호 모드가 뭐야")
+    assert r.status_code == 400 and "약 41초 뒤" in r.text
+    assert used_today(env["repo"], env["state"].clock.now()) == 0
