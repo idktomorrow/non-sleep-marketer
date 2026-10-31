@@ -144,6 +144,8 @@ def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
     if ctx.embedder is not parts["embedder"]:
         close_embedder(ctx.embedder)  # 옛 HTTP 연결을 닫는다(키를 여러 번 바꿔도 새지 않게)
     ctx.embedder = parts["embedder"]
+    if ctx.embedder is not None:
+        ctx.embedder.should_stop = lambda: ctx.shutting_down()  # 끄는 중이면 질문의 기다림도 끊는다
     if ctx.answerer is not parts["answerer"]:
         old = getattr(getattr(ctx.answerer, "client", None), "close", None)
         if old:

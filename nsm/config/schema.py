@@ -119,9 +119,11 @@ class RagSettings(_Model):
     embedding_dim: int = Field(default=768, ge=128, le=3072)
     # 한 번에 묶는 조각 수. 공식 문서에 상한이 없고 예전 API는 100이 상한이라 100
     embed_batch_size: int = Field(default=100, ge=1, le=100)
-    # 묶음 요청 사이 간격(초). 무료 구간은 "모델별 분당 100건"이고 묶음 안의 조각 하나하나를 1건으로 센다
+    # 분당 보낼 수 있는 건수. 무료 구간은 "모델별 분당 100건"이고 묶음 안의 조각 하나하나를 1건으로 센다
     # (2026-10-30 429 응답의 quotaId EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier, 값 100으로 확인).
-    # 100개 묶음이면 1분에 한 번이라 61초. 유료면 줄여도 된다
+    # 직전 1분에 보낸 건수 + 이번 건수가 이 값을 넘을 때만 기다린다(R3b). 유료면 늘려도 된다
+    embed_per_minute: int = Field(default=100, ge=1, le=100000)
+    # 예전 설정(묶음마다 무조건 61초 대기). R3b부터 쓰지 않는다. 이미 저장된 config.yaml이 깨지지 않게 받기만 하고 무시한다
     embed_interval_seconds: float = Field(default=61.0, ge=0, le=600)
     # 한 번 실행에 임베딩할 최대 조각 수. 무료 구간 하루 한도가 1,000조각이고 막힌 시도도 세어져서, 넘기기 전에 스스로 멈춘다.
     # 남은 조각은 다음 날 실행이 이어서 한다. 유료면 늘려도 된다

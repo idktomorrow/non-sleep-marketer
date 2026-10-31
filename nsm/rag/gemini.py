@@ -13,7 +13,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,6 +27,8 @@ from nsm.ports import AdapterError, CostSink
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+WINDOW_S = 60.0  # 분당 한도의 창
+QUERY_MAX_WAIT_S = 10.0  # 질문 하나가 기다릴 최대 초
 RATE_WAIT_S = 60.0  # 429 응답에 대기 시간(RetryInfo)이 없을 때 한 번 기다리는 초
 RATE_WAIT_MAX_S = 120.0
 # 무료 구간 한도(2026-10-30 실측, 429 응답의 quotaId): 모델별 분당 100건·하루 1,000건이고, 묶음 안의 조각 하나하나를
@@ -91,31 +95,77 @@ class GeminiEmbedder:
         model: str,
         dim: int,
         batch_size: int = 100,
-        interval_s: float = 2.0,
+        per_minute: int = 100,
         usd_per_mtok: float = 0.0,
         cost_sink: CostSink | None = None,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        mono: Callable[[], float] = time.monotonic,
     ) -> None:
         self._key = api_key
         self.model = model
         self.dim = dim
         self.batch_size = batch_size
-        self.interval_s = interval_s
+        self.per_minute = per_minute  # 분당 보낼 수 있는 건수(조각 하나 = 1건, 무료 구간 100)
         self.usd_per_mtok = usd_per_mtok
         self.cost_sink = cost_sink
         self.client = client or httpx.Client(timeout=60.0)
         self._sleep = sleep
         self._now = now
+        self._mono = mono
         self.tokens = 0  # 이번 색인에서 쓴 입력 토큰(응답 usageMetadata)
-        self.requests = 0  # 보낸 묶음 요청 수(간격은 요청 사이마다, 호출을 나눠 불러도)
+        # 직전 1분 동안 보낸 (시각, 건수)와 그 합. 색인 묶음과 질문이 같은 창을 쓴다(R3b)
+        self._sent: deque[tuple[float, int]] = deque()
+        self._used = 0
+        self._lock = threading.Lock()
         self.should_stop: Callable[[], bool] = lambda: False  # 끄는 중이면 기다림을 끊는다(R2 리뷰)
 
     def reset(self) -> None:
-        """실행 한 번의 시작: 첫 요청 앞에서 기다리지 않게, 토큰도 이번 실행 것만 세게(임베더가 오래 살아서, R2 리뷰)."""
-        self.requests = 0
+        """실행 한 번의 시작: 토큰을 이번 실행 것만 세게(임베더가 오래 살아서, R2 리뷰).
+        보낸 기록(1분 창)은 지우지 않는다. 실제로 API에 보낸 건수라 실행이 바뀌어도 한도에 그대로 남는다."""
         self.tokens = 0
+
+    def _reserve(self, n: int, max_wait: float | None = None) -> None:
+        """직전 1분 동안 보낸 건수 + 이번 n건이 분당 한도를 넘을 때만, 넘지 않을 만큼만 기다린 뒤 n건을 적는다(R3b).
+
+        예전에는 두 번째 요청부터 무조건 61초를 기다려, 색인 뒤에 던진 질문 하나가 63초 걸렸다
+        (2026-10-31 21:28 운영 로그). 질문 1건은 색인이 막 100건을 보낸 직후가 아니면 기다리지 않는다.
+        색인 잡(작업 스레드)과 대시보드 질문(웹 스레드)이 같은 창을 쓰므로 자물쇠 안에서 셈하고 적는다.
+        기다림은 자물쇠 밖에서 한다(다른 쪽이 막히지 않게). max_wait보다 오래 기다려야 하면 기다리지 않고
+        "보내지 않음" 오류로 돌려준다(화면의 질문이 1분씩 붙잡히지 않게).
+        """
+        need = min(n, self.per_minute)
+        while True:
+            with self._lock:
+                t = self._mono()
+                while self._sent and t - self._sent[0][0] >= WINDOW_S:
+                    self._used -= self._sent.popleft()[1]
+                if self._used + need <= self.per_minute:
+                    self._sent.append((t, n))  # 막힌 시도도 한도에 세어지므로 보내기 전에 적는다
+                    self._used += n
+                    return
+                free, wait = 0, 0.0
+                for at, c in self._sent:  # 오래된 것부터 빠져나가야 자리가 난다
+                    free += c
+                    wait = at + WINDOW_S - t
+                    if self._used - free + need <= self.per_minute:
+                        break
+            wait = max(wait, 0.0) + 0.5  # 0.5초 여유(서버 시계와 어긋남)
+            if max_wait is not None and wait > max_wait:
+                raise EmbeddingError(
+                    f"Gemini 분당 한도가 차 있습니다. 약 {int(wait) + 1}초 뒤 다시 물어 주세요",
+                    "rate_limited",
+                    self._now() + timedelta(seconds=wait),
+                    code="not_sent",
+                )
+            self._wait(wait)
+
+    def _record(self, n: int) -> None:
+        """429 뒤 다시 보내는 것도 보낸 건수다(창이 실제보다 적게 세지 않게)."""
+        with self._lock:
+            self._sent.append((self._mono(), n))
+            self._used += n
 
     def _wait(self, seconds: float) -> None:
         """기다리되 1초마다 끄는 중인지 본다. 끄는 중이면 중단 오류(실행 기록엔 "중단")."""
@@ -131,19 +181,23 @@ class GeminiEmbedder:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
-        for i in range(0, len(texts), self.batch_size):
-            part = texts[i : i + self.batch_size]
+        step = max(
+            1, min(self.batch_size, self.per_minute)
+        )  # 묶음이 분당 한도보다 크면 나눠 보낸다
+        for i in range(0, len(texts), step):
+            part = texts[i : i + step]
             out.extend(self._batch([as_document(t) for t in part], "embedding"))
         return out
 
     def embed_query(self, question: str) -> list[float]:
         """검색 질문 하나(R2). 비용 ref는 "embedding-query"로 문서 색인과 구분한다."""
-        return self._batch([as_query(question)], "embedding-query")[0]
+        # 화면의 질문은 1분 창이 꽉 찼을 때 오래 붙잡지 않는다: 10초 넘게 기다려야 하면 바로 알린다
+        return self._batch([as_query(question)], "embedding-query", max_wait=QUERY_MAX_WAIT_S)[0]
 
-    def _batch(self, texts: list[str], ref: str) -> list[list[float]]:
-        if self.requests:
-            self._wait(self.interval_s)  # 무료 구간 분당 한도에 맞춰 묶음 요청 사이를 띄운다
-        self.requests += 1
+    def _batch(
+        self, texts: list[str], ref: str, max_wait: float | None = None
+    ) -> list[list[float]]:
+        self._reserve(len(texts), max_wait)  # 분당 한도를 넘을 때만 기다리고, 보낼 건수를 적는다
         body = {
             "requests": [
                 {
@@ -154,7 +208,7 @@ class GeminiEmbedder:
                 for t in texts
             ]
         }
-        data = self._post(body)
+        data = self._post(body, len(texts))
         try:
             vectors = [list(map(float, e["values"])) for e in data["embeddings"]]
         except (KeyError, TypeError, ValueError) as e:
@@ -175,7 +229,7 @@ class GeminiEmbedder:
             )
         return vectors
 
-    def _post(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, body: dict[str, Any], n: int = 0) -> dict[str, Any]:
         url = f"{BASE_URL}/models/{self.model}:batchEmbedContents"
         headers = {"x-goog-api-key": self._key, "Content-Type": "application/json"}
         for attempt in range(RATE_TRIES):
@@ -198,6 +252,7 @@ class GeminiEmbedder:
                 if attempt < RATE_TRIES - 1:
                     log.info("Gemini 임베딩 요청 제한(429): %.0f초 기다렸다 다시", wait)
                     self._wait(wait)
+                    self._record(n)  # 다시 보내는 것도 1분 창에 센다
                     continue
                 # 기다려도 막혔다: 오류 종류 표의 요청 제한으로 올린다
                 raise EmbeddingError(
@@ -224,7 +279,7 @@ def make_embedder(
         r.embedding_model,
         r.embedding_dim,
         batch_size=r.embed_batch_size,
-        interval_s=r.embed_interval_seconds,
+        per_minute=r.embed_per_minute,
         usd_per_mtok=r.embedding_usd_per_mtok,
         cost_sink=cost_sink,
     )
