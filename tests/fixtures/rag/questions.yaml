@@ -21,7 +21,7 @@ questions:
     heading: 드라이런
   - q: 인스타그램 화면이 바뀌어 게시가 실패하면 다시 시도해?
     answerable: true
-    expected: [adr/0054-error-taxonomy-and-evidence.md]
+    expected: [adr/0054-error-taxonomy-and-evidence.md, incidents/0004-2026-10-18-instagram-notification-dialog.md]
     heading: 결정
   - q: 장애 화면에서 뭘 볼 수 있어
     answerable: true
