@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS doc_eval (
     without_vector INTEGER NOT NULL,
     summary VARCHAR NOT NULL,        -- JSON: 기준값별 표
     details VARCHAR NOT NULL,        -- JSON: 질문별 1등 점수·경로·정답 여부
-    error VARCHAR
+    error VARCHAR,
+    leaked INTEGER DEFAULT 0         -- 질문 문장이 그대로 실려 측정에서 뺀 조각 수(R3d)
 );
 

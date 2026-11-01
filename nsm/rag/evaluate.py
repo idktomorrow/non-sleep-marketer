@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -56,6 +57,32 @@ class EvalResult:
     rows: list[EvalRow] = field(default_factory=list)
     details: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
+    leaked: int = 0  # 질문 문장이 그대로 들어 있어 점수 계산에서 뺀 조각 수(R3d)
+
+
+_NOT_WORD = re.compile(r"[\W_]+")
+
+
+def normalize(text: str) -> str:
+    """공백·구두점·대소문자를 지운 글자만(한글·영문·숫자). 질문이 조각 안에 '그대로' 있는지 볼 때 쓴다."""
+    return _NOT_WORD.sub("", text.lower())
+
+
+def leaked_ids(db: Any, questions: list[str], source_kind: str = "docs") -> set[str]:
+    """질문 문장이 글자 그대로(정규화 뒤) 들어 있는 조각 id(R3d, ADR 0057 개정 1).
+
+    측정 질문이 devlog·ADR에 원문으로 적혀 있으면, 그 조각이 질문과 거의 같은 벡터라 1등이 된다. 시험 문제가
+    교과서에 실린 셈이라 측정에서만 뺀다. 조각이 천여 개라 파이썬에서 전수로 본다.
+    """
+    needles = [n for n in (normalize(q) for q in questions) if len(n) >= 4]
+    out: set[str] = set()
+    for cid, text in db.execute(
+        "SELECT id, text FROM doc_chunks WHERE source_kind = ?", [source_kind]
+    ):
+        hay = normalize(text or "")
+        if any(n in hay for n in needles):
+            out.add(cid)
+    return out
 
 
 def load_questions(path: Path) -> list[dict[str, Any]]:
@@ -106,11 +133,16 @@ def run_eval(
             "limit",
         )
     st = stored_stats(repo.db, "docs")
-    out = EvalResult(ran_at=now, chunks=st["chunks"], without_vector=st["without_vector"])
+    leaked = leaked_ids(
+        repo.db, [q["q"] for q in qs]
+    )  # 질문이 원문으로 실린 조각은 측정에서만 뺀다
+    out = EvalResult(
+        ran_at=now, chunks=st["chunks"], without_vector=st["without_vector"], leaked=len(leaked)
+    )
     sent = 0
     for q in qs:
         try:
-            res = search(repo.db, plan.embedder, q["q"], k=5, min_score=0.0)
+            res = search(repo.db, plan.embedder, q["q"], k=5, min_score=0.0, exclude_ids=leaked)
         except Exception as e:  # noqa: BLE001  한도 등으로 중간에 멈추면 거기까지
             add_used(repo, now, sent + 1)  # 막힌 시도도 하루 한도에 세어진다
             raise EvalRejected(
@@ -138,7 +170,8 @@ def run_eval(
 
 def save_eval(db: Any, r: EvalResult) -> None:
     db.execute(
-        "INSERT INTO doc_eval VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO doc_eval (id, ran_at, chunks, without_vector, summary, details, error, leaked) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
             uuid.uuid4().hex,
             to_db(r.ran_at),
@@ -147,17 +180,19 @@ def save_eval(db: Any, r: EvalResult) -> None:
             json.dumps([row.__dict__ for row in r.rows]),
             json.dumps(r.details, ensure_ascii=False),
             r.error or None,
+            r.leaked,
         ],
     )
 
 
 def recent_evals(db: Any, limit: int = 5) -> list[EvalResult]:
     rows = db.execute(
-        "SELECT ran_at, chunks, without_vector, summary, details, error FROM doc_eval ORDER BY ran_at DESC LIMIT ?",
+        "SELECT ran_at, chunks, without_vector, summary, details, error, coalesce(leaked, 0) "
+        "FROM doc_eval ORDER BY ran_at DESC LIMIT ?",
         [limit],
     )
     out = []
-    for ran, chunks, wv, summary, details, err in rows:
+    for ran, chunks, wv, summary, details, err, leaked in rows:
         out.append(
             EvalResult(
                 ran_at=from_db(ran),
@@ -166,6 +201,7 @@ def recent_evals(db: Any, limit: int = 5) -> list[EvalResult]:
                 rows=[EvalRow(**r) for r in json.loads(summary)],
                 details=json.loads(details),
                 error=err or "",
+                leaked=int(leaked),
             )
         )
     return out
