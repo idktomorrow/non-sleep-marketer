@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from nsm.rag.indexer import vector_literal
@@ -50,7 +51,9 @@ def search(
     k: int = 5,
     min_score: float,
     source_kind: str | None = None,
+    exclude_ids: Collection[str] | None = None,
 ) -> SearchResult:
+    """exclude_ids: 비교에서 뺄 조각 id(검색 측정의 유출 조각, R3d). 실제 질문은 쓰지 않는다."""
     question = question.strip()
     if not question:
         return SearchResult(question)
@@ -60,6 +63,9 @@ def search(
     if source_kind:
         where += " AND source_kind = ?"
         params.append(source_kind)
+    if exclude_ids:
+        where += " AND NOT list_contains(?::VARCHAR[], id)"
+        params.append(sorted(exclude_ids))
     rows = db.execute(
         "SELECT path, heading_path, text, list_cosine_similarity(embedding, ?::FLOAT[]) AS score "
         f"FROM doc_chunks WHERE {where} ORDER BY score DESC NULLS LAST, id LIMIT ?",

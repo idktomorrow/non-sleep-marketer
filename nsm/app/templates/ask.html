@@ -40,6 +40,7 @@
   <form method="post" action="/ask/eval" class="inline" data-busy-form><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit" data-busy-text="재는 중…">검색 측정</button></form>
   {% for e in evals %}
   <h3>{{ e.ran_at|kst }} · 조각 {{ e.chunks }}개, 벡터 없음 {{ e.without_vector }}개{% if e.error %} · <span class="muted">{{ e.error }}</span>{% endif %}</h3>
+  {% if e.leaked %}<p class="small muted eval-leaked">유출 조각 {{ e.leaked }}개 제외 <span class="hint">측정 질문이 문서에 원문으로 실린 조각이라 이 측정에서만 뺐습니다(실제 질문엔 그대로 씀)</span></p>{% endif %}
   <div class="table-wrap"><table class="eval-table"><tr><th>기준값</th><th>답 있는 질문에 답함</th><th>상위 1개 정답</th><th>상위 3개 정답</th><th>답 없는 질문 "근거 없음"</th></tr>
   {% for r in e.rows %}<tr{% if (r.threshold - min_score)|abs < 0.001 %} class="current"{% endif %}><td>{{ '%.2f'|format(r.threshold) }}{% if (r.threshold - min_score)|abs < 0.001 %} (지금){% endif %}</td><td>{{ r.answered }}/{{ r.answerable }}</td><td>{{ r.top1 }}/{{ r.answerable }}</td><td>{{ r.top3 }}/{{ r.answerable }}</td><td>{{ r.rejected }}/{{ r.unanswerable }}</td></tr>{% endfor %}
   </table></div>
