@@ -174,12 +174,24 @@ class QaResult:
     error: str = ""
 
 
-def questions_today(db: Any, start: datetime, end: datetime) -> int:
-    row = db.execute(
-        "SELECT count(*) FROM doc_qa WHERE asked_at >= ? AND asked_at < ?",
-        [to_db(start), to_db(end)],
-    )
-    return int(row[0][0])
+ASKED_KEY = (
+    "doc_qa_asked"  # {"day": "2026-11-01", "n": 3}: 하루 질문 수(기록을 지워도 줄지 않게, R3c 리뷰)
+)
+
+
+def questions_today(repo: Any, now: datetime, tz: str) -> int:
+    from nsm.domain.policy import local_day_bounds
+
+    day = local_day_bounds(now, tz)[0].date().isoformat()
+    v = repo.get_setting(ASKED_KEY, {}) or {}
+    return int(v.get("n", 0)) if isinstance(v, dict) and v.get("day") == day else 0
+
+
+def count_question(repo: Any, now: datetime, tz: str) -> None:
+    from nsm.domain.policy import local_day_bounds
+
+    day = local_day_bounds(now, tz)[0].date().isoformat()
+    repo.set_setting(ASKED_KEY, {"day": day, "n": questions_today(repo, now, tz) + 1})
 
 
 _ASK_LOCK = (
@@ -213,7 +225,7 @@ def _ask_docs(
     if len(q) > r.qa_max_chars:
         raise QuestionRejected(f"질문은 {r.qa_max_chars}자까지입니다(지금 {len(q)}자). {HINT}")
     start, end = local_day_bounds(now, cfg.settings.timezone)
-    if questions_today(repo.db, start, end) >= r.qa_daily_limit:
+    if questions_today(repo, now, cfg.settings.timezone) >= r.qa_daily_limit:
         raise QuestionRejected(
             f"오늘 질문 수 상한({r.qa_daily_limit}개)에 닿았습니다. 내일 다시 물어 주세요"
         )
@@ -256,13 +268,13 @@ def _ask_docs(
         out.similar = list(dict.fromkeys(h.heading_path for h in res.candidates[:3]))
     out.ms = int((time.monotonic() - t0) * 1000)
     save_qa(repo.db, out, now)
+    count_question(repo, now, cfg.settings.timezone)  # 기록을 지워도 오늘 질문 수는 그대로
     return out
 
 
 def save_qa(db: Any, r: QaResult, now: datetime) -> None:
-    sources = [
-        {k: v for k, v in s.items() if k != "text"} for s in r.sources
-    ]  # 본문은 doc_chunks에 있다
+    """근거 조각 본문도 함께 저장한다(R3c): 나중에 기록을 열었을 때 그때 본 근거를 그대로 다시 보이려고.
+    조각이 다시 색인돼 바뀌거나 지워져도 기록은 답할 때의 근거를 지킨다."""
     db.execute(
         "INSERT INTO doc_qa VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
@@ -271,7 +283,7 @@ def save_qa(db: Any, r: QaResult, now: datetime) -> None:
             r.question,
             r.answer,
             r.grounded,
-            json.dumps(sources, ensure_ascii=False),
+            json.dumps(r.sources, ensure_ascii=False),
             json.dumps(r.similar, ensure_ascii=False),
             r.model,
             r.usd,
@@ -281,25 +293,77 @@ def save_qa(db: Any, r: QaResult, now: datetime) -> None:
     )
 
 
+_QA_COLS = (
+    "id, asked_at, question, answer, grounded, sources, similar_titles, model, usd, ms, error"
+)
+
+
+def _qa_row(row: tuple) -> dict[str, Any]:
+    from nsm.store.db import from_db
+
+    qid, a, q, ans, g, s, sim, m, u, ms, err = row
+    sources = json.loads(s or "[]")
+    for src in sources:
+        src.setdefault("text", None)  # R3c 전 기록엔 본문이 없다: 화면에 "원문 없음"
+    return {
+        "id": qid,
+        "asked_at": from_db(a),
+        "question": q,
+        "answer": ans,
+        "grounded": g,
+        "sources": sources,
+        "similar": json.loads(sim or "[]"),
+        "model": m,
+        "usd": u,
+        "ms": ms,
+        "error": err or "",
+    }
+
+
 def recent_qa(db: Any, limit: int = 20) -> list[dict[str, Any]]:
+    """목록용: 근거 본문은 읽지 않고 개수만(근거 본문은 상세에서만, R3c 리뷰)."""
     from nsm.store.db import from_db
 
     rows = db.execute(
-        "SELECT asked_at, question, answer, grounded, sources, model, usd, ms, error FROM doc_qa "
-        "ORDER BY asked_at DESC, rowid DESC LIMIT ?",
+        "SELECT id, asked_at, question, answer, grounded, coalesce(json_array_length(sources), 0), usd, error "
+        "FROM doc_qa ORDER BY asked_at DESC, rowid DESC LIMIT ?",
         [limit],
     )
     return [
         {
+            "id": qid,
             "asked_at": from_db(a),
             "question": q,
             "answer": ans,
             "grounded": g,
-            "sources": json.loads(s or "[]"),
-            "model": m,
+            "source_count": int(n),
             "usd": u,
-            "ms": ms,
-            "error": err,
+            "error": err or "",
         }
-        for a, q, ans, g, s, m, u, ms, err in rows
+        for qid, a, q, ans, g, n, u, err in rows
     ]
+
+
+def get_qa(db: Any, qa_id: str) -> dict[str, Any] | None:
+    rows = db.execute(f"SELECT {_QA_COLS} FROM doc_qa WHERE id = ?", [qa_id])
+    return _qa_row(rows[0]) if rows else None
+
+
+def delete_qa(db: Any, qa_id: str) -> None:
+    db.execute("DELETE FROM doc_qa WHERE id = ?", [qa_id])
+
+
+def delete_all_qa(db: Any) -> None:
+    db.execute("DELETE FROM doc_qa")
+
+
+def prune_qa(db: Any, now: datetime, keep_days: int) -> int:
+    """유지보수 잡(R3c): 실행 기록 보관 일수(run_log_keep_days)가 지난 질문 기록을 지운다.
+    측정 기록(doc_eval)은 전후 비교용이라 지우지 않는다."""
+    from datetime import timedelta
+
+    cutoff = to_db(now - timedelta(days=keep_days))
+    n = int(db.execute("SELECT count(*) FROM doc_qa WHERE asked_at < ?", [cutoff])[0][0])
+    if n:
+        db.execute("DELETE FROM doc_qa WHERE asked_at < ?", [cutoff])
+    return n

@@ -187,7 +187,7 @@ def test_recent_questions_listed(env) -> None:
     _ask(env, "보호 모드가 뭐야")
     _ask(env, "네이버 블로그는 왜 게시 안 해")
     html = env["client"].get("/ask").text
-    recent = html[html.index("<h2>최근 질문</h2>") :]  # 질문 칸의 예시 문구는 빼고 목록만
+    recent = html[html.index('<h2 id="recent">') :]  # 질문 칸의 예시 문구는 빼고 목록만
     assert recent.index("네이버 블로그는 왜 게시 안 해") < recent.index("보호 모드가 뭐야")
 
 
@@ -230,7 +230,7 @@ def test_eval_button_makes_table_and_record_without_claude(
     r = env["client"].post(
         "/ask/eval", data={"csrf": env["state"].csrf_token}, follow_redirects=False
     )
-    assert r.status_code == 303 and "eval_msg" in r.headers["location"]
+    assert r.status_code == 303 and r.headers["location"] == "/ask?eval=ok#eval"
     assert env["msgs"].calls == []  # 측정은 Claude를 부르지 않는다
     assert len(env["emb"].queries) == 3
     html = env["client"].get(r.headers["location"]).text
@@ -250,7 +250,7 @@ def test_eval_refuses_when_todays_quota_is_short(env, monkeypatch) -> None:
     r = env["client"].post(
         "/ask/eval", data={"csrf": env["state"].csrf_token}, follow_redirects=False
     )
-    assert "eval_error" in r.headers["location"]
+    assert r.headers["location"] == "/ask?eval=limit#eval"
     assert env["emb"].queries == []
 
 
@@ -352,7 +352,7 @@ def test_incomplete_eval_is_not_saved_and_counts_attempts(env) -> None:
     r = env["client"].post(
         "/ask/eval", data={"csrf": env["state"].csrf_token}, follow_redirects=False
     )
-    assert "eval_error" in r.headers["location"]
+    assert r.headers["location"] == "/ask?eval=stopped#eval"
     assert env["repo"].db.execute("SELECT count(*) FROM doc_eval")[0][0] == 0
     assert used_today(env["repo"], env["state"].clock.now()) == 3  # 성공 2 + 막힌 1
 
@@ -385,7 +385,7 @@ def test_not_in_docs_answer_is_recorded_as_not_grounded(env) -> None:
     env["msgs"].text = "문서에 그 내용이 없습니다."
     html = _ask(env, "보호 모드가 뭐야").text
     assert env["repo"].db.execute("SELECT grounded FROM doc_qa")[0][0] is False
-    recent = html[html.index("<h2>최근 질문</h2>") :]
+    recent = html[html.index('<h2 id="recent">') :]
     assert "근거 없음" in recent
 
 

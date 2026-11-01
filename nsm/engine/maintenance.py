@@ -33,6 +33,10 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     # 정리를 먼저: 백업이 실패해도(파일이 열려 있음, 디스크 가득) 실행 기록 정리는 된다
     pruned = ctx.repo.prune_runs(s.run_log_keep_days)
     result.counts["failures_pruned"] = ctx.repo.prune_failures(s.run_log_keep_days)  # E2
+    # 문서 질문 기록(R3c): 실행 기록과 같은 보관 일수. 측정 기록(doc_eval)은 전후 비교용이라 지우지 않는다
+    from nsm.rag.answer import prune_qa
+
+    result.counts["qa_pruned"] = prune_qa(ctx.repo.db, ctx.clock.now(), s.run_log_keep_days)
     if ctx.backups_dir is not None and ctx.repo.db.path != ":memory:":
         day = local(ctx.clock.now(), ctx.tz).date().isoformat()
         prefix = backup_prefix(s.preset)

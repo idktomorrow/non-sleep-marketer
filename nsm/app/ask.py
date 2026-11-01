@@ -1,9 +1,11 @@
 """대시보드 "문서 질문" 탭(R3, ADR 0058, 고급 모드).
 
-- GET /ask: 질문 칸, 최근 질문 20개, 최근 측정.
-- POST /ask: 질문 하나(CSRF). 찾은 조각만 근거로 Claude가 답하고, 근거가 없으면 Claude를 부르지 않는다.
-- POST /ask/eval: 질문 파일 20개로 검색 측정(CSRF). Claude는 부르지 않는다.
-답변은 템플릿에서 자동 이스케이프된다(Claude 출력을 HTML로 넣지 않는다).
+- GET /ask: 질문 칸, 최근 질문 20개, 최근 측정. `?qa=<기록 id>`면 그 기록(답·근거·비용·시간)을 보여 준다.
+- POST /ask: 질문 하나(CSRF). 처리해 doc_qa에 저장한 뒤 303으로 `/ask?qa=<id>`에 보낸다(R3c): 새로고침(F5)이
+  같은 질문을 다시 보내 비용이 또 나가지 않게. 거절(길이·상한·키 없음)은 그 자리에 400으로 보인다.
+- POST /ask/qa/<id>/delete, POST /ask/qa/delete-all: 질문 기록 지우기(CSRF, 전부 지우기는 확인 한 번 더).
+- POST /ask/eval: 질문 파일 20개로 검색 측정(CSRF). 결과 안내는 주소창에 코드만, 문구는 서버가 고른다.
+답 글은 이스케이프한 뒤 백틱 코드와 [n] 링크만 만든다(`ask_format.answer_html`).
 """
 
 from __future__ import annotations
@@ -14,9 +16,52 @@ from typing import Any
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from nsm.rag.answer import HINT, QuestionRejected, ask_docs, recent_qa
+from nsm.app import ask_format
+from nsm.rag.answer import (
+    HINT,
+    QuestionRejected,
+    ask_docs,
+    delete_all_qa,
+    delete_qa,
+    get_qa,
+    recent_qa,
+)
 from nsm.rag.evaluate import EvalRejected, recent_evals, run_eval
 from nsm.rag.indexer import stored_stats
+
+# 측정 결과 코드 → 화면 문구. 모르는 코드는 무시한다(주소창을 고쳐도 아무 글이나 뜨지 않게)
+EVAL_TEXT = {
+    "ok": ("info", "측정했습니다."),
+    "limit": (
+        "bad",
+        "오늘 남은 Gemini 무료 한도가 모자라 질문 20개를 다 잴 수 없습니다. 내일(한국 오후 4~5시 뒤) 다시 눌러 주세요.",
+    ),
+    "no_key": ("bad", "Gemini 키가 없어 측정할 수 없습니다. 설정 → API 키에서 넣어 주세요."),
+    "cost_cap": ("bad", "오늘 비용 상한에 닿아 측정하지 않았습니다."),
+    "no_file": ("bad", "측정 질문 파일(tests/fixtures/rag/questions.yaml)이 없습니다."),
+    "stopped": (
+        "bad",
+        "측정 도중 Gemini 요청이 막혀 멈췄습니다. 질문 일부로 만든 표는 비교가 안 돼 남기지 않았습니다.",
+    ),
+    "error": ("bad", "측정하지 못했습니다."),
+}
+QA_TEXT = {
+    "deleted": "질문 기록을 지웠습니다.",
+    "deleted_all": "질문 기록을 모두 지웠습니다.",
+}
+MISSING_QA = "그 질문 기록이 없습니다(지웠거나 보관 기간이 지났습니다)."
+EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화면에 함께 보임)
+
+
+def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
+    """기록 하나를 화면용으로: 초·원화, 답 HTML(이스케이프 + 백틱 코드 + [n] 링크)."""
+    ns = {int(s["n"]) for s in qa.get("sources", [])}
+    return {
+        **qa,
+        "answer_html": ask_format.answer_html(qa.get("answer"), ns),
+        "secs": ask_format.seconds(qa.get("ms")),
+        "cost": ask_format.cost(qa.get("usd"), krw_per_usd),
+    }
 
 
 def install_ask_routes(
@@ -27,30 +72,49 @@ def install_ask_routes(
 
     def _view(request: Request, **extra: Any) -> HTMLResponse:
         cfg = state.get_config()
+        krw = cfg.settings.krw_per_usd
         st = stored_stats(state.repo.db, "docs")
         embedder, answerer = _rag()
+        q = request.query_params
+        last_error = state.repo.get_setting(EVAL_ERROR_KEY, "") if q.get("eval") else ""
         return page(
             request,
             "ask.html",
             hint=HINT,
+            qa_cost_hint=ask_format.estimate_won(cfg.settings.models.qa, krw),
             max_chars=cfg.settings.rag.qa_max_chars,
             min_score=cfg.settings.rag.min_score,
             stats=st,
             has_embedder=embedder is not None,
             has_answerer=answerer is not None,
-            recent=recent_qa(state.repo.db, 20),
+            # 목록은 비용 표시만(답 HTML은 상세에서만 만든다)
+            recent=[
+                {**r, "cost": ask_format.cost(r["usd"], krw)} for r in recent_qa(state.repo.db, 20)
+            ],
             evals=recent_evals(state.repo.db, 3),
-            eval_msg=request.query_params.get("eval_msg"),
-            eval_error=request.query_params.get("eval_error"),
+            eval_notice=EVAL_TEXT.get(q.get("eval", "")),
+            # 멈춘 이유(몇 번째 질문·오류 종류)는 주소창이 아니라 서버에 둔 마지막 측정 오류에서
+            eval_detail=last_error if q.get("eval") in ("stopped", "error") else "",
+            qa_notice=QA_TEXT.get(q.get("done", "")),
             **extra,
         )
 
     @app.get("/ask", response_class=HTMLResponse)
-    def ask_page(request: Request) -> HTMLResponse:
-        return _view(request, result=None, error=None, question="")
+    def ask_page(request: Request, qa: str = "") -> HTMLResponse:
+        result = None
+        if qa:
+            rec = get_qa(state.repo.db, qa)
+            if rec is not None:
+                result = present(rec, state.get_config().settings.krw_per_usd)
+        return _view(
+            request,
+            result=result,
+            error=MISSING_QA if qa and result is None else None,
+            question=result["question"] if result else "",
+        )
 
-    @app.post("/ask", response_class=HTMLResponse, dependencies=[Depends(check_csrf)])
-    def ask_post(request: Request, question: str = Form("")) -> HTMLResponse:
+    @app.post("/ask", response_model=None, dependencies=[Depends(check_csrf)])
+    def ask_post(request: Request, question: str = Form("")) -> HTMLResponse | RedirectResponse:
         embedder, answerer = _rag()
         try:
             result = ask_docs(
@@ -60,18 +124,28 @@ def install_ask_routes(
             resp = _view(request, result=None, error=str(e), question=question[:1000])
             resp.status_code = 400
             return resp
-        return _view(request, result=result, error=None, question=result.question)
+        # 저장한 기록으로 보낸다: 새로고침해도 다시 묻지 않는다(R3c)
+        return RedirectResponse(f"/ask?qa={result.id}#answer", status_code=303)
+
+    @app.post("/ask/qa/{qa_id}/delete", dependencies=[Depends(check_csrf)])
+    def ask_delete(qa_id: str) -> RedirectResponse:
+        delete_qa(state.repo.db, qa_id)
+        return RedirectResponse("/ask?done=deleted#recent", status_code=303)
+
+    @app.post("/ask/qa/delete-all", dependencies=[Depends(check_csrf)])
+    def ask_delete_all(confirm_all: str = Form("")) -> RedirectResponse:
+        if confirm_all != "yes":  # 확인 한 번 더(화면의 확인 창을 거친 폼만 이 값을 보낸다)
+            return RedirectResponse("/ask#recent", status_code=303)
+        delete_all_qa(state.repo.db)
+        return RedirectResponse("/ask?done=deleted_all#recent", status_code=303)
 
     @app.post("/ask/eval", dependencies=[Depends(check_csrf)])
     def ask_eval() -> RedirectResponse:
-        from urllib.parse import urlencode
-
         embedder, _ = _rag()
         try:
-            r = run_eval(state.get_config(), state.repo, embedder, state.clock.now())
+            run_eval(state.get_config(), state.repo, embedder, state.clock.now())
         except EvalRejected as e:
-            return RedirectResponse(
-                f"/ask?{urlencode({'eval_error': str(e)})}#eval", status_code=303
-            )
-        msg = "측정했습니다" + (f"({r.error})" if r.error else "")
-        return RedirectResponse(f"/ask?{urlencode({'eval_msg': msg})}#eval", status_code=303)
+            code = e.code if e.code in EVAL_TEXT else "error"
+            state.repo.set_setting(EVAL_ERROR_KEY, str(e)[:300])
+            return RedirectResponse(f"/ask?eval={code}#eval", status_code=303)
+        return RedirectResponse("/ask?eval=ok#eval", status_code=303)

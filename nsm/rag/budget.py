@@ -37,19 +37,20 @@ class Plan:
     embedder: Any | None  # None이면 임베딩하지 않는다(조각만)
     max_embed: int  # 이번에 보낼 수 있는 최대 조각 수
     note: str = ""  # 조용히 끝나는 이유(실행 기록·안내 문구)
+    code: str = ""  # 같은 이유의 코드(no_key·cost_cap·limit). 화면이 문구를 고를 때 쓴다(R3c 리뷰)
 
 
 def plan_embedding(cfg: Any, repo: Any, embedder: Any | None, now: datetime, want: int) -> Plan:
     """키·비용 상한·하루 한도를 보고 이번에 몇 개까지 보낼지. want: 원하는 최대(실행당 상한 또는 질문 1)."""
     s = cfg.settings
     if embedder is None:
-        return Plan(None, 0, "Gemini 키 없음(조각만 저장)")
+        return Plan(None, 0, "Gemini 키 없음(조각만 저장)", "no_key")
     start, end = local_day_bounds(now, s.timezone)
     if not under_cost_cap(repo.cost_between(start, end), s.daily_cost_cap_usd):
-        return Plan(None, 0, "오늘 비용 상한(조각만 저장)")
+        return Plan(None, 0, "오늘 비용 상한(조각만 저장)", "cost_cap")
     left = s.rag.embed_daily_limit - used_today(repo, now)
     if left <= 0:
-        return Plan(None, 0, "오늘 Gemini 하루 한도를 이미 씀(내일 이어서)")
+        return Plan(None, 0, "오늘 Gemini 하루 한도를 이미 씀(내일 이어서)", "limit")
     return Plan(embedder, min(want, left))
 
 
