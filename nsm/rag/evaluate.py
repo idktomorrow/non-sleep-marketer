@@ -68,20 +68,34 @@ def normalize(text: str) -> str:
     return _NOT_WORD.sub("", text.lower())
 
 
-def leaked_ids(db: Any, questions: list[str], source_kind: str = "docs") -> set[str]:
-    """질문 문장이 글자 그대로(정규화 뒤) 들어 있는 조각 id(R3d, ADR 0057 개정 1).
+MIN_NEEDLE = 6  # 정규화 뒤 이보다 짧은 질문은 비교하지 않는다(짧으면 엉뚱한 조각과 맞음)
+# 파이썬 normalize와 같은 결과: 소문자, 글자·숫자만(밑줄도 지움)
+_SQL_NORM = r"regexp_replace(lower(text), '[^\p{L}\p{N}]', '', 'g')"
 
-    측정 질문이 devlog·ADR에 원문으로 적혀 있으면, 그 조각이 질문과 거의 같은 벡터라 1등이 된다. 시험 문제가
-    교과서에 실린 셈이라 측정에서만 뺀다. 조각이 천여 개라 파이썬에서 전수로 본다.
+
+def leaked_by_question(
+    db: Any, questions: list[str], model: str, dim: int, source_kind: str = "docs"
+) -> dict[str, set[str]]:
+    """질문마다, 그 질문 문장이 글자 그대로(정규화 뒤) 들어 있는 조각 id(R3d, ADR 0057 개정 1).
+
+    측정 질문이 devlog·ADR에 원문으로 적혀 있으면 그 조각이 질문과 거의 같은 벡터라 1등이 된다. 시험 문제가
+    교과서에 실린 셈이라 측정에서만 뺀다.
+    - **질문별로** 뺀다. 질문 A가 실린 조각이 질문 B의 정당한 답일 수 있어서(예: 예시 질문이 적힌 설명서 절).
+    - 검색이 실제로 비교하는 조각(같은 출처·모델·차원의 벡터가 있는 것)만 센다.
+    - 정규화 비교는 DB 안에서 한다.
     """
-    needles = [n for n in (normalize(q) for q in questions) if len(n) >= 4]
-    out: set[str] = set()
-    for cid, text in db.execute(
-        "SELECT id, text FROM doc_chunks WHERE source_kind = ?", [source_kind]
-    ):
-        hay = normalize(text or "")
-        if any(n in hay for n in needles):
-            out.add(cid)
+    out: dict[str, set[str]] = {}
+    for q in questions:
+        needle = normalize(q)
+        if len(needle) < MIN_NEEDLE:
+            out[q] = set()
+            continue
+        rows = db.execute(
+            f"SELECT id FROM doc_chunks WHERE source_kind = ? AND embedding IS NOT NULL "
+            f"AND embed_model = ? AND len(embedding) = ? AND contains({_SQL_NORM}, ?)",
+            [source_kind, model, dim, needle],
+        )
+        out[q] = {r[0] for r in rows}
     return out
 
 
@@ -133,16 +147,28 @@ def run_eval(
             "limit",
         )
     st = stored_stats(repo.db, "docs")
-    leaked = leaked_ids(
-        repo.db, [q["q"] for q in qs]
-    )  # 질문이 원문으로 실린 조각은 측정에서만 뺀다
+    # 질문이 원문으로 실린 조각은 측정에서만, 그 질문에서만 뺀다
+    leaked = leaked_by_question(
+        repo.db, [q["q"] for q in qs], plan.embedder.model, plan.embedder.dim
+    )
     out = EvalResult(
-        ran_at=now, chunks=st["chunks"], without_vector=st["without_vector"], leaked=len(leaked)
+        ran_at=now,
+        chunks=st["chunks"],
+        without_vector=st["without_vector"],
+        leaked=len(set().union(*leaked.values())) if leaked else 0,
     )
     sent = 0
     for q in qs:
         try:
-            res = search(repo.db, plan.embedder, q["q"], k=5, min_score=0.0, exclude_ids=leaked)
+            res = search(
+                repo.db,
+                plan.embedder,
+                q["q"],
+                k=5,
+                min_score=0.0,
+                source_kind="docs",
+                exclude_ids=leaked.get(q["q"]),
+            )
         except Exception as e:  # noqa: BLE001  한도 등으로 중간에 멈추면 거기까지
             add_used(repo, now, sent + 1)  # 막힌 시도도 하루 한도에 세어진다
             raise EvalRejected(

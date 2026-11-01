@@ -168,7 +168,7 @@ erDiagram
 ## 6-4. 문서 질문 (R3, ADR 0058)
 
 - `nsm/rag/answer.ask_docs`: 길이(200자)·하루 질문 수(50)·임베딩 장부 검사 → `search` → 근거 없으면 Claude 없이 "문서에서 근거를 찾지 못했습니다" → 있으면 `ClaudeAnswerer`(models.qa = haiku, 생각 끔, `<docs>` 데이터 경계, 문장마다 [번호], 비용 llm·ref "qa", 하루 비용 상한) → `doc_qa`에 저장.
-- `nsm/rag/evaluate.run_eval`(R3d: 질문 문장이 정규화 뒤 그대로 들어 있는 조각을 `leaked_ids`로 찾아 `search(exclude_ids=…)`로 빼고 `doc_eval.leaked`에 수를 남김, 스키마 v8. 실제 질문은 빼지 않음): 질문 파일 20개로 검색만(Gemini 20건) → 기준값 0.60·0.65·0.70 표 → `doc_eval`.
+- `nsm/rag/evaluate.run_eval`(R3d: 질문 문장이 정규화 뒤 그대로 들어 있는 조각을 `leaked_by_question`으로 질문별로 찾아 `search(exclude_ids=…)`로 빼고 `doc_eval.leaked`에 수를 남김, 스키마 v8. 실제 질문은 빼지 않음): 질문 파일 20개로 검색만(Gemini 20건) → 기준값 0.60·0.65·0.70 표 → `doc_eval`.
 - 화면 `nsm/app/ask.py`·`ask.html`(고급 모드 "문서 질문"): 답·근거(펼치기)·비슷한 문서·검색 측정·최근 질문 20개. R3c: POST는 저장 후 303으로 `/ask?qa=<id>`(새로고침 중복 전송 없음), 근거 본문을 `doc_qa`에 함께 저장, 기록 지우기·전부 지우기, 유지보수 잡이 `run_log_keep_days` 지난 기록 정리(`doc_eval`은 유지), 표시는 `nsm/app/ask_format.py`(초·원화·이스케이프 뒤 백틱 코드·[n] 링크), `static/ask.js`(버튼 잠금·근거 펼치기). 임베더·답변기는 `AppState.get_rag`로 `ctx`에서 받아 키를 바꾸면 새 것.
 - 스키마 v7: `doc_qa`, `doc_eval`.
 

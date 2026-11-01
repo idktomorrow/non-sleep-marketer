@@ -12,7 +12,7 @@ import pytest
 
 from nsm.config.schema import RagSettings
 from nsm.rag.answer import ClaudeAnswerer, ask_docs
-from nsm.rag.evaluate import leaked_ids, normalize, recent_evals, run_eval
+from nsm.rag.evaluate import leaked_by_question, normalize, recent_evals, run_eval
 from nsm.rag.indexer import index_documents
 from nsm.rag.sources import DocsFolderSource
 from nsm.store.repo import Repository
@@ -69,26 +69,51 @@ def test_normalize_ignores_spaces_punctuation_and_case() -> None:
     assert normalize("API 키는 어디에 저장돼") == "api키는어디에저장돼"
 
 
-def test_leaked_chunk_is_found_and_counted(env) -> None:
-    ids = leaked_ids(
-        env["db"], ["보호 모드가 뭐야", "오늘 서울 날씨 어때", "네이버 블로그는 왜 게시 안 해"]
+def test_leaked_chunks_are_found_per_question(env) -> None:
+    qs = ["보호 모드가 뭐야", "오늘 서울 날씨 어때", "네이버 블로그는 왜 게시 안 해"]
+    m = leaked_by_question(env["db"], qs, env["emb"].model, env["emb"].dim)
+    assert len(m["보호 모드가 뭐야"]) == 1 and len(m["오늘 서울 날씨 어때"]) == 1
+    assert m["네이버 블로그는 왜 게시 안 해"] == set()
+    assert m["보호 모드가 뭐야"] != m["오늘 서울 날씨 어때"]  # 질문마다 자기 문장이 실린 조각만
+
+
+def test_chunk_quoting_another_question_stays_for_this_question(env) -> None:
+    """질문 A가 실린 조각은 질문 B의 측정에선 빼지 않는다(정당한 답일 수 있다)."""
+    from nsm.rag.search import search
+
+    m = leaked_by_question(env["db"], ["오늘 서울 날씨 어때"], env["emb"].model, env["emb"].dim)
+    res = search(
+        env["db"],
+        env["emb"],
+        "보호 모드가 뭐야",
+        k=5,
+        min_score=0.0,
+        exclude_ids=m["오늘 서울 날씨 어때"],
     )
-    paths = {
-        r[0]
-        for r in env["db"].execute(
-            "SELECT path FROM doc_chunks WHERE list_contains(?::VARCHAR[], id)", [sorted(ids)]
-        )
-    }
-    assert paths == {"devlog/2026-10-30-batch-R2.md"} and len(ids) == 2  # 질문이 실린 절 두 개
+    assert any(c.path == "devlog/2026-10-30-batch-R2.md" for c in res.candidates)
+
+
+def test_only_comparable_chunks_are_counted_and_short_questions_skipped(env) -> None:
+    db = env["db"]
+    db.execute("UPDATE doc_chunks SET embedding = NULL WHERE text LIKE '%오늘 서울 날씨%'")
+    m = leaked_by_question(db, ["오늘 서울 날씨 어때", "보호"], env["emb"].model, env["emb"].dim)
+    assert m["오늘 서울 날씨 어때"] == set()  # 벡터 없는 조각은 검색이 안 보므로 세지 않음
+    assert m["보호"] == set()  # 정규화 뒤 6자 미만은 비교 안 함
+    assert (
+        leaked_by_question(db, ["보호 모드가 뭐야"], "other-model", env["emb"].dim)[
+            "보호 모드가 뭐야"
+        ]
+        == set()
+    )
 
 
 def test_eval_excludes_leaked_chunks_and_still_counts_the_answer(env) -> None:
     r = run_eval(env["cfg"], env["repo"], env["emb"], NOW, env["qfile"])
     assert r.leaked == 2
+    own = {"보호 모드가 뭐야": "질문 1", "오늘 서울 날씨 어때": "질문 16"}  # 각 질문이 실린 절
     for d in r.details:
-        assert all(
-            c["path"] != "devlog/2026-10-30-batch-R2.md" for c in d["cands"]
-        )  # 유출 조각은 후보에 없음
+        if d["q"] in own:  # 자기 문장이 실린 절만 후보에서 빠진다(다른 질문의 절은 남을 수 있음)
+            assert all(not c["heading"].endswith(own[d["q"]]) for c in d["cands"])
     guard = next(d for d in r.details if d["q"] == "보호 모드가 뭐야")
     assert guard["cands"][0]["path"] == "adr/0008-guard.md"  # 정답 조각은 그대로 1등
     from nsm.rag.evaluate import table
