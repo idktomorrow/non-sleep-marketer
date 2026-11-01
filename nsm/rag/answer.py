@@ -174,12 +174,24 @@ class QaResult:
     error: str = ""
 
 
-def questions_today(db: Any, start: datetime, end: datetime) -> int:
-    row = db.execute(
-        "SELECT count(*) FROM doc_qa WHERE asked_at >= ? AND asked_at < ?",
-        [to_db(start), to_db(end)],
-    )
-    return int(row[0][0])
+ASKED_KEY = (
+    "doc_qa_asked"  # {"day": "2026-11-01", "n": 3}: 하루 질문 수(기록을 지워도 줄지 않게, R3c 리뷰)
+)
+
+
+def questions_today(repo: Any, now: datetime, tz: str) -> int:
+    from nsm.domain.policy import local_day_bounds
+
+    day = local_day_bounds(now, tz)[0].date().isoformat()
+    v = repo.get_setting(ASKED_KEY, {}) or {}
+    return int(v.get("n", 0)) if isinstance(v, dict) and v.get("day") == day else 0
+
+
+def count_question(repo: Any, now: datetime, tz: str) -> None:
+    from nsm.domain.policy import local_day_bounds
+
+    day = local_day_bounds(now, tz)[0].date().isoformat()
+    repo.set_setting(ASKED_KEY, {"day": day, "n": questions_today(repo, now, tz) + 1})
 
 
 _ASK_LOCK = (
@@ -213,7 +225,7 @@ def _ask_docs(
     if len(q) > r.qa_max_chars:
         raise QuestionRejected(f"질문은 {r.qa_max_chars}자까지입니다(지금 {len(q)}자). {HINT}")
     start, end = local_day_bounds(now, cfg.settings.timezone)
-    if questions_today(repo.db, start, end) >= r.qa_daily_limit:
+    if questions_today(repo, now, cfg.settings.timezone) >= r.qa_daily_limit:
         raise QuestionRejected(
             f"오늘 질문 수 상한({r.qa_daily_limit}개)에 닿았습니다. 내일 다시 물어 주세요"
         )
@@ -256,6 +268,7 @@ def _ask_docs(
         out.similar = list(dict.fromkeys(h.heading_path for h in res.candidates[:3]))
     out.ms = int((time.monotonic() - t0) * 1000)
     save_qa(repo.db, out, now)
+    count_question(repo, now, cfg.settings.timezone)  # 기록을 지워도 오늘 질문 수는 그대로
     return out
 
 
@@ -308,10 +321,27 @@ def _qa_row(row: tuple) -> dict[str, Any]:
 
 
 def recent_qa(db: Any, limit: int = 20) -> list[dict[str, Any]]:
+    """목록용: 근거 본문은 읽지 않고 개수만(근거 본문은 상세에서만, R3c 리뷰)."""
+    from nsm.store.db import from_db
+
     rows = db.execute(
-        f"SELECT {_QA_COLS} FROM doc_qa ORDER BY asked_at DESC, rowid DESC LIMIT ?", [limit]
+        "SELECT id, asked_at, question, answer, grounded, coalesce(json_array_length(sources), 0), usd, error "
+        "FROM doc_qa ORDER BY asked_at DESC, rowid DESC LIMIT ?",
+        [limit],
     )
-    return [_qa_row(r) for r in rows]
+    return [
+        {
+            "id": qid,
+            "asked_at": from_db(a),
+            "question": q,
+            "answer": ans,
+            "grounded": g,
+            "source_count": int(n),
+            "usd": u,
+            "error": err or "",
+        }
+        for qid, a, q, ans, g, n, u, err in rows
+    ]
 
 
 def get_qa(db: Any, qa_id: str) -> dict[str, Any] | None:
@@ -319,16 +349,12 @@ def get_qa(db: Any, qa_id: str) -> dict[str, Any] | None:
     return _qa_row(rows[0]) if rows else None
 
 
-def delete_qa(db: Any, qa_id: str) -> int:
-    before = int(db.execute("SELECT count(*) FROM doc_qa WHERE id = ?", [qa_id])[0][0])
+def delete_qa(db: Any, qa_id: str) -> None:
     db.execute("DELETE FROM doc_qa WHERE id = ?", [qa_id])
-    return before
 
 
-def delete_all_qa(db: Any) -> int:
-    n = int(db.execute("SELECT count(*) FROM doc_qa")[0][0])
+def delete_all_qa(db: Any) -> None:
     db.execute("DELETE FROM doc_qa")
-    return n
 
 
 def prune_qa(db: Any, now: datetime, keep_days: int) -> int:

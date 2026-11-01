@@ -50,6 +50,7 @@ QA_TEXT = {
     "deleted_all": "질문 기록을 모두 지웠습니다.",
 }
 MISSING_QA = "그 질문 기록이 없습니다(지웠거나 보관 기간이 지났습니다)."
+EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화면에 함께 보임)
 
 
 def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
@@ -75,18 +76,25 @@ def install_ask_routes(
         st = stored_stats(state.repo.db, "docs")
         embedder, answerer = _rag()
         q = request.query_params
+        last_error = state.repo.get_setting(EVAL_ERROR_KEY, "") if q.get("eval") else ""
         return page(
             request,
             "ask.html",
             hint=HINT,
+            qa_cost_hint=ask_format.estimate_won(cfg.settings.models.qa, krw),
             max_chars=cfg.settings.rag.qa_max_chars,
             min_score=cfg.settings.rag.min_score,
             stats=st,
             has_embedder=embedder is not None,
             has_answerer=answerer is not None,
-            recent=[present(r, krw) for r in recent_qa(state.repo.db, 20)],
+            # 목록은 비용 표시만(답 HTML은 상세에서만 만든다)
+            recent=[
+                {**r, "cost": ask_format.cost(r["usd"], krw)} for r in recent_qa(state.repo.db, 20)
+            ],
             evals=recent_evals(state.repo.db, 3),
             eval_notice=EVAL_TEXT.get(q.get("eval", "")),
+            # 멈춘 이유(몇 번째 질문·오류 종류)는 주소창이 아니라 서버에 둔 마지막 측정 오류에서
+            eval_detail=last_error if q.get("eval") in ("stopped", "error") else "",
             qa_notice=QA_TEXT.get(q.get("done", "")),
             **extra,
         )
@@ -125,8 +133,8 @@ def install_ask_routes(
         return RedirectResponse("/ask?done=deleted#recent", status_code=303)
 
     @app.post("/ask/qa/delete-all", dependencies=[Depends(check_csrf)])
-    def ask_delete_all(confirm: str = Form("")) -> RedirectResponse:
-        if confirm != "yes":  # 확인 한 번 더(화면의 확인 창을 거친 폼만 이 값을 보낸다)
+    def ask_delete_all(confirm_all: str = Form("")) -> RedirectResponse:
+        if confirm_all != "yes":  # 확인 한 번 더(화면의 확인 창을 거친 폼만 이 값을 보낸다)
             return RedirectResponse("/ask#recent", status_code=303)
         delete_all_qa(state.repo.db)
         return RedirectResponse("/ask?done=deleted_all#recent", status_code=303)
@@ -138,5 +146,6 @@ def install_ask_routes(
             run_eval(state.get_config(), state.repo, embedder, state.clock.now())
         except EvalRejected as e:
             code = e.code if e.code in EVAL_TEXT else "error"
+            state.repo.set_setting(EVAL_ERROR_KEY, str(e)[:300])
             return RedirectResponse(f"/ask?eval={code}#eval", status_code=303)
         return RedirectResponse("/ask?eval=ok#eval", status_code=303)

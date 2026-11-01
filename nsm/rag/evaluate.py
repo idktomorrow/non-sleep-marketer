@@ -37,14 +37,6 @@ class EvalRejected(Exception):
         self.code = code
 
 
-def _plan_code(note: str) -> str:
-    if "키 없음" in note:
-        return "no_key"
-    if "비용 상한" in note:
-        return "cost_cap"
-    return "limit"
-
-
 @dataclass
 class EvalRow:
     threshold: float
@@ -107,7 +99,7 @@ def run_eval(
     qs = load_questions(questions_path or default_questions_path())
     plan = plan_embedding(cfg, repo, embedder, now, len(qs))
     if plan.embedder is None:
-        raise EvalRejected(f"측정할 수 없습니다: {plan.note}", _plan_code(plan.note))
+        raise EvalRejected(f"측정할 수 없습니다: {plan.note}", plan.code or "error")
     if plan.max_embed < len(qs):
         raise EvalRejected(
             f"오늘 남은 Gemini 한도가 {plan.max_embed}건이라 질문 {len(qs)}개를 다 잴 수 없습니다. 내일(한국 오후 4~5시 뒤) 다시 눌러 주세요",

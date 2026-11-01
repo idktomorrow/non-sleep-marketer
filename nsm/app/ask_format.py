@@ -32,9 +32,8 @@ def cost(usd: float | None, krw_per_usd: float) -> str:
 
 
 def answer_html(text: str | None, source_ns: set[int]) -> Markup:
-    """답 글을 안전한 HTML로: 전부 이스케이프 → 백틱 코드 → [n] 링크."""
+    """답 글을 안전한 HTML로: 전부 이스케이프 → 백틱 코드 → (코드 밖의) [n] 링크."""
     safe = html.escape(text or "", quote=True)
-    safe = _CODE.sub(lambda m: f"<code>{m.group(1)}</code>", safe)
 
     def cite(m: re.Match) -> str:
         n = int(m.group(1))
@@ -42,4 +41,19 @@ def answer_html(text: str | None, source_ns: set[int]) -> Markup:
             return m.group(0)
         return f'<a class="cite" href="#src-{n}" data-src="{n}">[{n}]</a>'
 
-    return Markup(_CITE.sub(cite, safe))  # noqa: S704  위에서 전부 이스케이프한 뒤 우리가 만든 태그만 넣었다
+    out: list[str] = []
+    pos = 0
+    for m in _CODE.finditer(safe):  # 코드 사이의 글에만 [n] 링크(코드 안의 arr[1]은 그대로)
+        out.append(_CITE.sub(cite, safe[pos : m.start()]))
+        out.append(f"<code>{m.group(1)}</code>")
+        pos = m.end()
+    out.append(_CITE.sub(cite, safe[pos:]))
+    return Markup("".join(out))  # noqa: S704  위에서 전부 이스케이프한 뒤 우리가 만든 태그만 넣었다
+
+
+def estimate_won(model: str, krw_per_usd: float) -> str:
+    """입력 칸 안내의 질문당 Claude 비용 어림(실측 평균: 입력 약 2,000·출력 약 250토큰)."""
+    from nsm.adapters.pricing import claude_cost
+
+    krw = claude_cost(model, 2000, 250) * krw_per_usd
+    return f"약 {krw:.1f}원" if krw < 10 else f"약 {krw:,.0f}원"

@@ -11,7 +11,7 @@
   <label for="ask-q"><b>질문</b></label>
   <div class="ask-row"><input id="ask-q" type="text" name="question" maxlength="{{ max_chars }}" value="{{ question }}" placeholder="보호 모드가 뭐야" autocomplete="off" required>
   <button class="btn-primary" type="submit" data-busy-text="찾는 중…">묻기</button></div>
-  <p class="hint" style="margin-bottom:0">{{ hint }} · {{ max_chars }}자까지 · 질문 하나에 Gemini 1건(무료 하루 한도에 포함)과 Claude 약 0.5원</p>
+  <p class="hint" style="margin-bottom:0">{{ hint }} · {{ max_chars }}자까지 · 질문 하나에 Gemini 1건(무료 하루 한도에 포함)과 Claude {{ qa_cost_hint }}</p>
 </form>
 
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
@@ -36,7 +36,7 @@
 
 <h2 id="eval">검색 측정 <span class="hint">질문 20개(답 있는 15·없는 5)를 지금 DB로. 검색만 하고 Claude는 부르지 않음(Gemini 20건)</span></h2>
 <div class="panel">
-  {% if eval_notice %}<div class="notice {{ eval_notice[0] }}">{{ eval_notice[1] }}</div>{% endif %}
+  {% if eval_notice %}<div class="notice {{ eval_notice[0] }}">{{ eval_notice[1] }}{% if eval_detail %} <span class="small">({{ eval_detail }})</span>{% endif %}</div>{% endif %}
   <form method="post" action="/ask/eval" class="inline" data-busy-form><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit" data-busy-text="재는 중…">검색 측정</button></form>
   {% for e in evals %}
   <h3>{{ e.ran_at|kst }} · 조각 {{ e.chunks }}개, 벡터 없음 {{ e.without_vector }}개{% if e.error %} · <span class="muted">{{ e.error }}</span>{% endif %}</h3>
@@ -46,11 +46,11 @@
   {% else %}<p class="muted small">아직 측정 기록이 없습니다.</p>{% endfor %}
 </div>
 
-<h2 id="recent">최근 질문 {% if recent %}<form method="post" action="/ask/qa/delete-all" class="inline" onsubmit="if (!confirm('질문 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return false; this.confirm.value='yes';"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm" value=""><button class="btn-sm" type="submit">전부 지우기</button></form>{% endif %}</h2>
+<h2 id="recent">최근 질문 {% if recent %}<form method="post" action="/ask/qa/delete-all" class="inline" onsubmit="if (!window.confirm('질문 기록을 모두 지울까요? 되돌릴 수 없습니다.')) return false; this.elements.confirm_all.value='yes';"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm_all" value=""><button class="btn-sm" type="submit">전부 지우기</button></form>{% endif %}</h2>
 {% if qa_notice %}<div class="notice info">{{ qa_notice }}</div>{% endif %}
 {% if recent %}
 <div class="table-wrap"><table class="ask-recent"><tr><th>시각</th><th>질문</th><th>답</th><th>근거</th><th>비용</th><th></th></tr>
-{% for q in recent %}<tr><td class="small">{{ q.asked_at|kst }}</td><td><a href="/ask?qa={{ q.id }}#answer">{{ q.question }}</a></td><td class="small">{{ (q.answer or q.error or '')|truncate(120) }}</td><td>{% if q.grounded %}<span class="badge ok">{{ q.sources|length }}개</span>{% else %}<span class="badge">근거 없음</span>{% endif %}</td><td class="small nowrap">{{ q.cost }}</td><td><form method="post" action="/ask/qa/{{ q.id }}/delete" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit" aria-label="이 기록 지우기">지우기</button></form></td></tr>{% endfor %}
+{% for q in recent %}<tr><td class="small">{{ q.asked_at|kst }}</td><td><a href="/ask?qa={{ q.id }}#answer">{{ q.question }}</a></td><td class="small">{{ (q.answer or q.error or '')|truncate(120) }}</td><td>{% if q.grounded %}<span class="badge ok">{{ q.source_count }}개</span>{% else %}<span class="badge">근거 없음</span>{% endif %}</td><td class="small nowrap">{{ q.cost }}</td><td><form method="post" action="/ask/qa/{{ q.id }}/delete" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm" type="submit" aria-label="이 기록 지우기">지우기</button></form></td></tr>{% endfor %}
 </table></div>
 {% else %}<p class="muted small">아직 질문이 없습니다.</p>{% endif %}
 <p class="muted small">질문 기록은 실행 기록 보관 일수(기본 90일)가 지나면 새벽 정리 작업이 지웁니다. 측정 기록은 전후 비교용이라 남깁니다.</p>

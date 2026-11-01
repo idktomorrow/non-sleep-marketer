@@ -76,7 +76,9 @@ def test_delete_one_and_delete_all_with_confirm(env) -> None:
     assert "질문 기록을 지웠습니다" in c.get(r.headers["location"]).text
     c.post("/ask/qa/delete-all", data={"csrf": csrf})  # 확인 없이: 지우지 않음
     assert db.execute("SELECT count(*) FROM doc_qa")[0][0] == 1
-    r = c.post("/ask/qa/delete-all", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    r = c.post(
+        "/ask/qa/delete-all", data={"csrf": csrf, "confirm_all": "yes"}, follow_redirects=False
+    )
     assert db.execute("SELECT count(*) FROM doc_qa")[0][0] == 0
     assert "모두 지웠습니다" in c.get(r.headers["location"]).text
 
@@ -87,7 +89,7 @@ def test_delete_requests_without_csrf_are_rejected(env) -> None:
     qid = db.execute("SELECT id FROM doc_qa")[0][0]
     c = env["client"]
     assert c.post(f"/ask/qa/{qid}/delete").status_code == 403
-    assert c.post("/ask/qa/delete-all", data={"confirm": "yes"}).status_code == 403
+    assert c.post("/ask/qa/delete-all", data={"confirm_all": "yes"}).status_code == 403
     assert db.execute("SELECT count(*) FROM doc_qa")[0][0] == 1
 
 
@@ -171,3 +173,81 @@ def test_busy_script_is_bundled_and_loaded(env) -> None:
     assert "/static/ask.js" in html and "data-busy-text" in html
     js = env["client"].get("/static/ask.js").text
     assert "disabled = true" in js and "a.cite" in js
+
+
+# ------------------------------------------------------------------ R3c 리뷰 반영
+
+
+def test_deleting_history_does_not_reset_the_daily_cap(env) -> None:
+    env["cfg"].settings.rag.qa_daily_limit = 2
+    _ask(env, "보호 모드")
+    _ask(env, "네이버 블로그")
+    c = env["client"]
+    c.post("/ask/qa/delete-all", data={"csrf": env["state"].csrf_token, "confirm_all": "yes"})
+    r = _ask(env, "또 묻기")
+    assert r.status_code == 400 and "질문 수 상한(2개)" in r.text
+
+
+def test_brackets_inside_code_are_not_links() -> None:
+    out = str(ask_format.answer_html("`arr[1]`을 봅니다 [1]", {1}))
+    assert "<code>arr[1]</code>" in out and out.count('class="cite"') == 1
+
+
+def test_eval_stop_reason_is_shown_from_server_not_url(env, tmp_path, monkeypatch) -> None:
+    from nsm.rag.gemini import EmbeddingError
+    from tests.fakes import FakeEmbedder
+
+    class Flaky(FakeEmbedder):
+        def embed_query(self, question: str) -> list[float]:
+            if len(self.queries) >= 1:
+                raise EmbeddingError("429", "rate_limited")
+            return super().embed_query(question)
+
+    env["holder"]["emb"] = Flaky()
+    r = env["client"].post(
+        "/ask/eval", data={"csrf": env["state"].csrf_token}, follow_redirects=False
+    )
+    assert r.headers["location"] == "/ask?eval=stopped#eval"
+    html = env["client"].get(r.headers["location"]).text
+    assert "2번째 질문에서 멈춰" in html and "rate_limited" in html
+    assert "2번째" not in env["client"].get("/ask").text  # 안내 코드가 없으면 보이지 않음
+
+
+def test_plan_carries_a_code() -> None:
+    from types import SimpleNamespace
+
+    from nsm.rag.budget import plan_embedding
+
+    cfg = SimpleNamespace(
+        settings=SimpleNamespace(
+            timezone="Asia/Seoul",
+            daily_cost_cap_usd=3.0,
+            rag=SimpleNamespace(embed_daily_limit=1000),
+        )
+    )
+    assert plan_embedding(cfg, None, None, None, 1).code == "no_key"
+
+
+def test_recent_list_reads_counts_not_chunk_text(env) -> None:
+    from nsm.rag.answer import recent_qa
+
+    _ask(env, "보호 모드가 뭐야")
+    row = recent_qa(env["repo"].db, 20)[0]
+    assert row["source_count"] >= 1 and "sources" not in row
+
+
+def test_cost_hint_follows_model_and_rate(env) -> None:
+    env["cfg"].settings.krw_per_usd = 1000
+    html = env["client"].get("/ask").text
+    assert "Claude 약 0.3원" in html  # haiku 입력 2,000·출력 250토큰 어림 × 1,000원
+
+
+def test_delete_all_form_uses_window_confirm_and_resets_busy_on_back(env) -> None:
+    html = env["client"].get("/ask").text
+    _ask(env, "보호 모드가 뭐야")
+    html = env["client"].get("/ask").text
+    assert (
+        "window.confirm(" in html and 'name="confirm_all"' in html and 'name="confirm"' not in html
+    )
+    js = env["client"].get("/static/ask.js").text
+    assert "pageshow" in js and "persisted" in js

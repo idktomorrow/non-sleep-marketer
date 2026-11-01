@@ -8,6 +8,7 @@
       if (!btn) return;
       if (btn.dataset.busy === "1") return;
       btn.dataset.busy = "1";
+      btn.dataset.label = btn.textContent;
       // 제출이 끝난 뒤에 잠근다(먼저 잠그면 브라우저가 폼을 보내지 않는다)
       setTimeout(function () {
         btn.disabled = true;
@@ -29,4 +30,14 @@
     if (openSource(a.dataset.src)) e.preventDefault();
   });
   if (location.hash.indexOf("#src-") === 0) openSource(location.hash.slice(5));
+  // 뒤로 가기로 저장된 페이지가 돌아오면 "찾는 중…" 잠금을 푼다
+  window.addEventListener("pageshow", function (e) {
+    if (!e.persisted) return;
+    document.querySelectorAll("form[data-busy-form] button[type=submit]").forEach(function (btn) {
+      if (btn.dataset.busy !== "1") return;
+      btn.dataset.busy = "";
+      btn.disabled = false;
+      if (btn.dataset.label) btn.textContent = btn.dataset.label;
+    });
+  });
 })();
