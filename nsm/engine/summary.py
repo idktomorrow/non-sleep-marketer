@@ -148,6 +148,8 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
         parts.append(f"오래된 자료 판정 기록 {_n(c, 'sources_pruned')}줄 정리")
     if _n(c, "failures_pruned"):
         parts.append(f"오래된 실패 기록 {_n(c, 'failures_pruned')}줄 정리")
+    if _n(c, "qa_pruned"):
+        parts.append(f"오래된 문서 질문 기록 {_n(c, 'qa_pruned')}개 정리")
     if _n(c, "evidence_pruned"):
         parts.append(f"오래된 실패 증거 {_n(c, 'evidence_pruned')}개 지움")
     return parts or ["정리할 것 없음"]

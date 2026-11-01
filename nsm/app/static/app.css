@@ -266,3 +266,10 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 .ask-sources summary { cursor: pointer; }
 .chunk-text { white-space: pre-wrap; font-size: 12px; background: var(--bg, #f6f7f9); padding: 8px; border-radius: 6px; max-height: 280px; overflow: auto; }
 .eval-table tr.current td { font-weight: 600; }
+
+/* 문서 질문 손질(R3c) */
+.answer-text code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; background: rgba(127,127,127,.14); padding: 0 4px; border-radius: 4px; }
+.answer-text a.cite { text-decoration: none; font-weight: 600; }
+.ask-sources li:target summary { background: rgba(255, 200, 0, .18); }
+.ask-recent td.nowrap { white-space: nowrap; }
+h2 form.inline { display: inline-block; margin-left: 8px; vertical-align: middle; }

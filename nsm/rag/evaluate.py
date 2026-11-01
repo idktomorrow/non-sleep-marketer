@@ -30,7 +30,19 @@ def default_questions_path() -> Path:
 
 
 class EvalRejected(Exception):
-    pass
+    """측정을 하지 않거나 못 마침. `code`는 화면이 문구를 고르는 데 쓴다(주소창엔 코드만, R3c)."""
+
+    def __init__(self, message: str, code: str = "error") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _plan_code(note: str) -> str:
+    if "키 없음" in note:
+        return "no_key"
+    if "비용 상한" in note:
+        return "cost_cap"
+    return "limit"
 
 
 @dataclass
@@ -56,7 +68,7 @@ class EvalResult:
 
 def load_questions(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
-        raise EvalRejected(f"질문 파일이 없습니다: {path}")
+        raise EvalRejected(f"질문 파일이 없습니다: {path}", "no_file")
     return yaml.safe_load(path.read_text(encoding="utf-8"))["questions"]
 
 
@@ -95,10 +107,11 @@ def run_eval(
     qs = load_questions(questions_path or default_questions_path())
     plan = plan_embedding(cfg, repo, embedder, now, len(qs))
     if plan.embedder is None:
-        raise EvalRejected(f"측정할 수 없습니다: {plan.note}")
+        raise EvalRejected(f"측정할 수 없습니다: {plan.note}", _plan_code(plan.note))
     if plan.max_embed < len(qs):
         raise EvalRejected(
-            f"오늘 남은 Gemini 한도가 {plan.max_embed}건이라 질문 {len(qs)}개를 다 잴 수 없습니다. 내일(한국 오후 4~5시 뒤) 다시 눌러 주세요"
+            f"오늘 남은 Gemini 한도가 {plan.max_embed}건이라 질문 {len(qs)}개를 다 잴 수 없습니다. 내일(한국 오후 4~5시 뒤) 다시 눌러 주세요",
+            "limit",
         )
     st = stored_stats(repo.db, "docs")
     out = EvalResult(ran_at=now, chunks=st["chunks"], without_vector=st["without_vector"])
@@ -110,7 +123,8 @@ def run_eval(
             add_used(repo, now, sent + 1)  # 막힌 시도도 하루 한도에 세어진다
             raise EvalRejected(
                 f"{len(out.details) + 1}번째 질문에서 멈춰 측정을 남기지 않았습니다"
-                f"({getattr(e, 'kind', '') or type(e).__name__}). 질문 일부로 만든 표는 다른 측정과 비교되지 않습니다"
+                f"({getattr(e, 'kind', '') or type(e).__name__}). 질문 일부로 만든 표는 다른 측정과 비교되지 않습니다",
+                "stopped",
             ) from e
         sent += 1
         out.details.append(

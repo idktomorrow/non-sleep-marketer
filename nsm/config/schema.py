@@ -167,6 +167,8 @@ class Settings(_Model):
     enabled_platforms: list[Platform] = Field(default_factory=lambda: ["instagram", "threads"])
     quotas: dict[Platform, int] = Field(default_factory=lambda: {"instagram": 1, "threads": 2})
     daily_cost_cap_usd: float = 3.0
+    # 화면에 달러 비용 옆에 원화를 함께 보일 때 쓰는 환율(원/달러, R3c). 표시용이라 대략이면 된다
+    krw_per_usd: float = Field(default=1400.0, gt=0, le=100000)
     protect_count: int = 20
     retry_delays_minutes: list[int] = Field(default_factory=lambda: [15, 60, 240])
     min_hours_between_posts: float = 3.0  # 같은 플랫폼 게시 사이 최소 간격

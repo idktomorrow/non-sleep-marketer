@@ -260,9 +260,8 @@ def _ask_docs(
 
 
 def save_qa(db: Any, r: QaResult, now: datetime) -> None:
-    sources = [
-        {k: v for k, v in s.items() if k != "text"} for s in r.sources
-    ]  # 본문은 doc_chunks에 있다
+    """근거 조각 본문도 함께 저장한다(R3c): 나중에 기록을 열었을 때 그때 본 근거를 그대로 다시 보이려고.
+    조각이 다시 색인돼 바뀌거나 지워져도 기록은 답할 때의 근거를 지킨다."""
     db.execute(
         "INSERT INTO doc_qa VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
@@ -271,7 +270,7 @@ def save_qa(db: Any, r: QaResult, now: datetime) -> None:
             r.question,
             r.answer,
             r.grounded,
-            json.dumps(sources, ensure_ascii=False),
+            json.dumps(r.sources, ensure_ascii=False),
             json.dumps(r.similar, ensure_ascii=False),
             r.model,
             r.usd,
@@ -281,25 +280,64 @@ def save_qa(db: Any, r: QaResult, now: datetime) -> None:
     )
 
 
-def recent_qa(db: Any, limit: int = 20) -> list[dict[str, Any]]:
+_QA_COLS = (
+    "id, asked_at, question, answer, grounded, sources, similar_titles, model, usd, ms, error"
+)
+
+
+def _qa_row(row: tuple) -> dict[str, Any]:
     from nsm.store.db import from_db
 
+    qid, a, q, ans, g, s, sim, m, u, ms, err = row
+    sources = json.loads(s or "[]")
+    for src in sources:
+        src.setdefault("text", None)  # R3c 전 기록엔 본문이 없다: 화면에 "원문 없음"
+    return {
+        "id": qid,
+        "asked_at": from_db(a),
+        "question": q,
+        "answer": ans,
+        "grounded": g,
+        "sources": sources,
+        "similar": json.loads(sim or "[]"),
+        "model": m,
+        "usd": u,
+        "ms": ms,
+        "error": err or "",
+    }
+
+
+def recent_qa(db: Any, limit: int = 20) -> list[dict[str, Any]]:
     rows = db.execute(
-        "SELECT asked_at, question, answer, grounded, sources, model, usd, ms, error FROM doc_qa "
-        "ORDER BY asked_at DESC, rowid DESC LIMIT ?",
-        [limit],
+        f"SELECT {_QA_COLS} FROM doc_qa ORDER BY asked_at DESC, rowid DESC LIMIT ?", [limit]
     )
-    return [
-        {
-            "asked_at": from_db(a),
-            "question": q,
-            "answer": ans,
-            "grounded": g,
-            "sources": json.loads(s or "[]"),
-            "model": m,
-            "usd": u,
-            "ms": ms,
-            "error": err,
-        }
-        for a, q, ans, g, s, m, u, ms, err in rows
-    ]
+    return [_qa_row(r) for r in rows]
+
+
+def get_qa(db: Any, qa_id: str) -> dict[str, Any] | None:
+    rows = db.execute(f"SELECT {_QA_COLS} FROM doc_qa WHERE id = ?", [qa_id])
+    return _qa_row(rows[0]) if rows else None
+
+
+def delete_qa(db: Any, qa_id: str) -> int:
+    before = int(db.execute("SELECT count(*) FROM doc_qa WHERE id = ?", [qa_id])[0][0])
+    db.execute("DELETE FROM doc_qa WHERE id = ?", [qa_id])
+    return before
+
+
+def delete_all_qa(db: Any) -> int:
+    n = int(db.execute("SELECT count(*) FROM doc_qa")[0][0])
+    db.execute("DELETE FROM doc_qa")
+    return n
+
+
+def prune_qa(db: Any, now: datetime, keep_days: int) -> int:
+    """유지보수 잡(R3c): 실행 기록 보관 일수(run_log_keep_days)가 지난 질문 기록을 지운다.
+    측정 기록(doc_eval)은 전후 비교용이라 지우지 않는다."""
+    from datetime import timedelta
+
+    cutoff = to_db(now - timedelta(days=keep_days))
+    n = int(db.execute("SELECT count(*) FROM doc_qa WHERE asked_at < ?", [cutoff])[0][0])
+    if n:
+        db.execute("DELETE FROM doc_qa WHERE asked_at < ?", [cutoff])
+    return n
