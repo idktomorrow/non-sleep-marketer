@@ -1,0 +1,15 @@
+{
+  "platform": "instagram",
+  "kind": "auth",
+  "error": "instagram 로그인 필요: 로그인돼 있지 않음",
+  "url": "https://www.instagram.com/accounts/suspended/?next=https%3A%2F%2Fwww.instagram.com%2Fp%2FDfDnLfeE_13%2F%3F__coig_ufac%3D1",
+  "dialogs": 0,
+  "text": " \nnonsleepmarketer님, 계정을 사용하려면 사람임을 확인하세요\n계속\n약 30초 소요",
+  "labels": [
+    "Menu",
+    "nonsleepmarketer님, 계정을 사용하려면 사람임을 확인하세요",
+    "계속",
+    "약 30초 소요"
+  ],
+  "captured": true
+}

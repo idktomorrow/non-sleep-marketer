@@ -1,0 +1,16 @@
+{
+  "_note": "로그인 안 됨의 세부 상태를 가르는 주소·문구 패턴(E5, ADR 0060). 플랫폼 화면 문구가 바뀌면 여기만 고친다. 정규식은 대소문자를 무시한다. 판정 순서는 text_rules 위에서 아래로, 그다음 url_rules, 그다음 login_form. 2026-10-29 인스타그램은 본인 확인·문자 인증도 /accounts/suspended/ 주소로 띄웠으므로 그 주소만으로 restricted라고 하지 않는다.",
+  "text_rules": [
+    {"state": "challenge", "pattern": "사람임을 확인|confirm (that )?you'?re (a )?human|captcha|로봇이 아닙니다|not a robot|자동화된 행동|automated behaviou?r"},
+    {"state": "two_factor", "pattern": "2단계 인증|이중 인증|two-factor|2-factor|인증 앱|authentication app"},
+    {"state": "verify", "pattern": "휴대폰 번호를 입력|코드 보내기|인증 코드|보안 코드|확인 코드|코드를 입력|send (security )?code|enter (the )?(6-digit |security |confirmation )?code|confirm your (phone|mobile|email)|이메일 주소를 확인"},
+    {"state": "restricted", "pattern": "계정이 (일시적으로 )?(정지|비활성화|제한)|계정을 (정지|비활성화|일시적으로 제한)|account (has been |was )?(suspended|disabled|restricted)|we (suspended|disabled) your account|temporarily (locked|restricted)"}
+  ],
+  "url_rules": [
+    {"state": "challenge", "pattern": "/challenge/"},
+    {"state": "two_factor", "pattern": "/two_factor"},
+    {"state": "logged_out", "pattern": "/accounts/login|threads[.](com|net)/login"}
+  ],
+  "check_urls": "/accounts/|/challenge/|/two_factor|/login|chrome-error://",
+  "login_form": "로그인|가입하기|비밀번호|log in|sign up|password|Instagram으로 계속|continue with instagram"
+}
