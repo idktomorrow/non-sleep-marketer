@@ -24,7 +24,6 @@ PAUSE_INFO_KEY = "paused_platforms_info"
 HEALTH_STREAK_KEY = "health_failure_streak"  # {플랫폼: 연속 일시적 실패 수}
 REMIND_EVERY = timedelta(hours=24)  # 같은 멈춤 상태의 알림 간격
 
-_NAMES = {"instagram": "인스타그램", "threads": "스레드"}
 # 로그인 세부 상태별 (짧은 이름, 사람이 할 일, 알림 본문). {name}은 플랫폼 이름(E5, ADR 0060)
 AUTH_STATE_TEXT: dict[str, tuple[str, str, str]] = {
     "logged_out": (
@@ -69,7 +68,9 @@ def _state_text(info: dict[str, Any] | None, platform: str = "") -> tuple[str, s
     t = AUTH_STATE_TEXT.get(str((info or {}).get("auth_state") or ""))
     if t is None:
         return None
-    name = _NAMES.get(platform, platform)
+    from nsm.engine.rate_limit import NAMES
+
+    name = NAMES.get(platform, platform)
     batchim = _has_batchim(name)
     subs = {
         "{name}이": name + ("이" if batchim else "가"),
@@ -111,12 +112,17 @@ def auth_state_of(obj: Any) -> str | None:
 
 
 def remind_due(info: dict[str, Any], now: datetime) -> bool:
-    """같은 상태로 멈춘 채 마지막 알림(없으면 멈춘 시각)에서 24시간이 지났나."""
-    at = info.get("notified_at") or info.get("since")
+    """로그인 세부 상태로 멈춘 채 마지막 알림에서 24시간이 지났나.
+
+    다시 알리는 것은 로그인 세부 상태가 있는 `auth` 멈춤뿐이다(E5 범위). 마지막 알림 시각이 없는 멈춤(E5 전)은
+    호출하는 쪽이 지금 시각을 적어 두고 거기서부터 센다(올리자마자 알림이 쏟아지지 않게).
+    """
+    if info.get("reason") != "auth" or not info.get("auth_state") or not info.get("notified_at"):
+        return False
     try:
-        return now - datetime.fromisoformat(at) >= REMIND_EVERY
+        return now - datetime.fromisoformat(info["notified_at"]) >= REMIND_EVERY
     except (TypeError, ValueError):
-        return True
+        return False
 
 
 def pause_info(repo: Any) -> dict[str, dict[str, Any]]:

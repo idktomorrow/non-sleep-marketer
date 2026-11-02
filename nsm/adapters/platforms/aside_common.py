@@ -175,12 +175,11 @@ class AsideAdapterBase:
             return self._rate_limited(now, e)
         if e.code == "login":
             ev = getattr(e, "evidence", None)
+            ev = ev if isinstance(ev, dict) else None
             if is_blank(
                 ev
             ):  # 글 주소인데 하얀 화면: 로그인 풀림이 아니라 덜 열림(2026-11-02 스레드)
-                return PlatformError(
-                    f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient"
-                )
+                return self._blank_error()
             return LoginRequiredError(
                 f"{self.platform} 로그인 필요: {e}", classify(ev) if ev else None
             )
@@ -197,13 +196,21 @@ class AsideAdapterBase:
             # 집 폴더 경로가 알림·대시보드에 드러나지 않게 이름만(logs\\shots 아래)
             err.args = (f"{err.args[0]} (증거: {d.name})", *err.args[1:])
 
+    def _blank_error(self) -> PlatformError:
+        return PlatformError(
+            f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient"
+        )
+
+    def _evidence_open(self, kind: str) -> bool:
+        last = self._evidence_at.get(kind)
+        return last is None or self._now() - last >= EVIDENCE_EVERY
+
     def _save_evidence(self, kind: str, evidence: dict | None, error: str) -> Path | None:
         """증거 폴더 하나(같은 종류는 한 시간에 한 번). 못 남기면 None."""
         from nsm.adapters.evidence import save_evidence
 
         now = self._now()
-        last = self._evidence_at.get(kind)
-        if last is not None and now - last < EVIDENCE_EVERY:
+        if not self._evidence_open(kind):
             return None
         d = save_evidence(
             self.platform,
@@ -224,15 +231,15 @@ class AsideAdapterBase:
         - 하얀 빈 화면은 로그인 풀림이 아니라 일시적 실패로 던진다(연속일 때만 멈춤).
         - 로그인 페이지를 새로 열거나 확인 창을 누르지 않는다. 자동으로 풀지 않는다(ADR 0060).
         """
-        data = self._call(body, {}, probe=True) or {}
+        # 스크린샷은 증거를 남길 수 있을 때만 찍게 한다(한 시간 쿨다운 안이면 화면 글만)
+        data = self._call(body, {"shot": self._evidence_open("auth")}, probe=True) or {}
         me, page = data.get("me", ""), data.get("page")
+        page = page if isinstance(page, dict) else None
         if not me:
             if is_blank(page):
                 self.auth_state = None
-                raise PlatformError(
-                    f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient"
-                )
-            self.auth_state = classify(page) if isinstance(page, dict) else None
+                raise self._blank_error()
+            self.auth_state = classify(page) if page else None
             detail = f"{name} 로그인 필요(Aside 브라우저)"
             if self.auth_state in EVIDENCE_STATES:
                 d = self._save_evidence(

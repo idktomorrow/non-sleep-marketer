@@ -44,8 +44,8 @@ def test_overview_and_incidents_show_state_and_todo(db, clock, app_config, tmp_p
     )
     client = TestClient(create_app(state))
     home = client.get("/").text
-    assert "인스타그램(본인 확인 창)" in home
-    assert "인스타그램: Aside 브라우저에서 직접 본인 확인을 끝내면 풀림" in home
+    # 플랫폼마다 괄호 안에 이유와 할 일(같은 상태를 두 번 말하지 않게)
+    assert "인스타그램(본인 확인 창: Aside 브라우저에서 직접 본인 확인을 끝내면 풀림)" in home
     inc = client.get("/incidents").text
     assert "본인 확인 창으로 자동 게시·답글 멈춤" in inc  # 받침에 맞는 조사
     assert "본인 확인 창" in inc and "직접 본인 확인을 끝내면 풀림" in inc

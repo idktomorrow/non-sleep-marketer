@@ -40,6 +40,7 @@ def _rules() -> dict[str, Any]:
     )
     comp = lambda p: re.compile(p, re.IGNORECASE)  # noqa: E731
     return {
+        "url_first": [(r["state"], comp(r["pattern"])) for r in raw["url_first"]],
         "text": [(r["state"], comp(r["pattern"])) for r in raw["text_rules"]],
         "url": [(r["state"], comp(r["pattern"])) for r in raw["url_rules"]],
         "check_urls": comp(raw["check_urls"]),
@@ -53,21 +54,27 @@ def _parts(page: dict[str, Any] | None) -> tuple[str, str, list[str]]:
     return str(page.get("url") or ""), str(page.get("text") or "").strip(), labels
 
 
-def is_blank(page: dict[str, Any] | None) -> bool:
-    """덜 열린 하얀 화면: 주소가 있고, 로그인·확인 주소가 아니고, 글과 라벨이 모두 비었다(셋 다일 때만)."""
-    if not page:
+def is_blank(page: Any) -> bool:
+    """덜 열린 하얀 화면: 주소가 있고, 로그인·확인 주소가 아니고, 글과 라벨이 모두 비었다(셋 다일 때만).
+
+    화면 글을 읽었을 때만 판단한다(`text` 키가 있을 때). 읽기가 시간 초과·실패하면 글이 없는 게 아니라 모르는 것이다.
+    """
+    if not isinstance(page, dict) or "text" not in page:
         return False
     url, text, labels = _parts(page)
     return bool(url) and not _rules()["check_urls"].search(url) and not text and not labels
 
 
-def classify(page: dict[str, Any] | None) -> AuthState:
-    """화면 정보로 세부 상태. 글 → 주소 → 로그인 폼 순서. 화면 정보가 없으면 unknown."""
-    if not page:
+def classify(page: Any) -> AuthState:
+    """화면 정보로 세부 상태. 두 단계 인증 주소 → 글 → 주소 → 로그인 폼 순서. 화면 정보가 없으면 unknown."""
+    if not isinstance(page, dict) or not page:
         return "unknown"
     url, text, labels = _parts(page)
     seen = "\n".join([text, *labels])
     r = _rules()
+    for state, pat in r["url_first"]:
+        if pat.search(url):
+            return state
     for state, pat in r["text"]:
         if pat.search(seen):
             return state

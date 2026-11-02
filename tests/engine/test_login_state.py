@@ -175,3 +175,36 @@ def test_particles_follow_the_platform_name() -> None:
     assert reason_text({"reason": "auth", "auth_state": "verify"}).startswith(
         "문자·이메일 인증 요구로 "
     )
+
+
+def test_pause_from_before_e5_is_not_reminded_right_away(ctx: JobContext, clock) -> None:
+    """리뷰: E5 전 멈춤(notified_at 없음)은 올리자마자 '(계속)'을 보내지 않고, 일시적 멈춤엔 재알림이 없다."""
+    ctx.repo.set_setting(PAUSED_KEY, ["instagram", "threads"])
+    old = "2026-10-01T09:00:00+09:00"
+    ctx.repo.set_setting(
+        PAUSE_INFO_KEY,
+        {
+            "instagram": {"reason": "auth", "auth_state": "challenge", "since": old},
+            "threads": {"reason": "ui_changed", "since": old},
+        },
+    )
+    ctx.adapters["instagram"].auth_state = "challenge"
+    ctx.adapters["threads"].error = PlatformError("threads: 버튼 없음", "ui_changed")
+    run_health(ctx)
+    assert ctx.notifier.calls == []
+    clock.advance(hours=25)
+    run_health(ctx)
+    assert [c[0] for c in ctx.notifier.calls] == ["instagram 본인 확인 창 (계속)"]
+
+
+def test_switch_to_account_mismatch_is_a_change(ctx: JobContext, clock) -> None:
+    a = ctx.adapters["instagram"]
+    a.auth_state = "challenge"
+    run_health(ctx)
+    a.auth_state = None
+    a.health = lambda: HealthStatus(logged_in=False, detail="로그인 계정 @other ≠ 설정 @me")  # type: ignore[method-assign]
+    clock.advance(minutes=30)
+    run_health(ctx)
+    info = _info(ctx)
+    assert "auth_state" not in info and "≠ 설정" in info["detail"]
+    assert ctx.notifier.calls[-1][0] == "instagram 로그인 필요"

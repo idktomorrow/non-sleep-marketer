@@ -57,7 +57,7 @@ _HEALTH = (
 const pg = await nsmOpen('https://www.threads.com/');
 await nsmCheckPage(pg);
 const me = ((await readHandle(pg)) || '').toLowerCase();
-if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence() };
+if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
 return { me };
 """
 )

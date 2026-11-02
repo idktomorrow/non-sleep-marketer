@@ -155,13 +155,19 @@ def _still_paused(ctx, platform, info, kind, state, err, detail, now) -> None:
             return
         info[platform] = {"reason": "", "since": now.isoformat()}
     cur = info[platform]
+    # 계정 불일치는 세부 상태가 없다(None). 본인 확인을 끝냈는데 다른 계정이면 그것도 바뀐 것이다
+    mismatch = state is None and "≠ 설정" in detail and cur.get("auth_state") is not None
     changed = kind == "auth" and (
-        cur.get("reason") != "auth" or (state is not None and state != cur.get("auth_state"))
+        cur.get("reason") != "auth"
+        or (state is not None and state != cur.get("auth_state"))
+        or mismatch
     )
     if changed:
         cur.update(reason="auth", detail=detail[:200])
         if state:
             cur["auth_state"] = state
+        else:
+            cur.pop("auth_state", None)
         diag = record_incident(
             ctx,
             platform,
@@ -172,6 +178,8 @@ def _still_paused(ctx, platform, info, kind, state, err, detail, now) -> None:
         )
         title, body = pause_notice(platform, cur, detail)
         ctx.notifier.notify(title, with_diagnosis(body, diag), "error")
+    elif not cur.get("notified_at"):  # E5 전 멈춤: 지금부터 24시간을 센다(바로 알리지 않음)
+        pass
     elif remind_due(cur, now):
         title, body = pause_notice(platform, cur, cur.get("detail") or detail)
         ctx.notifier.notify(f"{title} (계속)", f"아직 멈춰 있습니다. {body}", "warn")

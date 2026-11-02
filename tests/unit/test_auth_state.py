@@ -182,7 +182,7 @@ def test_health_scripts_only_open_home_and_never_click() -> None:
     for body, prefix in ((IG_HEALTH, JS_IG), (TH_HEALTH, JS_HANDLE)):
         own = body[len(prefix) :]
         assert own.count("nsmOpen(") == 1 and "goto(" not in own and ".click(" not in own
-        assert "login" not in own.lower() and "nsmEvidence()" in own
+        assert "login" not in own.lower() and "nsmEvidence({ noShot: !ARGS.shot })" in own
 
 
 # ------------------------------------------------------------------ 어댑터: 댓글 확인·게시 전 확인(nsmAssertHandle)
@@ -227,3 +227,61 @@ def test_ports_are_unchanged() -> None:
 
     assert set(HealthStatus.model_fields) == {"logged_in", "detail"}
     assert "auth_state" not in PlatformAdapter.__dict__
+
+
+# ------------------------------------------------------------------ 리뷰 반영
+
+
+def test_unread_screen_is_not_blank() -> None:
+    """화면 글 읽기가 시간 초과·실패하면(text 키 없음) 빈 화면이 아니라 모르는 것이다."""
+    page = {"url": "https://www.instagram.com/", "screenshot": "x"}
+    assert not is_blank(page) and classify(page) == "unknown"
+
+
+def test_sms_two_factor_url_wins_over_code_words() -> None:
+    page = {
+        "url": "https://www.instagram.com/accounts/login/two_factor?next=%2F",
+        "text": "Enter the 6-digit code we sent to +82 •••• 12",
+        "labels": [],
+    }
+    assert classify(page) == "two_factor"
+
+
+def test_login_word_alone_is_not_a_login_form() -> None:
+    """Meta 안내문 어디에나 있는 '로그인'·'password' 낱말만으로는 로그아웃이 아니다."""
+    page = {
+        "url": "https://www.instagram.com/",
+        "text": "Meta는 회원님의 로그인을 돕고 password 보호",
+        "labels": [],
+    }
+    assert classify(page) == "unknown"
+    form = {"url": "https://www.instagram.com/", "text": "비밀번호를 잊으셨나요?", "labels": []}
+    assert classify(form) == "logged_out"
+
+
+def test_non_dict_evidence_does_not_crash(clock) -> None:
+    a = ThreadsAdapter(
+        "@me", clock, repl=FakeRepl(error=AsideError("로그인돼 있지 않음", "login", "garbage"))
+    )  # type: ignore[arg-type]
+    with pytest.raises(LoginRequiredError) as e:
+        a.fetch_new_comments(["P1"], None)
+    assert e.value.auth_state is None
+    a.repl = FakeRepl({"me": "", "page": ["x"]})
+    assert not a.health().logged_in and a.auth_state is None
+
+
+def test_screenshot_only_when_evidence_can_be_saved(clock) -> None:
+    a = InstagramAdapter(
+        "@nonsleepmarketer",
+        clock,
+        repl=FakeRepl({"me": "", "page": _ev("instagram-20261029-085642")}),
+    )
+    seen: list[bool] = []
+    run = a.repl.run
+    a.repl.run = lambda body, args=None, files=None: (
+        seen.append(args["shot"]),
+        run(body, args, files),
+    )[1]
+    a.health()  # 증거를 남김 → 다음 한 시간은 찍지 않는다
+    a.health()
+    assert seen == [True, False]
