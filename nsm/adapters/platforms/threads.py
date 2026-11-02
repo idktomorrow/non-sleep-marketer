@@ -53,9 +53,11 @@ async function readHandle(pg) {
 _HEALTH = (
     JS_HANDLE
     + r"""
+// 홈 하나만 연다. 로그인이 안 보이면 그 화면 정보로 무엇이 막는지 나눈다(E5). 확인 창은 누르지 않는다
 const pg = await nsmOpen('https://www.threads.com/');
 await nsmCheckPage(pg);
 const me = ((await readHandle(pg)) || '').toLowerCase();
+if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
 return { me };
 """
 )
@@ -314,12 +316,7 @@ class ThreadsAdapter(AsideAdapterBase):
     platform = "threads"
 
     def health(self) -> HealthStatus:
-        me = (self._call(_HEALTH, {}, probe=True) or {}).get("me", "")
-        if not me:
-            return HealthStatus(logged_in=False, detail="스레드 로그인 필요(Aside 브라우저)")
-        if self.handle and me != self.handle:
-            return HealthStatus(logged_in=False, detail=f"로그인 계정 @{me} ≠ 설정 @{self.handle}")
-        return HealthStatus(logged_in=True, detail=f"@{me}")
+        return self._health(_HEALTH, "스레드")
 
     def publish(self, post: RenderedPost) -> PublishResult:
         self._need("publish")

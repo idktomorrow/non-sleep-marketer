@@ -67,7 +67,9 @@ def ongoing(state: Any, now: datetime, fmt_time: Callable[[datetime], str]) -> l
         i = info.get(platform)
         reason = (i or {}).get("reason")
         kind = reason if reason in ERROR_KINDS else ""
-        out.append(Ongoing(kind, platform, f"{_name(platform)}: {reason_text(i, fmt_time)}"))
+        out.append(
+            Ongoing(kind, platform, f"{_name(platform)}: {reason_text(i, fmt_time, platform)}")
+        )
     waiting: dict[str, datetime] = {}
     for p in state.repo.publications_in_status("failed"):
         due = p.next_attempt_at

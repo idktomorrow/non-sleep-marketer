@@ -205,7 +205,7 @@ def test_rate_limit_page_is_not_reported_as_logged_out(tmp_path, clock) -> None:
     a.repl.data = {"me": "nonsleepmarketer"}
     a.health()
     health = a.repl.calls[-1][0]
-    assert health.index("await nsmCheckPage(pg);") < health.index("return { me:")
+    assert health.index("await nsmCheckPage(pg);") < health.index("const me = ((await readHandle")
 
 
 @pytest.mark.parametrize(

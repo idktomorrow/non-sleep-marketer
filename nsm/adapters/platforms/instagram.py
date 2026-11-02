@@ -151,9 +151,12 @@ async function findMine(pg, n) {
 _HEALTH = (
     JS_IG
     + r"""
+// 홈 하나만 연다. 로그인이 안 보이면 그 화면 정보로 무엇이 막는지 나눈다(E5). 확인 창은 누르지 않는다
 const pg = await nsmOpen('https://www.instagram.com/');
 await nsmCheckPage(pg);
-return { me: ((await readHandle(pg)) || '').toLowerCase() };
+const me = ((await readHandle(pg)) || '').toLowerCase();
+if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
+return { me };
 """
 )
 
@@ -428,12 +431,7 @@ class InstagramAdapter(AsideAdapterBase):
     platform = "instagram"
 
     def health(self) -> HealthStatus:
-        me = (self._call(_HEALTH, {}, probe=True) or {}).get("me", "")
-        if not me:
-            return HealthStatus(logged_in=False, detail="인스타그램 로그인 필요(Aside 브라우저)")
-        if self.handle and me != self.handle:
-            return HealthStatus(logged_in=False, detail=f"로그인 계정 @{me} ≠ 설정 @{self.handle}")
-        return HealthStatus(logged_in=True, detail=f"@{me}")
+        return self._health(_HEALTH, "인스타그램")
 
     def publish(self, post: RenderedPost) -> PublishResult:
         self._need("publish")

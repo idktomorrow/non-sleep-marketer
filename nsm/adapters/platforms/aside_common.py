@@ -13,8 +13,9 @@ from pathlib import Path
 
 from nsm.adapters.drivers.aside import AsideError, AsideRepl
 from nsm.adapters.platforms import PLATFORM_CAPABILITIES
+from nsm.adapters.platforms.auth_state import EVIDENCE_STATES, classify, is_blank
 from nsm.config import paths
-from nsm.domain.models import Platform
+from nsm.domain.models import HealthStatus, Platform
 from nsm.ports import AdapterError, Clock, NotSupportedError
 
 
@@ -32,9 +33,18 @@ class PlatformError(AdapterError):
 
 
 class LoginRequiredError(PlatformError):
-    """로그인이 풀려 있음. 이 호출은 일반 실패로 처리되고, 30분마다 도는 health 잡이 알림을 보내고 그 플랫폼을 멈춘다."""
+    """로그인이 풀려 있음. 이 호출은 일반 실패로 처리되고, 30분마다 도는 health 잡이 알림을 보내고 그 플랫폼을 멈춘다.
+
+    `auth_state`: 무엇이 막고 있나(logged_out·challenge·verify·two_factor·restricted·unknown, E5 ADR 0060).
+    화면 정보가 없으면 None(예전처럼 "로그인 필요"로만 보인다).
+    엔진은 이 클래스를 몰라도 `auth_state` 속성으로 읽는다(포트는 동결, `kind`와 같은 방식).
+    """
 
     kind = "auth"
+
+    def __init__(self, message: str, auth_state: str | None = None) -> None:
+        super().__init__(message)
+        self.auth_state = auth_state
 
 
 class AccountMismatchError(PlatformError):
@@ -120,6 +130,8 @@ class AsideAdapterBase:
         self.blocked_until: datetime | None = None
         self._strikes = 0
         self._evidence_at: dict[str, datetime] = {}  # 종류 → 마지막으로 증거를 남긴 시각
+        # 마지막 health가 본 로그인 세부 상태(E5). 로그인돼 있으면 None. 엔진이 속성으로 읽는다(포트 동결)
+        self.auth_state: str | None = None
 
     def capabilities(self) -> set[str]:
         return set(PLATFORM_CAPABILITIES[self.platform])
@@ -162,7 +174,15 @@ class AsideAdapterBase:
         if e.code == "ratelimit" or _RATE_LIMIT_TEXT.search(str(e)):
             return self._rate_limited(now, e)
         if e.code == "login":
-            return LoginRequiredError(f"{self.platform} 로그인 필요: {e}")
+            ev = getattr(e, "evidence", None)
+            ev = ev if isinstance(ev, dict) else None
+            if is_blank(
+                ev
+            ):  # 글 주소인데 하얀 화면: 로그인 풀림이 아니라 덜 열림(2026-11-02 스레드)
+                return self._blank_error()
+            return LoginRequiredError(
+                f"{self.platform} 로그인 필요: {e}", classify(ev) if ev else None
+            )
         if e.code == "mismatch":
             return AccountMismatchError(f"{self.platform}: {e}")
         return PlatformError(f"{self.platform}: {e}", kind_for_code(e.code, str(e)))
@@ -170,25 +190,68 @@ class AsideAdapterBase:
     def _attach_evidence(self, err: PlatformError, e: AsideError) -> None:
         """실패 증거를 남기고 오류 문구 끝에 폴더 이름을 붙인다(전체 경로는 `evidence_dir`).
         저장이 실패해도 원래 오류는 그대로. 같은 종류는 한 시간에 한 번만 남긴다."""
-        from nsm.adapters.evidence import save_evidence
-
-        now = self._now()
-        last = self._evidence_at.get(err.kind)
-        if last is not None and now - last < EVIDENCE_EVERY:
-            return
-        d = save_evidence(
-            self.platform,
-            self._now(),
-            getattr(e, "evidence", None),
-            error=str(err),
-            kind=err.kind,
-            log_file=paths.logs_dir() / "nsm.log",
-        )
+        d = self._save_evidence(err.kind, getattr(e, "evidence", None), str(err))
         if d is not None:
-            self._evidence_at[err.kind] = now
             err.evidence_dir = str(d)
             # 집 폴더 경로가 알림·대시보드에 드러나지 않게 이름만(logs\\shots 아래)
             err.args = (f"{err.args[0]} (증거: {d.name})", *err.args[1:])
+
+    def _blank_error(self) -> PlatformError:
+        return PlatformError(
+            f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient"
+        )
+
+    def _evidence_open(self, kind: str) -> bool:
+        last = self._evidence_at.get(kind)
+        return last is None or self._now() - last >= EVIDENCE_EVERY
+
+    def _save_evidence(self, kind: str, evidence: dict | None, error: str) -> Path | None:
+        """증거 폴더 하나(같은 종류는 한 시간에 한 번). 못 남기면 None."""
+        from nsm.adapters.evidence import save_evidence
+
+        now = self._now()
+        if not self._evidence_open(kind):
+            return None
+        d = save_evidence(
+            self.platform,
+            now,
+            evidence,
+            error=error,
+            kind=kind,
+            log_file=paths.logs_dir() / "nsm.log",
+        )
+        if d is not None:
+            self._evidence_at[kind] = now
+        return d
+
+    def _health(self, body: str, name: str) -> HealthStatus:
+        """로그인 점검(health) 공통(E5). 스크립트는 홈 화면 하나만 열고, 로그인이 안 보이면 그 화면 정보(page)를
+        함께 돌려준다. 그걸로 세부 상태를 `auth_state`에 두고, 보안 확인·제한이면 증거를 남긴다(예외가 없어도).
+
+        - 하얀 빈 화면은 로그인 풀림이 아니라 일시적 실패로 던진다(연속일 때만 멈춤).
+        - 로그인 페이지를 새로 열거나 확인 창을 누르지 않는다. 자동으로 풀지 않는다(ADR 0060).
+        """
+        # 스크린샷은 증거를 남길 수 있을 때만 찍게 한다(한 시간 쿨다운 안이면 화면 글만)
+        data = self._call(body, {"shot": self._evidence_open("auth")}, probe=True) or {}
+        me, page = data.get("me", ""), data.get("page")
+        page = page if isinstance(page, dict) else None
+        if not me:
+            if is_blank(page):
+                self.auth_state = None
+                raise self._blank_error()
+            self.auth_state = classify(page) if page else None
+            detail = f"{name} 로그인 필요(Aside 브라우저)"
+            if self.auth_state in EVIDENCE_STATES:
+                d = self._save_evidence(
+                    "auth", page, f"{self.platform} 로그인 확인: {self.auth_state}"
+                )
+                if d is not None:
+                    detail += f" (증거: {d.name})"
+            return HealthStatus(logged_in=False, detail=detail)
+        self.auth_state = None
+        if self.handle and me != self.handle:
+            return HealthStatus(logged_in=False, detail=f"로그인 계정 @{me} ≠ 설정 @{self.handle}")
+        return HealthStatus(logged_in=True, detail=f"@{me}")
 
     def _rate_limited(self, now: datetime, e: Exception) -> RateLimitedError:
         self._strikes += 1

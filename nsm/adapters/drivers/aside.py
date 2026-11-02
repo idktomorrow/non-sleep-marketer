@@ -69,7 +69,8 @@ function nsmLeft() { return Math.max(0, __deadline - Date.now()); }
 class NsmError extends Error { constructor(code, msg) { super(msg); this.code = code; } }
 async function nsmOpen(url) { const p = await openTab(url); __opened.push(p); return p; }
 async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: Math.max(1000, Math.min(ms || 20000, nsmLeft())) }); return loc.first(); }
-async function nsmEvidence() {
+// opts.noShot: 화면 글만 모으고 스크린샷은 찍지 않는다(health가 증거를 남기지 않을 때, E5)
+async function nsmEvidence(opts) {
   const pg = __opened[__opened.length - 1];
   if (!pg) return null;
   const ev = { url: pg.url() };
@@ -87,7 +88,7 @@ async function nsmEvidence() {
     return { dialogs: dialogs.length, labels, text };
   }).catch(() => ({})), 3000);
   Object.assign(ev, info || {});
-  const shot = await pg.screenshot({ timeout: budget(5000) }).catch(() => null);
+  const shot = (opts && opts.noShot) ? null : await pg.screenshot({ timeout: budget(5000) }).catch(() => null);
   if (shot) ev.screenshot = Buffer.from(shot).toString('base64');
   return ev;
 }

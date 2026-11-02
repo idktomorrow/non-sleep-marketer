@@ -225,6 +225,15 @@ def create_app(state: AppState) -> FastAPI:
         info = pause_info(state.repo)
         return {p: short_reason(info.get(p)) for p in paused}
 
+    def paused_todo(paused: list[str]) -> dict[str, str]:
+        """로그인 세부 상태별 사람이 할 일(E5). 세부 상태가 없는 멈춤은 빠진다."""
+        if not paused:
+            return {}
+        from nsm.engine.pause import pause_info, todo_text
+
+        info = pause_info(state.repo)
+        return {p: t for p in paused if (t := todo_text(info.get(p), p))}
+
     def pending_count() -> int:
         return int(
             state.repo.db.execute("SELECT count(*) FROM contents WHERE status = 'pending_review'")[
@@ -261,6 +270,7 @@ def create_app(state: AppState) -> FastAPI:
                 "auto_publish": bool(state.repo.get_setting(AUTO_PUBLISH_KEY, False)),
                 "paused": paused,
                 "paused_why": paused_why(paused),
+                "paused_todo": paused_todo(paused),
                 "has_reports": state.reports_dir is not None,
                 "js": job_status(),
                 "queue_count": queue_count(),

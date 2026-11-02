@@ -1,0 +1,15 @@
+{
+  "platform": "instagram",
+  "kind": "auth",
+  "error": "instagram 로그인 필요: 로그인돼 있지 않음",
+  "url": "https://www.instagram.com/accounts/suspended/?next=https%3A%2F%2Fwww.instagram.com%2Fp%2FDfDnLfeE_13%2F%3F__coig_ufac%3D1",
+  "dialogs": 0,
+  "text": " \n휴대폰 번호를 입력하세요\nSMS 또는 WhatsApp을 통해 전송된 코드로 이 휴대폰 번호를 확인해야 합니다.\nKR +82\nMeta는 회원님의 로그인을 돕고, 커뮤니티를 보호하며, Meta 서비스를 사용하는 사람의 정확한 수를 파악하고, 회원님이 Instagram 및 옵트인 프로그램에 액세스하도록 지원하기 위해 여기에 추가된 전화번호를 사용할 수 있지만 친구 추천이나 광고 제공과 같은 목적으로는 사용하지 않습니다. 이 전화번호는 회원님의 프로필에서 회원님을 제외한 다른 사람에게 표시되지 않습니다. Meta 제품의 다른 곳에서 여기 추가된 전화번호를 제공하실 경우 친구 추천이나 광고 제공 등의 다른 목적으로 사용될 수도 있습니다.\n코드 보내기",
+  "labels": [
+    "Menu",
+    "휴대폰 번호를 입력하세요",
+    "KR +82",
+    "코드 보내기"
+  ],
+  "captured": true
+}

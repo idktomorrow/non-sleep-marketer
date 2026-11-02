@@ -11,8 +11,10 @@ from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.pause import (
     HEALTH_STREAK_KEY,
     PAUSE_INFO_KEY,
+    auth_state_of,
     pause_info,
     pause_notice,
+    remind_due,
     short_reason,
 )
 from nsm.engine.publish import PAUSED_KEY
@@ -31,6 +33,8 @@ def run_health(ctx: JobContext) -> JobResult:
     - 끄는 중(Ctrl+C)에 끊긴 점검은 멈춤·알림·기록 없이 "중단"으로만 남긴다(E4, incidents/0008).
     - 일시적 실패는 `health_pause_after_failures`번 연속일 때만 멈춘다. 로그인 풀림은 바로 멈춘다(ADR 0054 개정).
     - 멈출 때 이유(종류)와 시각을 저장해 화면·알림이 그대로 쓴다.
+    - 멈춘 플랫폼도 점검은 한다(E5). 실패 횟수는 다시 쌓지 않고, 로그인 세부 상태가 바뀌면 멈춤 정보를 고치고
+      바로 알린다. 같은 상태면 마지막 알림부터 24시간마다 한 번만 다시 알린다.
     """
     result = JobResult("health")
     need = ctx.config.settings.health_pause_after_failures
@@ -73,9 +77,11 @@ def run_health(ctx: JobContext) -> JobResult:
         if is_interrupted(ctx):  # 끄는 중에 본 "로그인 안 됨"은 믿지 않는다
             _interrupted(result, platform, None)
             continue
-        if platform in paused:
-            continue  # 이미 멈춤: 같은 실패를 30분마다 다시 쌓지 않는다
         kind = kind_of(err) if err is not None else "auth"
+        state = auth_state_of(err if err is not None else adapter) if kind == "auth" else None
+        if platform in paused:  # 이미 멈춤: 실패 횟수는 다시 쌓지 않고 상태만 본다(E5)
+            _still_paused(ctx, platform, info, kind, state, err, detail, now)
+            continue
         if kind == "transient":
             n = streak.get(platform, 0) + 1
             streak[platform] = n
@@ -104,7 +110,10 @@ def run_health(ctx: JobContext) -> JobResult:
             "since": now.isoformat(),
             "detail": detail[:200],
             "failures": streak.get(platform, 1),
+            "notified_at": now.isoformat(),
         }
+        if state:
+            info[platform]["auth_state"] = state
         streak.pop(platform, None)
         title, body = pause_notice(platform, info[platform], detail)
         ctx.notifier.notify(title, with_diagnosis(body, diag), "error")
@@ -136,6 +145,49 @@ def run_health(ctx: JobContext) -> JobResult:
     return result
 
 
+def _still_paused(ctx, platform, info, kind, state, err, detail, now) -> None:
+    """멈춘 플랫폼의 점검 결과(E5). 로그인 세부 상태가 바뀌면(예: 본인 확인 → 문자 인증) 멈춤 정보를 고치고 바로
+    알린다. 같으면 24시간마다 한 번만 다시 알린다. 일시적 실패·화면 변경은 멈춤 이유를 바꾸지 않는다."""
+    if (
+        platform not in info
+    ):  # 이유 없는 예전 멈춤: 화면으로 알아낸 상태가 있을 때만 새로 적는다(지어내지 않음)
+        if state is None:
+            return
+        info[platform] = {"reason": "", "since": now.isoformat()}
+    cur = info[platform]
+    # 계정 불일치는 세부 상태가 없다(None). 본인 확인을 끝냈는데 다른 계정이면 그것도 바뀐 것이다
+    mismatch = state is None and "≠ 설정" in detail and cur.get("auth_state") is not None
+    changed = kind == "auth" and (
+        cur.get("reason") != "auth"
+        or (state is not None and state != cur.get("auth_state"))
+        or mismatch
+    )
+    if changed:
+        cur.update(reason="auth", detail=detail[:200])
+        if state:
+            cur["auth_state"] = state
+        else:
+            cur.pop("auth_state", None)
+        diag = record_incident(
+            ctx,
+            platform,
+            "health",
+            "health",
+            err or KindedError(detail, "auth"),
+            "멈춤 유지(로그인 상태가 바뀜)",
+        )
+        title, body = pause_notice(platform, cur, detail)
+        ctx.notifier.notify(title, with_diagnosis(body, diag), "error")
+    elif not cur.get("notified_at"):  # E5 전 멈춤: 지금부터 24시간을 센다(바로 알리지 않음)
+        pass
+    elif remind_due(cur, now):
+        title, body = pause_notice(platform, cur, cur.get("detail") or detail)
+        ctx.notifier.notify(f"{title} (계속)", f"아직 멈춰 있습니다. {body}", "warn")
+    else:
+        return
+    cur["notified_at"] = now.isoformat()
+
+
 def _interrupted(result: JobResult, platform: str, e: BaseException | None) -> None:
     """끄는 중 끊긴 점검: 멈춤·알림·실패 기록 없이 실행 기록에 "중단"만(C33과 같은 기준)."""
     result.ok = False
@@ -148,7 +200,12 @@ def run_metrics(ctx: JobContext) -> JobResult:
     now = ctx.clock.now()
     tally = {"posts": 0, "accounts": 0}
     limited: list[str] = []
+    paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
+    skipped: list[str] = []
     for platform, adapter in ctx.adapters.items():
+        if platform in paused:  # 멈춘 계정은 새벽마다 건드리지 않는다(E5, incidents/0010)
+            skipped.append(platform)
+            continue
         if until := blocked_until(adapter, now):
             limited.append(resting(ctx, platform, until))
             continue
@@ -169,6 +226,8 @@ def run_metrics(ctx: JobContext) -> JobResult:
             limited.append(resting(ctx, platform, until))  # 남은 글도 막힌다: 이 플랫폼은 그만
     if limited:
         result.counts["rate_limited"] = limited
+    if skipped:
+        result.counts["paused_skipped"] = skipped
     posts, accounts = tally["posts"], tally["accounts"]
     result.counts.update(posts=posts, accounts=accounts)
     result.ok = not result.errors or posts + accounts > 0
