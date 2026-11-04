@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from urllib.parse import urlsplit
 
 from nsm.domain.models import GeneratedContent, Persona
@@ -244,9 +245,55 @@ def hashtag_count(text: str) -> int:
     return len(_HASHTAG.findall(text or ""))
 
 
-def rule_violations(gen: GeneratedContent, persona: Persona) -> list[str]:
-    """프롬프트에만 있던 규칙을 생성 결과에 대고 검사한다. 빈 목록이면 통과."""
+# 미래 일정을 지난 일로 쓴 문장(C36, ADR 0061). 날짜는 _FACT_DATE와 같은 꼴을 읽는다(연-월-일, "N월 N일",
+# 앞에 "YYYY년"이 붙은 것). 연도가 없으면 오늘과 같은 해로 본다: 12월 30일에 쓴 "1월 3일"은 지난 날짜가 된다(한계).
+_DATE_PARTS = re.compile(
+    r"(?:(?P<y1>\d{4})년\s*)?(?P<m1>\d{1,2})월\s*(?P<d1>\d{1,2})일|(?P<y2>\d{4})[-./](?P<m2>\d{1,2})[-./](?P<d2>\d{1,2})"
+)
+# 지난 일로 끝맺는 말: 됐어요·했어요·열렸어요·나왔어요·끝났어요 … (출시됐·발매됐·개봉했·시작됐도 여기에 걸린다)
+_PAST_END = re.compile(
+    r"(?:됐|했|열렸|나왔|끝났|떴|왔|렸|났|었|았)(?:어요|어|습니다|다|죠|네요|대요|더라고요|던)(?=[\s.!?~,)」』\"']|$)"
+)
+_SENTENCE = re.compile(r"(?<=[.!?。])\s+|\n+")
+FUTURE_AS_PAST = "미래 일정을 지난 일로 씀"
+
+
+def _dates_in(text: str, today: date) -> list[date]:
+    out = []
+    for m in _DATE_PARTS.finditer(text):
+        y = m.group("y1") or m.group("y2")
+        mo = m.group("m1") or m.group("m2")
+        d = m.group("d1") or m.group("d2")
+        try:
+            out.append(date(int(y) if y else today.year, int(mo), int(d)))
+        except ValueError:  # 2월 30일 같은 날짜는 건너뛴다
+            continue
+    return out
+
+
+def future_as_past(gen: GeneratedContent, today: date) -> list[str]:
+    """오늘보다 뒤의 날짜가 든 문장이 과거형으로 끝나면 그 문장(중복 없이). 고치지 않고 찾기만 한다."""
+    found: list[str] = []
+    for text in sns_texts(gen).values():
+        for sent in _SENTENCE.split(text or ""):
+            sent = sent.strip()
+            if not sent or sent in found:
+                continue
+            if any(d > today for d in _dates_in(sent, today)) and _PAST_END.search(sent):
+                found.append(sent)
+    return found
+
+
+def rule_violations(
+    gen: GeneratedContent, persona: Persona, today: date | None = None
+) -> list[str]:
+    """프롬프트에만 있던 규칙을 생성 결과에 대고 검사한다. 빈 목록이면 통과.
+
+    today: 시제 검사 기준일(C36). 부르는 쪽(generate)이 시계에서 받아 넘긴다. 없으면 시제 검사를 하지 않는다.
+    """
     out: list[str] = []
+    if today is not None:
+        out += [f"{FUTURE_AS_PAST}: {s[:80]}" for s in future_as_past(gen, today)]
     # 협찬이면 게시할 때 '#광고'가 앞에 붙으므로 그만큼 적게(C33)
     tag_limit = HASHTAG_LIMIT - (1 if persona.ad_label else 0)
     n_tags = hashtag_count(gen.instagram_caption)
