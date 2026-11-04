@@ -18,6 +18,8 @@ MAX_TEXT = 500
 QUOTA_MAX = 10
 COST_CAP_MAX = 100.0
 IG_INTERVAL = "instagram_comment_interval_minutes"
+TH_INTERVAL = "threads_comment_interval_minutes"
+LOOKBACK = "comment_lookback_days"
 
 
 class SettingsError(ValueError):
@@ -170,6 +172,14 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         )
         if IG_INTERVAL in form
         else cfg.settings.instagram_comment_interval_minutes,
+        threads_comment_interval_minutes=int(
+            _number(form, TH_INTERVAL, "스레드 댓글 확인 간격", 5, 180)
+        )
+        if TH_INTERVAL in form
+        else cfg.settings.threads_comment_interval_minutes,
+        comment_lookback_days=int(_number(form, LOOKBACK, "댓글을 볼 최근 일수", 1, 30))
+        if LOOKBACK in form
+        else cfg.settings.comment_lookback_days,
     )
     try:
         return AppConfig.model_validate(
@@ -217,6 +227,8 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "min_hours_between_posts": f"{s.min_hours_between_posts:g}",
         "reply_interval_minutes": str(s.reply_interval_minutes),
         IG_INTERVAL: str(s.instagram_comment_interval_minutes),
+        TH_INTERVAL: str(s.threads_comment_interval_minutes),
+        LOOKBACK: str(s.comment_lookback_days),
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
         "exclude_words": "\n".join(s.collect.exclude_words),

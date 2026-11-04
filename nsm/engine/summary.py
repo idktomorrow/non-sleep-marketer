@@ -201,9 +201,11 @@ def describe(
     c = counts or {}
     fn = _JOBS.get(job)
     parts = (
-        fn(c) if fn else [_plain(k, v) for k, v in c.items() if k not in ("rate_limited", "stalls")]
+        fn(c)
+        if fn
+        else [_plain(k, v) for k, v in c.items() if k not in ("rate_limited", "stalls", "slow")]
     )
-    for key in ("rate_limited", "stalls"):  # 여러 작업이 붙이는 문장 목록
+    for key in ("rate_limited", "stalls", "slow"):  # 여러 작업이 붙이는 문장 목록
         if extra := c.get(key):
             parts.extend(map(str, extra))
     text = SEP.join(p for p in parts if p) or "바뀐 것 없음"

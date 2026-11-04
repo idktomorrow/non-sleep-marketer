@@ -122,7 +122,7 @@ def schedule_text(cfg: AppConfig) -> dict[str, str]:
     t = job_triggers(cfg)
     s = cfg.settings
     return {
-        "reply": f"{_every(t['reply'])}(인스타그램은 {s.instagram_comment_interval_minutes}분마다)",
+        "reply": f"{_every(t['reply'])}(스레드는 {s.threads_comment_interval_minutes}분, 인스타그램은 {s.instagram_comment_interval_minutes}분마다)",
         "publish": f"{_every(t['publish'])}(게시 시간에만)",
         "health": _every(t["health"]),
         "generate": "하루 1번",

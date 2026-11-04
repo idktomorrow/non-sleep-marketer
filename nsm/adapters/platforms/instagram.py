@@ -98,7 +98,8 @@ async function nextStep(pg, from) {
 // 글 페이지 정보: 캡션, 시각, 이미지 비율
 async function postInfo(pg, code) {
   await pg.goto('https://www.instagram.com/p/' + code + '/');
-  await nsmUntil(async () => (await pg.locator('article img, main img').count()) > 0, 20000);
+  // 멱등 확인용: 글이 안 열렸는데 "내 글 아님"으로 넘어가면 두 번 올린다. 비면 오류(C37)
+  await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('article img, main img').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
   await sleep(1500);
   return await pg.evaluate(([code, handle]) => {
     const imgs = Array.from(document.querySelectorAll('main img')).filter(i => i.naturalWidth > 300 && !(i.alt || '').endsWith('님의 프로필 사진'));
@@ -125,7 +126,9 @@ async function postInfo(pg, code) {
 }
 async function latestCodes(pg, n) {
   await pg.goto('https://www.instagram.com/' + ARGS.handle + '/');
-  await nsmUntil(async () => (await pg.locator('a[href*="/p/"]').count()) > 0, 15000);
+  const any = await nsmUntil(async () => (await pg.locator('a[href*="/p/"]').count()) > 0, 15000);
+  // 글이 정말 없는 계정(프로필 머리는 뜸)만 빈 목록. 프로필도 안 뜨면 오류(C37)
+  if (!any) await nsmEnsure(pg, await pg.locator('header').count(), '프로필이 15초 안에 열리지 않음');
   return await pg.evaluate((n) => {
     const out = [];
     for (const a of document.querySelectorAll('a[href*="/p/"]')) {
@@ -155,6 +158,7 @@ _HEALTH = (
 const pg = await nsmOpen('https://www.instagram.com/');
 await nsmCheckPage(pg);
 const me = ((await readHandle(pg)) || '').toLowerCase();
+if (!me) await nsmCheckPage(pg);  // 오류 화면이면 로그인 문제가 아니다(C37)
 if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
 return { me };
 """
@@ -171,8 +175,7 @@ if (before) return { code: before.code, ratio: before.ratio, existing: true };
 await pg.goto('https://www.instagram.com/');
 const files = await nsmFiles();
 if (!files.length) throw new NsmError('ui', '인스타그램 게시에는 이미지가 필요함');
-const np = await nsmUntil(() => nsmMarkIcon(pg, null, '새로운 게시물', 0), 20000);
-if (!np) throw new NsmError('ui', '"새로운 게시물" 메뉴 없음');
+const np = await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, null, '새로운 게시물', 0), 20000), '"새로운 게시물" 메뉴 없음', 'ui');
 await np.click();
 const postItem = await nsmUntil(() => nsmMarkIcon(pg, null, '게시물', 0), 10000);
 if (postItem) await postItem.click();
@@ -237,8 +240,7 @@ _DELETE = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
-const more = await nsmUntil(() => nsmMarkIcon(pg, 'main', '옵션 더 보기', 0), 20000);
-if (!more) throw new NsmError('ui', '글 메뉴(옵션 더 보기) 없음');
+const more = await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, 'main', '옵션 더 보기', 0), 20000), '글 메뉴(옵션 더 보기) 없음', 'ui');
 await more.click();
 await sleep(1000);
 if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('ui', '삭제 메뉴 없음');
@@ -259,7 +261,8 @@ for (const code of ARGS.codes) {
   const pg = await nsmOpen('https://www.instagram.com/p/' + code + '/');
   // 둘째 글부터 막혀도(429) 알아보게 글마다 페이지를 검사한다. 핸들은 처음 한 번만
   if (!checked) { await nsmAssertHandle(pg, readHandle); checked = true; } else { await nsmCheckPage(pg); }
-  await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000);
+  // 글 시각(main time)이 본문이 떴다는 표시다. 안 뜨면 빈 목록이 아니라 오류(C37). 댓글이 0개인 글도 본문 시각은 있다
+  await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
   await sleep(2000);
   // 댓글의 시각은 /p/<글>/c/<댓글ID>/ 링크 안에 있다. 거기서 위로 올라가 작성자 링크가 있는 칸을 찾는다.
   const rows = await pg.evaluate(() => {
@@ -303,7 +306,7 @@ _REPLY = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.parent + '/');
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000);
+await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
 await sleep(1500);
 // 그 댓글(/c/<댓글ID>/ 링크가 있는 칸)의 "답글 달기"를 누른다
 const key = 'q' + Math.random().toString(36).slice(2);
@@ -361,7 +364,7 @@ _POST_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000);
+await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
 await sleep(1500);
 const comments = await pg.evaluate(() => document.querySelectorAll('main a[href*="/c/"] time').length);
 // 인사이트(프로 계정)는 "숫자 이름" 순서로 보인다: "0 조회수 … 0 좋아요 0 댓글 0 저장 0 공유"
@@ -402,10 +405,10 @@ _ACCOUNT_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/' + ARGS.handle + '/');
 await nsmAssertHandle(pg, readHandle);
-const t = await nsmUntil(async () => {
+const t = await nsmEnsure(pg, await nsmUntil(async () => {
   const s = await pg.evaluate(() => (document.querySelector('header') || document.body).innerText.replace(/\s+/g, ' '));
   return /팔로워/.test(s) ? s : '';
-}, 20000);
+}, 20000), '프로필이 20초 안에 열리지 않음');
 const m = (t || '').match(/팔로워\s*([0-9.,]+\s*(?:천|만)?)/);
 return { followers: m ? nsmNum(m[1]) : null };
 """

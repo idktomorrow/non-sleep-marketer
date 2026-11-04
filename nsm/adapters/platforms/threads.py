@@ -57,6 +57,7 @@ _HEALTH = (
 const pg = await nsmOpen('https://www.threads.com/');
 await nsmCheckPage(pg);
 const me = ((await readHandle(pg)) || '').toLowerCase();
+if (!me) await nsmCheckPage(pg);  // 오류 화면이면 로그인 문제가 아니다(C37)
 if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
 return { me };
 """
@@ -120,7 +121,7 @@ _DELETE = (
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
 // 답글이면 위에 원글 맥락이 함께 보인다. 메뉴를 차례로 열어 "삭제"가 있는 것(내 글)을 고른다.
-await nsmUntil(() => nsmMarkIcon(pg, MAIN, '더 보기', 0), 30000);
+await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, MAIN, '더 보기', 0), 30000), '글 메뉴(더 보기) 없음', 'ui');
 let done = false;
 for (let i = 0; i < 4 && !done; i++) {
   const more = await nsmMarkIcon(pg, MAIN, '더 보기', i);
@@ -156,7 +157,7 @@ _POST_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator('svg title').count()) > 0 && await nsmMarkIcon(pg, MAIN, '좋아요', 0), 30000);
+await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('svg title').count()) > 0 && await nsmMarkIcon(pg, MAIN, '좋아요', 0), 30000), '게시물 본문이 30초 안에 열리지 않음');
 const counts = {};
 // 글 페이지에서 처음 나오는 동작 버튼들이 본문 글의 것이다(답글들은 그 아래)
 for (const lab of ['좋아요', '답글', '리포스트', '공유하기']) {
@@ -185,10 +186,10 @@ _ACCOUNT_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
 await nsmAssertHandle(pg, readHandle);
-const t = await nsmUntil(async () => {
+const t = await nsmEnsure(pg, await nsmUntil(async () => {
   const s = await pg.evaluate(() => Array.from(document.querySelectorAll('[role="button"], a')).map(b => (b.innerText || '').trim()).find(x => /^팔로워/.test(x)) || '');
   return s;
-}, 20000);
+}, 20000), '프로필이 20초 안에 열리지 않음');
 return { followers: t ? nsmNum(t.replace('팔로워', '')) : null };
 """
 )
@@ -203,7 +204,9 @@ for (const code of ARGS.codes) {
   const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + code);
   // 둘째 글부터 막혀도(429) 알아보게 글마다 페이지를 검사한다. 핸들은 처음 한 번만
   if (code === ARGS.codes[0]) await nsmAssertHandle(pg, readHandle); else await nsmCheckPage(pg);
-  await nsmUntil(async () => (await pg.locator(MAIN + ' [data-pressable-container="true"]').count()) > 0, 20000);
+  // 첫 컨테이너가 본문 글이다. 본문이 안 뜨면 빈 목록이 아니라 오류(2026-11-04: 13시간 "새 댓글 없음", C37).
+  // 본문은 떴는데 컨테이너가 하나뿐이면 정말 댓글이 없는 글이다(빈 목록 정상)
+  await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator(MAIN + ' [data-pressable-container="true"]').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
   await sleep(2000);
   const rows = await pg.evaluate((MAIN) => Array.from(document.querySelectorAll(MAIN + ' [data-pressable-container="true"]')).slice(1).map(c => {
     const post = Array.from(c.querySelectorAll('a[href*="/post/"]')).map(a => a.getAttribute('href')).find(h => /^\/@[^/]+\/post\/[^/?]+$/.test(h)) || '';
@@ -227,8 +230,7 @@ _REPLY = (
 // 댓글 자체 페이지: 위에 내 글(답글 아이콘 0번), 그 아래 댓글(1번). 1번을 누르면 "답글" 창이 열린다.
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.author + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
-const icon = await nsmUntil(() => nsmMarkIcon(pg, MAIN, '답글', 1), 30000);
-if (!icon) throw new NsmError('ui', '댓글의 답글 버튼 없음');
+const icon = await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, MAIN, '답글', 1), 30000), '댓글의 답글 버튼 없음', 'ui');
 await icon.click();
 await nsmWait(pg.locator('[role="dialog"] [contenteditable="true"]'));
 // 창에 인용된 원글이 그 댓글(작성자)인지 확인하고 쓴다
@@ -261,7 +263,7 @@ _HIDE = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.parent);
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator(MAIN + ' a[href$="/post/' + ARGS.code + '"]').count()) > 0, 30000);
+await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator(MAIN + ' a[href$="/post/' + ARGS.code + '"]').count()) > 0, 30000), '숨길 댓글이 30초 안에 보이지 않음');
 const key = 'h' + Math.random().toString(36).slice(2);
 const ok = await pg.evaluate(([code, key]) => {
   const a = document.querySelector('a[href$="/post/' + code + '"]');

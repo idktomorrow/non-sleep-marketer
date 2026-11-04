@@ -277,11 +277,33 @@ async function nsmCheckPage(pg) {
     const m = text.match(/(HTTP ERROR \d+|ERR_[A-Z_]+)/);
     throw new NsmError('page', '페이지를 열 수 없음(' + (m ? m[1] : url) + ')');
   }
+  // 플랫폼 오류 화면("문제가 발생했습니다. 나중에 다시 시도해보세요." + "다시 시도" 버튼, 2026-11-04 스레드, C37).
+  // 안내문과 "다시 시도" 버튼이 함께 있을 때만 본다: 댓글·글 본문에 같은 말이 있어도 버튼은 만들 수 없다.
+  // 로그인 폼·보안 확인 화면에는 이 안내문이 없다. 빈 화면(E5)보다 먼저 걸린다(로그인 확인 전에 부르므로).
+  if (await nsmErrorScreen(pg)) throw new NsmError('page', '플랫폼이 오류 화면을 띄움');
+}
+const NSM_ERROR_TEXT = /문제가 발생했습니다|Something went wrong|나중에 다시 시도|Try again later/i;
+async function nsmErrorScreen(pg) {
+  return await pg.evaluate((src) => {
+    const text = (document.body && document.body.innerText) || '';
+    if (!new RegExp(src, 'i').test(text)) return false;
+    return Array.from(document.querySelectorAll('[role="button"], button')).some(b => /^(다시 시도|Try again|Retry)$/i.test((b.innerText || '').trim()));
+  }, NSM_ERROR_TEXT.source).catch(() => false);
+}
+// 반드시 있어야 하는 요소(글 본문 등)를 nsmUntil로 기다린 결과가 비었으면 빈 결과로 넘기지 않는다(C37).
+// 오류 화면이면 그 오류, 아니면 code(기본 'page': 일시적)로 던진다. 있으면 그 값을 그대로 돌려준다.
+async function nsmEnsure(pg, v, msg, code) {
+  if (v) return v;
+  await nsmCheckPage(pg);
+  throw new NsmError(code || 'page', msg);
 }
 async function nsmAssertHandle(pg, readHandle) {
   await nsmCheckPage(pg);
   const me = ((await readHandle(pg)) || '').replace(/^@/, '').toLowerCase();
-  if (!me) throw new NsmError('login', '로그인돼 있지 않음');
+  if (!me) {
+    await nsmCheckPage(pg);  // 기다리는 사이 오류 화면이 떴으면 로그인 문제가 아니다(C37)
+    throw new NsmError('login', '로그인돼 있지 않음');
+  }
   if (me !== ARGS.handle) throw new NsmError('mismatch', '로그인 계정 @' + me + ' ≠ 설정 @' + ARGS.handle);
   return me;
 }
