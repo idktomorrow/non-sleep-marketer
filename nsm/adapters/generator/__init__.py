@@ -29,6 +29,7 @@ def make_text_generator(
         cost_sink,
         include_blog="naver_blog" in cfg.settings.enabled_platforms,
         tz=cfg.settings.timezone,
+        clock=getattr(cost_sink, "clock", None),  # 저장소의 시계(시제 검사와 같은 시계, C36)
     )
 
 

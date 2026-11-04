@@ -77,8 +77,7 @@ def test_generate_sends_it_to_review_with_reason_and_keeps_text(db, clock, app_c
     bad = "2026년 11월 6일(금) 11시에 신상이 발매됐어요"
     gen = ScriptedGenerator([(bad, "짧은 글이에요")])
     ctx = _ctx(db, clock, app_config, gen)
-    run = run_generate
-    run(ctx)
+    run_generate(ctx)
     c = _first(ctx)
     assert c.status == "pending_review"
     assert f"미래 일정을 지난 일로 씀: {bad}" in c.review_reason
@@ -100,3 +99,44 @@ def test_prompt_compares_dates_with_today_and_asks_in_question_form(app_config) 
     assert "이미 지났으면 지난 일로" in s
     assert "날짜를 밝혀 지난 일로 씁니다" not in s  # 옛 규칙(미래도 과거형으로 쓰게 했다)
     assert '"어떤 캐릭터가 제일 끌리나요?"' in s and "'~좋아요?'보다 '~좋으세요?'" in s
+
+
+# ------------------------------------------------------------------ 리뷰 반영
+
+
+def test_emoji_hashtag_or_laugh_after_the_ending_is_still_caught(app_config) -> None:
+    for text in (
+        "11월 6일에 신상이 발매됐어요🎉",
+        "11월 6일에 발매됐어요 #신상",
+        "11월 6일에 나왔어요ㅎㅎ",
+    ):
+        assert _tense(app_config, text), text
+
+
+def test_modifier_and_announcement_are_not_flagged(app_config) -> None:
+    assert _tense(app_config, "11월 6일, 기다렸던 신상이 나와요") == []  # 가운데 '~던'은 꾸밈말
+    assert (
+        _tense(app_config, "11월 20일 팝업 일정이 공개됐어요") == []
+    )  # 일정을 알린 것은 지난 일이 맞다
+    assert _tense(app_config, "11월 6일 발매가 확정됐어요") == []
+
+
+def test_long_sentence_reason_is_marked_as_cut(app_config) -> None:
+    long = "11월 6일에 " + "아주 " * 60 + "발매됐어요"
+    v = _tense(app_config, long)
+    assert len(v) == 1 and v[0].endswith("…")
+
+
+def test_generator_prompt_date_uses_the_same_clock(clock) -> None:
+    """프롬프트의 '오늘 날짜'도 시제 검사와 같은 시계에서 온다."""
+    from nsm.adapters.generator.claude_text import ClaudeTextGenerator
+
+    clock.set(datetime(2026, 11, 4, 10, 0, tzinfo=KST))
+    g = ClaudeTextGenerator(object(), "m", clock=clock, use_fallbacks=False)
+    assert g._today() == date(2026, 11, 4)
+
+
+def test_early_january_limit_is_known(app_config) -> None:
+    """한계(ADR 0061): 1월 초에 '지난 12월 28일에 열렸어요'는 올해 12월로 읽혀 검토로 간다(오탐 쪽).
+    연도 없는 날짜는 같은 해로 본다는 결정을 바꾸지 않았음을 고정한다."""
+    assert _tense(app_config, "12월 28일에 팝업이 열렸어요", today=date(2027, 1, 3))

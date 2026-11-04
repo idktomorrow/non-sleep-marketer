@@ -276,6 +276,7 @@ class ClaudeTextGenerator:
         use_fallbacks: bool = True,
         include_blog: bool = True,
         tz: str = "Asia/Seoul",
+        clock: Any = None,
     ) -> None:
         self.client = client
         self.model = model
@@ -283,6 +284,12 @@ class ClaudeTextGenerator:
         self.use_fallbacks = use_fallbacks
         self.include_blog = include_blog
         self.tz = tz
+        # 프롬프트의 '오늘 날짜'와 시제 검사(C36)가 같은 시계를 보게 한다. 없으면 시스템 시각
+        self.clock = clock
+
+    def _today(self) -> date:
+        now = self.clock.now() if self.clock is not None else datetime.now(ZoneInfo(self.tz))
+        return now.astimezone(ZoneInfo(self.tz)).date()
 
     def _call(self, ref: str, **kwargs: Any) -> str:
         if self.use_fallbacks:
@@ -320,7 +327,7 @@ class ClaudeTextGenerator:
             messages=[
                 {
                     "role": "user",
-                    "content": _user(brief, datetime.now(ZoneInfo(self.tz)).date()),
+                    "content": _user(brief, self._today()),
                 }
             ],
         )
