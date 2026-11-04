@@ -81,10 +81,18 @@ def test_hidden_screens_still_open_in_simple_mode(uenv) -> None:
 
 def test_simple_settings_hide_detail_fields_but_still_save_them(uenv) -> None:
     html = uenv["client"].get("/settings").text
-    assert html.count('class="field-row adv-only" hidden') == 2
+    assert (
+        html.count('class="field-row adv-only" hidden') == 3
+    )  # C37: 스레드 간격·최근 일수 줄이 더해짐
     # 숨은 칸은 눌러 고칠 수 없으니, config.yaml 값이 입력 제한(step 등)에 안 맞아도 저장이 막히지 않게(서버가 검사)
     assert 'id="settings-form" novalidate' in html
-    for name in ("active_hours", "reply_interval_minutes", "min_hours_between_posts"):
+    for name in (
+        "active_hours",
+        "reply_interval_minutes",
+        "min_hours_between_posts",
+        "threads_comment_interval_minutes",
+        "comment_lookback_days",
+    ):
         assert f'name="{name}"' in html  # 숨겨도 폼에 있어 저장할 때 같이 간다
     for name in ("posting_hours", "quota_instagram", "daily_cost_cap_usd", "card_style"):
         assert f'name="{name}"' in html

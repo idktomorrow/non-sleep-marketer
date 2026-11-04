@@ -188,13 +188,16 @@ class Settings(_Model):
         default=2, ge=0
     )  # 주제(소재 묶음)마다 최근 7일 원고 수 상한. 0이면 없음
     max_bodies_per_run: int = Field(default=24, ge=1, le=100)  # 수집 한 번에 원문을 읽는 자료 수
-    comment_lookback_days: int = 14
+    # 댓글을 볼 최근 일수(스레드 등). 14일 전 글까지 5분마다 열면 하루 수천 번 페이지를 연다(C37, ADR 0062)
+    comment_lookback_days: int = Field(default=7, ge=1, le=30)
     # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
     reply_interval_minutes: int = Field(default=5, ge=3, le=60)
     # 인스타그램은 댓글을 보려면 글 페이지를 하나씩 열어야 해서 요청 제한(HTTP 429)에 걸리기 쉽다.
     # 위 간격과 따로, 이 간격(분)보다 자주 보지 않고 최근 며칠 글만 본다(ADR 0038).
     instagram_comment_interval_minutes: int = Field(default=30, ge=10, le=180)
     instagram_comment_lookback_days: int = Field(default=3, ge=1, le=14)
+    # 스레드도 글 페이지를 하나씩 연다. 잡 간격(reply_interval_minutes)과 따로 이보다 자주 보지 않는다(C37)
+    threads_comment_interval_minutes: int = Field(default=15, ge=5, le=180)
     # 안정화(C12): 수집 관련 자료·게시가 이 일수 동안 0건이면 알림(화면 구조 변경 등으로 조용히 멈춘 경우)
     stall_alert_days: int = Field(default=2, ge=1, le=14)
     backup_keep: int = Field(default=7, ge=1, le=60)  # 하루 한 번 데이터 백업, 최근 몇 개를 남길지

@@ -57,6 +57,7 @@ _HEALTH = (
 const pg = await nsmOpen('https://www.threads.com/');
 await nsmCheckPage(pg);
 const me = ((await readHandle(pg)) || '').toLowerCase();
+if (!me) await nsmCheckPage(pg);  // 오류 화면이면 로그인 문제가 아니다(C37)
 if (!me && nsmLeft() > 6000) return { me, page: await nsmEvidence({ noShot: !ARGS.shot }) };
 return { me };
 """
@@ -120,7 +121,7 @@ _DELETE = (
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
 // 답글이면 위에 원글 맥락이 함께 보인다. 메뉴를 차례로 열어 "삭제"가 있는 것(내 글)을 고른다.
-await nsmUntil(() => nsmMarkIcon(pg, MAIN, '더 보기', 0), 30000);
+await nsmNeed(pg, () => nsmMarkIcon(pg, MAIN, '더 보기', 0), 30000, '글 메뉴(더 보기) 없음', 'ui');
 let done = false;
 for (let i = 0; i < 4 && !done; i++) {
   const more = await nsmMarkIcon(pg, MAIN, '더 보기', i);
@@ -156,7 +157,7 @@ _POST_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator('svg title').count()) > 0 && await nsmMarkIcon(pg, MAIN, '좋아요', 0), 30000);
+await nsmNeed(pg, async () => (await pg.locator('svg title').count()) > 0 && await nsmMarkIcon(pg, MAIN, '좋아요', 0), 30000, '게시물 본문이 30초 안에 열리지 않음');
 const counts = {};
 // 글 페이지에서 처음 나오는 동작 버튼들이 본문 글의 것이다(답글들은 그 아래)
 for (const lab of ['좋아요', '답글', '리포스트', '공유하기']) {
@@ -185,10 +186,10 @@ _ACCOUNT_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
 await nsmAssertHandle(pg, readHandle);
-const t = await nsmUntil(async () => {
+const t = await nsmNeed(pg, async () => {
   const s = await pg.evaluate(() => Array.from(document.querySelectorAll('[role="button"], a')).map(b => (b.innerText || '').trim()).find(x => /^팔로워/.test(x)) || '');
   return s;
-}, 20000);
+}, 20000, '프로필이 20초 안에 열리지 않음');
 return { followers: t ? nsmNum(t.replace('팔로워', '')) : null };
 """
 )
@@ -199,25 +200,37 @@ _COMMENTS = (
     JS_HANDLE
     + r"""
 const out = [];
+const failed = [];  // 본문이 안 열려 건너뛴 글(C37)
+let firstErr = null;
 for (const code of ARGS.codes) {
   const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + code);
   // 둘째 글부터 막혀도(429) 알아보게 글마다 페이지를 검사한다. 핸들은 처음 한 번만
-  if (code === ARGS.codes[0]) await nsmAssertHandle(pg, readHandle); else await nsmCheckPage(pg);
-  await nsmUntil(async () => (await pg.locator(MAIN + ' [data-pressable-container="true"]').count()) > 0, 20000);
-  await sleep(2000);
-  const rows = await pg.evaluate((MAIN) => Array.from(document.querySelectorAll(MAIN + ' [data-pressable-container="true"]')).slice(1).map(c => {
-    const post = Array.from(c.querySelectorAll('a[href*="/post/"]')).map(a => a.getAttribute('href')).find(h => /^\/@[^/]+\/post\/[^/?]+$/.test(h)) || '';
-    const time = c.querySelector('time');
-    const handle = post ? post.split('/')[1].slice(1) : '';
-    const lines = (c.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-    const ti = lines.findIndex(l => time && (l === time.innerText.trim()));
-    const body = lines.slice(ti >= 0 ? ti + 1 : 2).filter(l => !/^[0-9.,]+(천|만)?$/.test(l)).join('\n');
-    return { code: post ? post.split('/post/')[1] : '', handle, text: body, at: time ? time.getAttribute('datetime') : null };
-  }), MAIN);
-  for (const r of rows) if (r.code && r.at) out.push({ ...r, parent: code });
+  try {
+    if (code === ARGS.codes[0]) await nsmAssertHandle(pg, readHandle); else await nsmCheckPage(pg);
+    // 첫 컨테이너가 본문 글이다. 본문이 안 뜨면 빈 목록이 아니라 오류(2026-11-04: 13시간 "새 댓글 없음", C37).
+    // 본문은 떴는데 컨테이너가 하나뿐이면 정말 댓글이 없는 글이다(빈 목록 정상)
+    await nsmNeed(pg, async () => (await pg.locator(MAIN + ' [data-pressable-container="true"]').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
+    await sleep(2000);
+    const rows = await pg.evaluate((MAIN) => Array.from(document.querySelectorAll(MAIN + ' [data-pressable-container="true"]')).slice(1).map(c => {
+      const post = Array.from(c.querySelectorAll('a[href*="/post/"]')).map(a => a.getAttribute('href')).find(h => /^\/@[^/]+\/post\/[^/?]+$/.test(h)) || '';
+      const time = c.querySelector('time');
+      const handle = post ? post.split('/')[1].slice(1) : '';
+      const lines = (c.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+      const ti = lines.findIndex(l => time && (l === time.innerText.trim()));
+      const body = lines.slice(ti >= 0 ? ti + 1 : 2).filter(l => !/^[0-9.,]+(천|만)?$/.test(l)).join('\n');
+      return { code: post ? post.split('/post/')[1] : '', handle, text: body, at: time ? time.getAttribute('datetime') : null };
+    }), MAIN);
+    for (const r of rows) if (r.code && r.at) out.push({ ...r, parent: code });
+  } catch (e) {
+    // 로그인·요청 제한·화면 변경은 그대로 던진다. 글이 안 열린 것(page)만 그 글을 건너뛴다
+    if (!e || e.code !== 'page') throw e;
+    failed.push(code);
+    firstErr = firstErr || e;
+    if (failed.length === ARGS.codes.length) throw firstErr;  // 모두 안 열림: 탭을 남겨 증거로
+  }
   await closeTab(pg); __opened.splice(__opened.indexOf(pg), 1);
 }
-return out;
+return { rows: out, failed };
 """
 )
 
@@ -227,8 +240,7 @@ _REPLY = (
 // 댓글 자체 페이지: 위에 내 글(답글 아이콘 0번), 그 아래 댓글(1번). 1번을 누르면 "답글" 창이 열린다.
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.author + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
-const icon = await nsmUntil(() => nsmMarkIcon(pg, MAIN, '답글', 1), 30000);
-if (!icon) throw new NsmError('ui', '댓글의 답글 버튼 없음');
+const icon = await nsmNeed(pg, () => nsmMarkIcon(pg, MAIN, '답글', 1), 30000, '댓글의 답글 버튼 없음', 'ui');
 await icon.click();
 await nsmWait(pg.locator('[role="dialog"] [contenteditable="true"]'));
 // 창에 인용된 원글이 그 댓글(작성자)인지 확인하고 쓴다
@@ -261,7 +273,7 @@ _HIDE = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.parent);
 await nsmAssertHandle(pg, readHandle);
-await nsmUntil(async () => (await pg.locator(MAIN + ' a[href$="/post/' + ARGS.code + '"]').count()) > 0, 30000);
+await nsmNeed(pg, async () => (await pg.locator(MAIN + ' a[href$="/post/' + ARGS.code + '"]').count()) > 0, 30000, '숨길 댓글이 30초 안에 보이지 않음');
 const key = 'h' + Math.random().toString(36).slice(2);
 const ok = await pg.evaluate(([code, key]) => {
   const a = document.querySelector('a[href$="/post/' + code + '"]');
@@ -347,17 +359,32 @@ class ThreadsAdapter(AsideAdapterBase):
             return []
         rows: list[dict] = []
         errors: list[Exception] = []
+        skipped: list[str] = []
+        read = 0  # 읽은 묶음 수. 댓글이 0개여도 읽은 것이다(C37: "0개"와 "못 읽음"을 가른다)
         ids = list(post_external_ids)
         # 한 번의 repl(120초)에 글 몇 개만: 글이 쌓여도 제한에 걸려 통째로 실패하지 않게
         for i in range(0, len(ids), COMMENT_BATCH):
             try:
-                rows += self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+                data = self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+                if isinstance(data, dict):  # {rows, failed}: 본문이 안 열린 글은 건너뜀(C37)
+                    rows += data.get("rows") or []
+                    skipped += list(data.get("failed") or [])
+                else:
+                    rows += data
+                read += 1
             except RateLimitedError:
                 raise  # 남은 묶음도 막힌다. 읽은 것도 버려 since를 앞당기지 않는다(다음에 다시 읽음)
             except AdapterError as e:
                 errors.append(e)
-        if errors and not rows:
+        if errors and not read:
             raise errors[0]
+        if skipped:
+            log.warning(
+                "%s 댓글: 본문이 열리지 않은 글 %d개를 건너뜀: %s",
+                self.platform,
+                len(skipped),
+                skipped[:4],
+            )
         if errors:
             # 일부 글을 못 읽으면 그 글의 새 댓글을 다음 실행에서 놓칠 수 있다(since가 앞당겨짐)
             log.warning(

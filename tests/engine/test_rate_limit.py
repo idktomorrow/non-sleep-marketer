@@ -68,7 +68,7 @@ def test_resting_platform_is_not_opened(ctx: JobContext) -> None:  # noqa: F811
 
 
 def test_instagram_comments_are_checked_less_often(ctx: JobContext) -> None:  # noqa: F811
-    """인스타그램은 30분(설정)마다, 스레드는 잡이 돌 때마다. 지터 때문에 2분 일찍 와도 확인한다."""
+    """인스타그램은 30분(설정)마다, 스레드는 15분(설정, C37)마다. 지터 때문에 2분 일찍 와도 확인한다."""
     calls = _ig_fetches(ctx)
     threads = []
     real = ctx.adapters["threads"].fetch_new_comments
@@ -78,7 +78,7 @@ def test_instagram_comments_are_checked_less_often(ctx: JobContext) -> None:  # 
     for _ in range(6):  # 5분마다 6번(25분)
         run_reply(ctx)
         ctx.clock.advance(minutes=5)
-    assert len(calls) == 1 and len(threads) == 6
+    assert len(calls) == 1 and len(threads) == 2  # 스레드: 0분·15분
     ctx.clock.advance(minutes=-2)  # 처음부터 28분
     run_reply(ctx)
     assert len(calls) == 2
