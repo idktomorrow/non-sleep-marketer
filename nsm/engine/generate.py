@@ -18,11 +18,12 @@ from nsm.domain.policy import (
     daily_content_target,
     decide_publish,
     find_banned,
+    local,
     local_day_bounds,
     should_act,
     under_cost_cap,
 )
-from nsm.domain.quality import fact_count, normalize_bullets, rule_violations
+from nsm.domain.quality import FUTURE_AS_PAST, fact_count, normalize_bullets, rule_violations
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.material import pick_material
 from nsm.ports import AdapterError
@@ -114,9 +115,11 @@ def _add_background(ctx: JobContext, gen: GeneratedContent, result: JobResult) -
 def _check_rules(
     ctx: JobContext, brief: ContentBrief, gen: GeneratedContent, result: JobResult
 ) -> tuple[GeneratedContent, list[str]]:
-    """프롬프트에만 있던 규칙(이모지 수, 딱딱한 표현)을 검사하고, 어기면 한 번 다시 만든다."""
+    """프롬프트에만 있던 규칙(이모지 수, 딱딱한 표현, 미래 일정의 시제)을 검사하고, 어기면 한 번 다시 만든다."""
     persona = ctx.config.persona
-    violations = rule_violations(gen, persona)
+    # 시제 검사 기준일(C36): 시계에서 받는다(테스트가 고정할 수 있게)
+    today = local(ctx.clock.now(), ctx.tz).date()
+    violations = rule_violations(gen, persona, today)
     if not violations:
         return gen, []
     log.info("페르소나 규칙 위반, 한 번 다시 생성: %s", violations)
@@ -133,7 +136,7 @@ def _check_rules(
         result.errors.append(f"규칙 위반 재생성 실패: {e}")
         return gen, violations
     result.counts["regenerated"] = result.counts.get("regenerated", 0) + 1
-    v2 = rule_violations(again, persona)
+    v2 = rule_violations(again, persona, today)
     return (again, v2) if len(v2) <= len(violations) else (gen, violations)
 
 
@@ -251,7 +254,11 @@ def _make_one(
     if violations:
         # 다시 만들어도 규칙을 어기면 자동 게시하지 않고 사람에게 넘긴다
         approved = False
-        reason = "; ".join(filter(None, [f"페르소나 규칙 위반: {', '.join(violations)}", reason]))
+        # 시제 위반은 자기 이름으로 따로 적는다("미래 일정을 지난 일로 씀: <문장>", C36)
+        tense = [v for v in violations if v.startswith(FUTURE_AS_PAST)]
+        rest = [v for v in violations if v not in tense]
+        parts = [*tense, f"페르소나 규칙 위반: {', '.join(rest)}" if rest else "", reason]
+        reason = "; ".join(filter(None, parts))
     facts = fact_count(gen)
     if facts < s.min_facts:
         # 구체 사실이 없는 원고("검색해 보세요"류)는 자동 게시하지 않는다(C31)
