@@ -23,7 +23,7 @@ PAGE = "threads: 게시물 본문이 20초 안에 열리지 않음"
 def _failing(ctx: JobContext, calls: list) -> None:
     def boom(ids, since):
         calls.append(1)
-        raise PlatformError(PAGE, "transient")
+        raise PlatformError(PAGE, "transient", "page")
 
     ctx.adapters["threads"].fetch_new_comments = boom
 
@@ -120,7 +120,7 @@ def test_slow_check_is_recorded_without_notification(ctx: JobContext) -> None:  
     ctx.adapters["threads"].fetch_new_comments = slow
     before = list(ctx.notifier.calls)
     r = run_reply(ctx)
-    assert r.counts["slow"] == ["댓글 확인이 14분 걸림(간격 5분)"]
+    assert r.counts["slow"] == ["댓글 확인이 14분 걸림(간격 5분) · 스레드 댓글 조회 14분"]
     assert "댓글 확인이 14분 걸림(간격 5분)" in r.summary()
     rows = [f for f in ctx.repo.recent_failures() if f["stage"] == "duration"]
     assert rows and rows[0]["platform"] == "threads" and rows[0]["action"] == "기록만(알림 없음)"
@@ -146,3 +146,30 @@ def test_lookback_is_seven_days(ctx: JobContext) -> None:  # noqa: F811
         p.external_id for p in ctx.repo.published_posts_since("threads", since) if p.external_id
     ]
     assert seen == [expected]
+
+
+def test_other_transient_failures_do_not_count_and_break_the_streak(ctx: JobContext) -> None:  # noqa: F811
+    """리뷰: Aside 꺼짐 같은 일시적 실패는 "게시물이 열리지 않아"가 아니다. 세지 않고 연속을 끊는다."""
+    calls: list = []
+    _failing(ctx, calls)
+    run_reply(ctx)  # page 1회
+    ctx.adapters["threads"].fetch_new_comments = lambda ids, since: (_ for _ in ()).throw(
+        PlatformError("threads: Aside 결과 줄이 없음", "transient", "cli")
+    )
+    ctx.clock.advance(minutes=15)
+    run_reply(ctx)
+    assert "threads" not in (ctx.repo.get_setting(FETCH_FAIL_KEY, {}) or {})
+    _failing(ctx, calls)
+    ctx.clock.advance(minutes=15)
+    run_reply(ctx)  # 다시 page 1회째: 쉬지 않는다
+    assert _rest_notes(ctx) == []
+
+
+def test_rest_is_written_as_the_action(ctx: JobContext) -> None:  # noqa: F811
+    calls: list = []
+    _failing(ctx, calls)
+    run_reply(ctx)
+    ctx.clock.advance(minutes=15)
+    run_reply(ctx)
+    actions = [f["action"] for f in ctx.repo.recent_failures() if f["stage"] == "fetch_comments"]
+    assert actions[0] == "댓글 확인 30분 쉬기(연속 실패)" and actions[1] == "다음 댓글 확인에 다시"

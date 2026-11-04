@@ -25,11 +25,13 @@ class PlatformError(AdapterError):
 
     kind = "transient"
 
-    def __init__(self, message: str, kind: str | None = None) -> None:
+    def __init__(self, message: str, kind: str | None = None, code: str | None = None) -> None:
         super().__init__(message)
         if kind:
             self.kind = kind
         self.evidence_dir: str | None = None
+        # Aside 스크립트의 오류 코드('page' = 페이지가 안 열림·오류 화면). 엔진이 속성으로 읽는다(C37)
+        self.code = code
 
 
 class LoginRequiredError(PlatformError):
@@ -185,7 +187,7 @@ class AsideAdapterBase:
             )
         if e.code == "mismatch":
             return AccountMismatchError(f"{self.platform}: {e}")
-        return PlatformError(f"{self.platform}: {e}", kind_for_code(e.code, str(e)))
+        return PlatformError(f"{self.platform}: {e}", kind_for_code(e.code, str(e)), e.code)
 
     def _attach_evidence(self, err: PlatformError, e: AsideError) -> None:
         """실패 증거를 남기고 오류 문구 끝에 폴더 이름을 붙인다(전체 경로는 `evidence_dir`).
@@ -198,7 +200,7 @@ class AsideAdapterBase:
 
     def _blank_error(self) -> PlatformError:
         return PlatformError(
-            f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient"
+            f"{self.platform}: 페이지가 덜 열림(빈 화면, 로그인 여부 모름)", "transient", "page"
         )
 
     def _evidence_open(self, kind: str) -> bool:
@@ -285,9 +287,15 @@ async function nsmCheckPage(pg) {
 const NSM_ERROR_TEXT = /문제가 발생했습니다|Something went wrong|나중에 다시 시도|Try again later/i;
 async function nsmErrorScreen(pg) {
   return await pg.evaluate((src) => {
-    const text = (document.body && document.body.innerText) || '';
-    if (!new RegExp(src, 'i').test(text)) return false;
-    return Array.from(document.querySelectorAll('[role="button"], button')).some(b => /^(다시 시도|Try again|Retry)$/i.test((b.innerText || '').trim()));
+    const re = new RegExp(src, 'i');
+    if (!re.test((document.body && document.body.innerText) || '')) return false;
+    // 버튼에서 몇 칸 위까지 올라가 같은 칸에 안내문이 있을 때만(페이지 다른 곳의 문구·버튼을 엮지 않게)
+    return Array.from(document.querySelectorAll('[role="button"], button')).some(b => {
+      if (!/^(다시 시도|Try again|Retry)$/i.test((b.innerText || '').trim())) return false;
+      let box = b.parentElement;
+      for (let i = 0; i < 4 && box; i++, box = box.parentElement) if (re.test(box.innerText || '')) return true;
+      return false;
+    });
   }, NSM_ERROR_TEXT.source).catch(() => false);
 }
 // 반드시 있어야 하는 요소(글 본문 등)를 nsmUntil로 기다린 결과가 비었으면 빈 결과로 넘기지 않는다(C37).
@@ -296,6 +304,10 @@ async function nsmEnsure(pg, v, msg, code) {
   if (v) return v;
   await nsmCheckPage(pg);
   throw new NsmError(code || 'page', msg);
+}
+// 기다리기 + 확인을 한 번에: 반드시 있어야 하는 요소는 nsmUntil 대신 이것을 쓴다(빈 결과로 넘어가지 않게)
+async function nsmNeed(pg, fn, ms, msg, code) {
+  return await nsmEnsure(pg, await nsmUntil(fn, ms), msg, code);
 }
 async function nsmAssertHandle(pg, readHandle) {
   await nsmCheckPage(pg);

@@ -69,6 +69,16 @@ class JobStatus:
     note: str = ""  # 예: "마지막 성공 01:53"
 
 
+def _reply_gaps(s) -> str:
+    """플랫폼별 댓글 확인 간격(켠 플랫폼만)."""
+    parts = []
+    if "threads" in s.enabled_platforms:
+        parts.append(f"스레드는 {s.threads_comment_interval_minutes}분")
+    if "instagram" in s.enabled_platforms:
+        parts.append(f"인스타그램은 {s.instagram_comment_interval_minutes}분")
+    return f"({', '.join(parts)}마다)" if parts else ""
+
+
 def is_routine(row: RunRow) -> bool:
     """아무 일 없던 성공인가. 오류가 하나라도 적혀 있으면 성공으로 끝났어도 보여 준다."""
     t = row.text
@@ -122,7 +132,7 @@ def schedule_text(cfg: AppConfig) -> dict[str, str]:
     t = job_triggers(cfg)
     s = cfg.settings
     return {
-        "reply": f"{_every(t['reply'])}(스레드는 {s.threads_comment_interval_minutes}분, 인스타그램은 {s.instagram_comment_interval_minutes}분마다)",
+        "reply": f"{_every(t['reply'])}" + _reply_gaps(s),
         "publish": f"{_every(t['publish'])}(게시 시간에만)",
         "health": _every(t["health"]),
         "generate": "하루 1번",

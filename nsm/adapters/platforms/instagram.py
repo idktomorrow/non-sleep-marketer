@@ -99,7 +99,7 @@ async function nextStep(pg, from) {
 async function postInfo(pg, code) {
   await pg.goto('https://www.instagram.com/p/' + code + '/');
   // 멱등 확인용: 글이 안 열렸는데 "내 글 아님"으로 넘어가면 두 번 올린다. 비면 오류(C37)
-  await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('article img, main img').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
+  await nsmNeed(pg, async () => (await pg.locator('article img, main img').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
   await sleep(1500);
   return await pg.evaluate(([code, handle]) => {
     const imgs = Array.from(document.querySelectorAll('main img')).filter(i => i.naturalWidth > 300 && !(i.alt || '').endsWith('님의 프로필 사진'));
@@ -175,7 +175,7 @@ if (before) return { code: before.code, ratio: before.ratio, existing: true };
 await pg.goto('https://www.instagram.com/');
 const files = await nsmFiles();
 if (!files.length) throw new NsmError('ui', '인스타그램 게시에는 이미지가 필요함');
-const np = await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, null, '새로운 게시물', 0), 20000), '"새로운 게시물" 메뉴 없음', 'ui');
+const np = await nsmNeed(pg, () => nsmMarkIcon(pg, null, '새로운 게시물', 0), 20000, '"새로운 게시물" 메뉴 없음', 'ui');
 await np.click();
 const postItem = await nsmUntil(() => nsmMarkIcon(pg, null, '게시물', 0), 10000);
 if (postItem) await postItem.click();
@@ -240,7 +240,7 @@ _DELETE = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
-const more = await nsmEnsure(pg, await nsmUntil(() => nsmMarkIcon(pg, 'main', '옵션 더 보기', 0), 20000), '글 메뉴(옵션 더 보기) 없음', 'ui');
+const more = await nsmNeed(pg, () => nsmMarkIcon(pg, 'main', '옵션 더 보기', 0), 20000, '글 메뉴(옵션 더 보기) 없음', 'ui');
 await more.click();
 await sleep(1000);
 if (!(await nsmClickText(pg.locator('[role="dialog"]'), '삭제'))) throw new NsmError('ui', '삭제 메뉴 없음');
@@ -256,48 +256,58 @@ _COMMENTS = (
     JS_IG
     + r"""
 const out = [];
+const failed = [];  // 본문이 안 열려 건너뛴 글(C37)
+let firstErr = null;
 let checked = false;
 for (const code of ARGS.codes) {
   const pg = await nsmOpen('https://www.instagram.com/p/' + code + '/');
   // 둘째 글부터 막혀도(429) 알아보게 글마다 페이지를 검사한다. 핸들은 처음 한 번만
-  if (!checked) { await nsmAssertHandle(pg, readHandle); checked = true; } else { await nsmCheckPage(pg); }
-  // 글 시각(main time)이 본문이 떴다는 표시다. 안 뜨면 빈 목록이 아니라 오류(C37). 댓글이 0개인 글도 본문 시각은 있다
-  await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
-  await sleep(2000);
-  // 댓글의 시각은 /p/<글>/c/<댓글ID>/ 링크 안에 있다. 거기서 위로 올라가 작성자 링크가 있는 칸을 찾는다.
-  const rows = await pg.evaluate(() => {
-    const res = [];
-    for (const a of document.querySelectorAll('main a[href*="/c/"]')) {
-      const t = a.querySelector('time');
-      const cid = ((a.getAttribute('href') || '').match(/\/c\/([^/?]+)/) || [])[1];
-      if (!t || !cid) continue;
-      let box = a.parentElement, author = null;
-      for (let i = 0; i < 8 && box; i++, box = box.parentElement) {
-        author = Array.from(box.querySelectorAll('a[href]')).find(x => /^\/[^/]+\/$/.test(x.getAttribute('href')) && (x.innerText || '').trim());
-        if (author) break;
+  try {
+    if (!checked) { await nsmAssertHandle(pg, readHandle); checked = true; } else { await nsmCheckPage(pg); }
+    // 글 시각(main time)이 본문이 떴다는 표시다. 안 뜨면 빈 목록이 아니라 오류(C37). 댓글이 0개인 글도 본문 시각은 있다
+    await nsmNeed(pg, async () => (await pg.locator('main time').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
+    await sleep(2000);
+    // 댓글의 시각은 /p/<글>/c/<댓글ID>/ 링크 안에 있다. 거기서 위로 올라가 작성자 링크가 있는 칸을 찾는다.
+    const rows = await pg.evaluate(() => {
+      const res = [];
+      for (const a of document.querySelectorAll('main a[href*="/c/"]')) {
+        const t = a.querySelector('time');
+        const cid = ((a.getAttribute('href') || '').match(/\/c\/([^/?]+)/) || [])[1];
+        if (!t || !cid) continue;
+        let box = a.parentElement, author = null;
+        for (let i = 0; i < 8 && box; i++, box = box.parentElement) {
+          author = Array.from(box.querySelectorAll('a[href]')).find(x => /^\/[^/]+\/$/.test(x.getAttribute('href')) && (x.innerText || '').trim());
+          if (author) break;
+        }
+        if (!author) continue;
+        const handle = author.getAttribute('href').slice(1, -1);
+        const tt = (t.innerText || '').trim();
+        const bodyOf = (el) => {
+          const lines = (el.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+          const ti = lines.indexOf(tt);
+          return lines.slice(ti >= 0 ? ti + 1 : 1).filter(l => !/^(답글 달기|좋아요 [0-9]+개|번역 보기|숨겨진 답글 보기.*|답글 보기.*)$/.test(l)).join('\n');
+        };
+        // 본문이 보일 때까지 더 올라가되, 다른 댓글까지 품는 칸(댓글 링크 2개 이상)은 넘지 않는다
+        let body = bodyOf(box);
+        for (let up = box.parentElement, i = 0; !body && up && i < 4; up = up.parentElement, i++) {
+          if (up.querySelectorAll('a[href*="/c/"]').length > 1) break;
+          body = bodyOf(up);
+        }
+        res.push({ handle, cid, text: body, at: t.getAttribute('datetime') });
       }
-      if (!author) continue;
-      const handle = author.getAttribute('href').slice(1, -1);
-      const tt = (t.innerText || '').trim();
-      const bodyOf = (el) => {
-        const lines = (el.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
-        const ti = lines.indexOf(tt);
-        return lines.slice(ti >= 0 ? ti + 1 : 1).filter(l => !/^(답글 달기|좋아요 [0-9]+개|번역 보기|숨겨진 답글 보기.*|답글 보기.*)$/.test(l)).join('\n');
-      };
-      // 본문이 보일 때까지 더 올라가되, 다른 댓글까지 품는 칸(댓글 링크 2개 이상)은 넘지 않는다
-      let body = bodyOf(box);
-      for (let up = box.parentElement, i = 0; !body && up && i < 4; up = up.parentElement, i++) {
-        if (up.querySelectorAll('a[href*="/c/"]').length > 1) break;
-        body = bodyOf(up);
-      }
-      res.push({ handle, cid, text: body, at: t.getAttribute('datetime') });
-    }
-    return res;
-  });
-  for (const r of rows) if (r.at && r.handle) out.push({ ...r, parent: code });
+      return res;
+    });
+    for (const r of rows) if (r.at && r.handle) out.push({ ...r, parent: code });
+  } catch (e) {
+    // 로그인·요청 제한·화면 변경은 그대로 던진다. 글이 안 열린 것(page)만 그 글을 건너뛴다
+    if (!e || e.code !== 'page') throw e;
+    failed.push(code);
+    firstErr = firstErr || e;
+    if (failed.length === ARGS.codes.length) throw firstErr;  // 모두 안 열림: 탭을 남겨 증거로
+  }
   await closeTab(pg); __opened.splice(__opened.indexOf(pg), 1);
 }
-return out;
+return { rows: out, failed };
 """
 )
 
@@ -306,7 +316,7 @@ _REPLY = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.parent + '/');
 await nsmAssertHandle(pg, readHandle);
-await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
+await nsmNeed(pg, async () => (await pg.locator('main time').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
 await sleep(1500);
 // 그 댓글(/c/<댓글ID>/ 링크가 있는 칸)의 "답글 달기"를 누른다
 const key = 'q' + Math.random().toString(36).slice(2);
@@ -364,7 +374,7 @@ _POST_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/p/' + ARGS.code + '/');
 await nsmAssertHandle(pg, readHandle);
-await nsmEnsure(pg, await nsmUntil(async () => (await pg.locator('main time').count()) > 0, 20000), '게시물 본문이 20초 안에 열리지 않음');
+await nsmNeed(pg, async () => (await pg.locator('main time').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
 await sleep(1500);
 const comments = await pg.evaluate(() => document.querySelectorAll('main a[href*="/c/"] time').length);
 // 인사이트(프로 계정)는 "숫자 이름" 순서로 보인다: "0 조회수 … 0 좋아요 0 댓글 0 저장 0 공유"
@@ -405,10 +415,10 @@ _ACCOUNT_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.instagram.com/' + ARGS.handle + '/');
 await nsmAssertHandle(pg, readHandle);
-const t = await nsmEnsure(pg, await nsmUntil(async () => {
+const t = await nsmNeed(pg, async () => {
   const s = await pg.evaluate(() => (document.querySelector('header') || document.body).innerText.replace(/\s+/g, ' '));
   return /팔로워/.test(s) ? s : '';
-}, 20000), '프로필이 20초 안에 열리지 않음');
+}, 20000, '프로필이 20초 안에 열리지 않음');
 const m = (t || '').match(/팔로워\s*([0-9.,]+\s*(?:천|만)?)/);
 return { followers: m ? nsmNum(m[1]) : null };
 """
@@ -473,16 +483,31 @@ class InstagramAdapter(AsideAdapterBase):
         self._need("fetch_comments")
         rows: list[dict] = []
         errors: list[Exception] = []
+        skipped: list[str] = []
+        read = 0  # 읽은 묶음 수. 댓글이 0개여도 읽은 것이다(C37: "0개"와 "못 읽음"을 가른다)
         ids = list(post_external_ids)
         for i in range(0, len(ids), COMMENT_BATCH):
             try:
-                rows += self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+                data = self._run(_COMMENTS, {"codes": ids[i : i + COMMENT_BATCH]}) or []
+                if isinstance(data, dict):  # {rows, failed}: 본문이 안 열린 글은 건너뜀(C37)
+                    rows += data.get("rows") or []
+                    skipped += list(data.get("failed") or [])
+                else:
+                    rows += data
+                read += 1
             except RateLimitedError:
                 raise  # 남은 묶음도 막힌다. 읽은 것도 버려 since를 앞당기지 않는다(다음에 다시 읽음)
             except AdapterError as e:
                 errors.append(e)
-        if errors and not rows:
+        if errors and not read:
             raise errors[0]
+        if skipped:
+            log.warning(
+                "%s 댓글: 본문이 열리지 않은 글 %d개를 건너뜀: %s",
+                self.platform,
+                len(skipped),
+                skipped[:4],
+            )
         if errors:
             # 일부 글을 못 읽으면 그 글의 새 댓글을 다음 실행에서 놓칠 수 있다(since가 앞당겨짐)
             log.warning(

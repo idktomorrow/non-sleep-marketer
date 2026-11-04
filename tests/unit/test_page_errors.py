@@ -22,20 +22,23 @@ from nsm.adapters.platforms.threads import ThreadsAdapter
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node 없음")
 
-# 가짜 화면: scene = {"text": 화면 글, "buttons": [버튼 글], "counts": {선택자 조각: 개수}, "handle": 내 핸들}
+# 가짜 화면: scene = {"text": 화면 글, "buttons": [버튼 글], "btnBox": 버튼이 든 칸의 글, "counts": {선택자 조각: 개수}, "handle": 내 핸들}
 _MOCK = r"""
 const SCENE = __SCENE__;
 let __now = 1_700_000_000_000;
+let __tab = -1;  // 몇 번째로 연 탭인가(SCENE.seq: 탭마다 본문 컨테이너 수)
+const containers = () => (SCENE.seq ? SCENE.seq[__tab] ?? 0 : (SCENE.counts.container || 0));
 Date.now = () => __now;
 globalThis.sleep = async (ms) => { __now += ms || 0; };
-const btn = (t) => ({ innerText: t, getAttribute: () => null, querySelector: () => null, querySelectorAll: () => [] });
+// 버튼의 부모 칸 글: 기본은 화면 글 전체(오류 안내 칸), SCENE.btnBox로 따로 줄 수 있다
+const btn = (t) => ({ innerText: t, parentElement: { innerText: SCENE.btnBox ?? SCENE.text ?? '', parentElement: null }, getAttribute: () => null, querySelector: () => null, querySelectorAll: () => [] });
 const meLink = { getAttribute: () => '/@' + SCENE.handle, querySelector: () => ({}) };
 globalThis.document = {
   body: { get innerText() { return SCENE.text || ''; } },
   querySelectorAll(sel) {
     if (/role="button"|button/.test(sel)) return (SCENE.buttons || []).map(btn);
     if (sel.includes('a[href^="/@"]')) return SCENE.handle ? [meLink] : [];
-    if (sel.includes('data-pressable-container')) return Array.from({ length: SCENE.counts.container || 0 }, () => btn(''));
+    if (sel.includes('data-pressable-container')) return Array.from({ length: containers() }, () => btn(''));
     return [];
   },
   querySelector() { return null; },
@@ -43,7 +46,7 @@ globalThis.document = {
 function count(sel) {
   if (sel.includes('a[href^="/@"]')) return SCENE.handle ? 1 : 0;
   for (const [k, v] of Object.entries(SCENE.counts || {})) if (k !== 'container' && sel.includes(k)) return v;
-  if (sel.includes('data-pressable-container')) return SCENE.counts.container || 0;
+  if (sel.includes('data-pressable-container')) return containers();
   return 0;
 }
 const fakePage = {
@@ -53,7 +56,7 @@ const fakePage = {
   goto: async () => {},
   screenshot: async () => null,
 };
-globalThis.openTab = async () => fakePage;
+globalThis.openTab = async () => { __tab += 1; return fakePage; };
 globalThis.closeTab = async () => {};
 globalThis.fs = { writeFile: async () => {} };
 """
@@ -181,3 +184,29 @@ def test_every_script_parses() -> None:
             check=False,
         )
         assert r.returncode == 0, r.stderr[:300]
+
+
+def test_retry_button_elsewhere_does_not_make_an_error_screen(clock) -> None:
+    """리뷰: 안내문과 '다시 시도' 버튼이 다른 칸에 있으면(본문은 정상) 오류 화면이 아니다."""
+    a = _threads(
+        clock,
+        {
+            "text": "내 글 본문\n댓글: 문제가 발생했습니다 ㅠ\n다시 시도",
+            "buttons": ["다시 시도"],
+            "btnBox": "다시 시도",
+            "counts": {"container": 1},
+        },
+    )
+    assert a.fetch_new_comments(["P1"], None) == []
+
+
+def test_one_post_that_never_loads_is_skipped_others_are_read(clock) -> None:
+    """리뷰: 지운 글처럼 하나만 안 열리면 그 글만 건너뛴다(조회 전체를 막지 않는다). 모두 안 열리면 오류."""
+    scene = {"handle": "me", "text": "스레드", "counts": {"container": 0}}
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl(scene))
+    with pytest.raises(PlatformError):
+        a.fetch_new_comments(["P1", "P2"], None)  # 둘 다 안 열림
+    # 첫 글은 본문이 뜨고(댓글 0개) 둘째 글만 안 뜨는 화면
+    seq = NodeRepl({**scene, "seq": [1, 0]})
+    b = ThreadsAdapter("@me", clock, repl=seq)
+    assert b.fetch_new_comments(["P1", "P2"], None) == []

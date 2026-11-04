@@ -203,7 +203,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
     counts = dict.fromkeys(("new", "auto_replied", "hidden", "escalated", "ignored"), 0)
     diagnoses: list[str] = []  # 자동 진단(E2): 사람 확인 알림 끝에 붙인다
     waits: list[str] = []
-    took: dict[str, float] = {}  # 플랫폼별 댓글 조회 소요(초)
+    slowest: list = []  # [플랫폼, 조회 소요] 가장 오래 걸린 댓글 조회 하나
     for platform, adapter in ctx.adapters.items():
         if platform in paused or "fetch_comments" not in adapter.capabilities():
             continue
@@ -229,11 +229,17 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                 ctx.repo.latest_comment_time(platform),
             )
         except Exception as e:  # noqa: BLE001
-            took[platform] = (ctx.clock.now() - t0).total_seconds()
+            _took(slowest, platform, ctx.clock.now() - t0)
             result.note(e)
-            transient = kind_of(e) == "transient" and not is_interrupted(ctx, e)
-            if transient and (line := _fetch_failed(ctx, platform, ctx.clock.now())):
-                waits.append(line)  # 연속 2번: 이 플랫폼 댓글 확인만 30분 쉰다(C37)
+            rest_line = None
+            if _page_failure(
+                ctx, e
+            ):  # 글이 안 열림·오류 화면만 센다(Aside 꺼짐 등은 원인이 다르다)
+                rest_line = _fetch_failed(ctx, platform, ctx.clock.now())
+                if rest_line:
+                    waits.append(rest_line)  # 연속 2번: 이 플랫폼 댓글 확인만 30분 쉰다(C37)
+            elif not is_interrupted(ctx, e):
+                _fetch_ok(ctx, platform)  # 다른 종류의 실패가 끼면 "연속"이 끊긴다
             until = rest_until(e)
             diag = record_incident(
                 ctx,
@@ -241,7 +247,11 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
                 "reply",
                 "fetch_comments",
                 e,
-                "쉬기" if until else "다음 댓글 확인에 다시",
+                "쉬기"
+                if until
+                else f"댓글 확인 {int(FETCH_FAIL_REST.total_seconds() // 60)}분 쉬기(연속 실패)"
+                if rest_line
+                else "다음 댓글 확인에 다시",
             )
             if diag:  # 댓글 조회 화면이 바뀜: 사람 확인 댓글이 없어도 알린다
                 ctx.notifier.notify(
@@ -254,7 +264,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             else:
                 result.errors.append(f"{platform} 댓글 조회 실패: {e}")
             continue
-        took[platform] = (ctx.clock.now() - t0).total_seconds()
+        _took(slowest, platform, ctx.clock.now() - t0)
         _fetch_ok(ctx, platform)
         for c in comments:
             if ctx.repo.insert_comment(c):
@@ -294,7 +304,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
     result.counts.update(counts)
     if waits:
         result.counts["rate_limited"] = waits
-    _slow_check(ctx, result, now, took)
+    _slow_check(ctx, result, now, slowest)
     if counts["escalated"]:
         ctx.notifier.notify(
             "댓글 확인 필요",
@@ -308,9 +318,21 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
     return result
 
 
-def _slow_check(
-    ctx: JobContext, result: JobResult, start: datetime, took: dict[str, float]
-) -> None:
+def _page_failure(ctx: JobContext, e: BaseException) -> bool:
+    """글 페이지가 안 열린 실패(어댑터가 붙인 code='page', 일시적)인가."""
+    return (
+        kind_of(e) == "transient"
+        and getattr(e, "code", None) == "page"
+        and not is_interrupted(ctx, e)
+    )
+
+
+def _took(slowest: list, platform: str, d: timedelta) -> None:
+    if not slowest or d > slowest[1]:
+        slowest[:] = [platform, d]
+
+
+def _slow_check(ctx: JobContext, result: JobResult, start: datetime, slowest: list) -> None:
     """잡이 자기 간격의 2배보다 오래 걸렸으면 실행 기록과 장애 화면에 남긴다(C37). 알림은 보내지 않는다.
 
     2026-11-04 스레드 글이 안 열려 댓글 확인 한 번이 5분이 아니라 14분씩 걸렸는데, 결과가 "새 댓글 없음"이라
@@ -321,8 +343,12 @@ def _slow_check(
     if minutes <= gap * SLOW_FACTOR:
         return
     msg = f"댓글 확인이 {round(minutes)}분 걸림(간격 {gap}분)"
+    if (
+        slowest
+    ):  # 답글 생성 시간도 잡 소요에 들어가므로, 조회가 가장 길었던 플랫폼과 그 시간을 함께 적는다
+        msg += f" · {NAMES.get(slowest[0], slowest[0])} 댓글 조회 {round(slowest[1].total_seconds() / 60)}분"
     result.counts["slow"] = [msg]
-    platform = max(took, key=took.get) if took else next(iter(ctx.adapters), "")
+    platform = slowest[0] if slowest else next(iter(ctx.adapters), "")
     record_incident(
         ctx, platform, "reply", "duration", KindedError(msg, "transient"), "기록만(알림 없음)"
     )
