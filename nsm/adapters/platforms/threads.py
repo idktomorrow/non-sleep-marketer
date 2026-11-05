@@ -37,15 +37,30 @@ JS_HANDLE = (
     JS_ASSERT_HANDLE
     + r"""
 const MAIN = '[aria-label="칼럼 본문"]';  // 가운데 칼럼(왼쪽 메뉴의 같은 이름 아이콘과 구분)
+// 왼쪽 메뉴의 프로필 링크에서 내 핸들을 읽는다. 아이콘 이름은 svg의 aria-label(2026-10) 또는
+// svg 안 <title> 글(2026-11-05~)로 붙는다. 둘 다 없으면 설정 핸들 그대로의 메뉴 링크를 쓴다(C38, ADR 0063)
 async function readHandle(pg) {
   await nsmUntil(async () => (await pg.locator('a[href^="/@"]').count()) > 0, 20000);
-  return await pg.evaluate(() => {
+  return await pg.evaluate((args) => {
+    const NAMES = ['프로필', 'Profile'];
+    const isProfile = (svg) => {
+      if (NAMES.includes((svg.getAttribute('aria-label') || '').trim())) return true;
+      const t = svg.querySelector('title');
+      return !!t && NAMES.includes((t.textContent || '').trim());
+    };
     for (const a of document.querySelectorAll('a[href^="/@"]')) {
-      const lab = a.querySelector('svg[aria-label="프로필"], svg[aria-label="Profile"]');
-      if (lab) return a.getAttribute('href').slice(2).split('/')[0];
+      if (Array.from(a.querySelectorAll('svg')).some(isProfile)) {
+        return a.getAttribute('href').slice(2).split('/')[0];
+      }
+    }
+    if (!args.handle) return '';
+    // 마지막 대체: 글 카드·가운데 칼럼 밖(왼쪽 메뉴)의 아이콘 링크. 글 작성자 링크는 내 계정이 아니어도 같은 모양이다
+    for (const a of document.querySelectorAll('a[href="/@' + args.handle + '"]')) {
+      if (a.closest('[data-pressable-container="true"]') || a.closest(args.main)) continue;
+      if (a.closest('nav') || a.querySelector('svg')) return args.handle;
     }
     return '';
-  });
+  }, { handle: ARGS.handle || '', main: MAIN });
 }
 """
 )

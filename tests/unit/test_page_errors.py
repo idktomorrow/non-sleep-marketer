@@ -23,6 +23,8 @@ NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node 없음")
 
 # 가짜 화면: scene = {"text": 화면 글, "buttons": [버튼 글], "btnBox": 버튼이 든 칸의 글, "counts": {선택자 조각: 개수}, "handle": 내 핸들}
+# "links"를 주면 /@ 링크를 직접 그린다(C38): [{"href", "aria": svg aria-label, "title": svg <title> 글,
+# "svg": 이름 없는 아이콘, "nav": 왼쪽 메뉴 안, "inPost": 글 카드 안}]. 없으면 aria-label 방식 프로필 링크 하나.
 _MOCK = r"""
 const SCENE = __SCENE__;
 let __now = 1_700_000_000_000;
@@ -32,19 +34,34 @@ Date.now = () => __now;
 globalThis.sleep = async (ms) => { __now += ms || 0; };
 // 버튼의 부모 칸 글: 기본은 화면 글 전체(오류 안내 칸), SCENE.btnBox로 따로 줄 수 있다
 const btn = (t) => ({ innerText: t, parentElement: { innerText: SCENE.btnBox ?? SCENE.text ?? '', parentElement: null }, getAttribute: () => null, querySelector: () => null, querySelectorAll: () => [] });
-const meLink = { getAttribute: () => '/@' + SCENE.handle, querySelector: () => ({}) };
+const link = (l) => {
+  const named = l.aria != null || l.title != null;
+  const svgs = named || l.svg ? [{
+    getAttribute: (n) => (n === 'aria-label' ? l.aria ?? null : null),
+    querySelector: (s) => (s === 'title' && l.title != null ? { textContent: l.title } : null),
+  }] : [];
+  return {
+    getAttribute: (n) => (n === 'href' ? l.href : null),
+    querySelector: (s) => (s === 'svg' ? svgs[0] || null : null),
+    querySelectorAll: (s) => (s === 'svg' ? svgs : []),
+    closest: (s) => ((s === 'nav' && l.nav) || (s !== 'nav' && l.inPost) ? {} : null),
+  };
+};
+const LINKS = () => (SCENE.links || (SCENE.handle ? [{ href: '/@' + SCENE.handle, aria: '프로필' }] : [])).map(link);
 globalThis.document = {
   body: { get innerText() { return SCENE.text || ''; } },
   querySelectorAll(sel) {
     if (/role="button"|button/.test(sel)) return (SCENE.buttons || []).map(btn);
-    if (sel.includes('a[href^="/@"]')) return SCENE.handle ? [meLink] : [];
+    if (sel.includes('a[href^="/@"]')) return LINKS();
+    const exact = sel.match(/^a\[href="([^"]+)"\]$/);
+    if (exact) return LINKS().filter((a) => a.getAttribute('href') === exact[1]);
     if (sel.includes('data-pressable-container')) return Array.from({ length: containers() }, () => btn(''));
     return [];
   },
   querySelector() { return null; },
 };
 function count(sel) {
-  if (sel.includes('a[href^="/@"]')) return SCENE.handle ? 1 : 0;
+  if (sel.includes('a[href^="/@"]')) return LINKS().length;
   for (const [k, v] of Object.entries(SCENE.counts || {})) if (k !== 'container' && sel.includes(k)) return v;
   if (sel.includes('data-pressable-container')) return containers();
   return 0;
@@ -210,3 +227,59 @@ def test_one_post_that_never_loads_is_skipped_others_are_read(clock) -> None:
     seq = NodeRepl({**scene, "seq": [1, 0]})
     b = ThreadsAdapter("@me", clock, repl=seq)
     assert b.fetch_new_comments(["P1", "P2"], None) == []
+
+
+# ------------------------------------------------------------------ C38: 프로필 아이콘 이름이 <title>로 바뀜(장애 0012)
+POST_PAGE = {"text": "스레드\n내 글 본문\nme님에게 답글 남기기...", "counts": {"container": 1}}
+
+
+@pytest.mark.parametrize(
+    "links",
+    [
+        [{"href": "/@me", "aria": "프로필"}],  # (a) 2026-10 화면: svg aria-label
+        [
+            {"href": "/@me", "title": " 프로필 "}
+        ],  # (b) 2026-11-05 화면: svg 안 <title>, 공백은 떼고 본다
+        [{"href": "/@me", "title": "Profile"}],
+        # 대체: 아이콘 이름이 없어도 왼쪽 메뉴의 /@me 링크면 내 계정. 글 카드 안 작성자 링크는 앞에 있어도 무시
+        [{"href": "/@me", "svg": True, "inPost": True}, {"href": "/@me", "nav": True}],
+    ],
+    ids=["aria-label", "title", "title-en", "nav-fallback"],
+)
+def test_profile_link_reads_handle(clock, links) -> None:
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    assert a.fetch_new_comments(["P1"], None) == []
+
+
+def test_title_icon_reads_the_real_handle_not_the_setting(clock) -> None:
+    """<title> 방식도 링크의 핸들을 그대로 읽는다: 다른 계정이면 로그인 문제가 아니라 계정 불일치."""
+    links = [{"href": "/@other", "title": "프로필"}]
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    with pytest.raises(PlatformError) as e:
+        a.fetch_new_comments(["P1"], None)
+    assert not isinstance(e.value, LoginRequiredError) and "@other" in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "links",
+    [
+        [],
+        # (c) 프로필 아이콘이 없고, /@me 링크는 글 카드 안(작성자)·하위 주소뿐: 여전히 로그인 필요
+        [{"href": "/@me", "svg": True, "inPost": True}, {"href": "/@me/post/P1", "nav": True}],
+        [
+            {"href": "/@me"}
+        ],  # 아이콘도 메뉴도 아닌 글 링크(예: 본문 속 멘션)는 내 계정 표시가 아니다
+    ],
+    ids=["no-links", "post-author-only", "plain-link"],
+)
+def test_no_profile_link_is_still_login(clock, links) -> None:
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    with pytest.raises(LoginRequiredError):
+        a.fetch_new_comments(["P1"], None)
+
+
+def test_health_reads_title_icon(clock) -> None:
+    """건강 점검도 같은 readHandle을 쓴다: <title> 화면에서 멈춤을 풀 수 있어야 한다."""
+    links = [{"href": "/@me", "title": "프로필", "nav": True}]
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    assert a.health().logged_in
