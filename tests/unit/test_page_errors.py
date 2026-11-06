@@ -25,6 +25,7 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node 없음")
 # 가짜 화면: scene = {"text": 화면 글, "buttons": [버튼 글], "btnBox": 버튼이 든 칸의 글, "counts": {선택자 조각: 개수}, "handle": 내 핸들}
 # "links"를 주면 /@ 링크를 직접 그린다(C38): [{"href", "aria": svg aria-label, "title": svg <title> 글,
 # "svg": 이름 없는 아이콘, "nav": 왼쪽 메뉴 안, "inPost": 글 카드 안}]. 없으면 aria-label 방식 프로필 링크 하나.
+# "labels": svg <title>·aria-label 글 목록(C39 로그인 표지 확인이 화면 글과 함께 본다)
 _MOCK = r"""
 const SCENE = __SCENE__;
 let __now = 1_700_000_000_000;
@@ -51,6 +52,7 @@ const LINKS = () => (SCENE.links || (SCENE.handle ? [{ href: '/@' + SCENE.handle
 globalThis.document = {
   body: { get innerText() { return SCENE.text || ''; } },
   querySelectorAll(sel) {
+    if (sel.includes('svg title')) return (SCENE.labels || []).map((t) => ({ tagName: 'title', textContent: t, getAttribute: () => null }));
     if (/role="button"|button/.test(sel)) return (SCENE.buttons || []).map(btn);
     if (sel.includes('a[href^="/@"]')) return LINKS();
     const exact = sel.match(/^a\[href="([^"]+)"\]$/);
@@ -260,22 +262,90 @@ def test_title_icon_reads_the_real_handle_not_the_setting(clock) -> None:
     assert not isinstance(e.value, LoginRequiredError) and "@other" in str(e.value)
 
 
-@pytest.mark.parametrize(
-    "links",
-    [
-        [],
-        # (c) 프로필 아이콘이 없고, /@me 링크는 글 카드 안(작성자)·하위 주소뿐: 여전히 로그인 필요
-        [{"href": "/@me", "svg": True, "inPost": True}, {"href": "/@me/post/P1", "nav": True}],
-        [
-            {"href": "/@me"}
-        ],  # 아이콘도 메뉴도 아닌 글 링크(예: 본문 속 멘션)는 내 계정 표시가 아니다
-    ],
-    ids=["no-links", "post-author-only", "plain-link"],
-)
-def test_no_profile_link_is_still_login(clock, links) -> None:
-    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+NO_HANDLE_LINKS = [
+    [],
+    # 프로필 아이콘이 없고, /@me 링크는 글 카드 안(작성자)·하위 주소뿐: 핸들을 못 읽는다
+    [{"href": "/@me", "svg": True, "inPost": True}, {"href": "/@me/post/P1", "nav": True}],
+    [{"href": "/@me"}],  # 아이콘도 메뉴도 아닌 글 링크(예: 본문 속 멘션)는 내 계정 표시가 아니다
+]
+NO_HANDLE_IDS = ["no-links", "post-author-only", "plain-link"]
+# 로그인 표지(답글 입력칸·"새로운 스레드")가 없는 화면: 글만 보이는 공개 화면
+PLAIN_PAGE = {"text": "스레드\n내 글 본문", "counts": {"container": 1}}
+
+
+@pytest.mark.parametrize("links", NO_HANDLE_LINKS, ids=NO_HANDLE_IDS)
+def test_no_handle_without_markers_is_still_login(clock, links) -> None:
+    """C39 (c): 핸들도 로그인 표지도 없으면 지금처럼 로그인 필요(auth)."""
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **PLAIN_PAGE, "links": links}))
     with pytest.raises(LoginRequiredError):
         a.fetch_new_comments(["P1"], None)
+
+
+@pytest.mark.parametrize("links", NO_HANDLE_LINKS, ids=NO_HANDLE_IDS)
+def test_markers_without_handle_is_ui_changed(clock, links) -> None:
+    """C39 (a): 로그인 표지("…님에게 답글 남기기")가 보이는데 핸들을 못 읽으면 화면 변경. 계정 확인을 못 했으니
+    이 동작은 하지 않지만, 로그인 문제가 아니다(ADR 0064)."""
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    with pytest.raises(PlatformError) as e:
+        a.fetch_new_comments(["P1"], None)
+    assert not isinstance(e.value, LoginRequiredError)
+    assert e.value.kind == "ui_changed" and "계정 이름을 못 읽음" in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "scene",
+    [
+        {"labels": ["새로운 스레드"]},  # 표지가 라벨(svg title)에만 있어도
+        {"text": "스레드\n새로운 스레드\n내 글 본문"},
+    ],
+    ids=["label", "text-line"],
+)
+def test_marker_in_labels_or_text_line(clock, scene) -> None:
+    a = ThreadsAdapter(
+        "@me", clock, repl=NodeRepl({"handle": "me", **PLAIN_PAGE, **scene, "links": []})
+    )
+    with pytest.raises(PlatformError) as e:
+        a.fetch_new_comments(["P1"], None)
+    assert e.value.kind == "ui_changed"
+
+
+def test_login_form_with_markers_is_login(clock) -> None:
+    """C39 (b): 로그인 폼 문구가 함께 있으면 표지가 있어도 로그인 필요(auth)."""
+    text = "nonsleep님에게 답글 남기기\n비밀번호를 잊으셨나요?\n로그인"
+    a = ThreadsAdapter(
+        "@me", clock, repl=NodeRepl({"handle": "me", "text": text, "counts": {}, "links": []})
+    )
+    with pytest.raises(LoginRequiredError):
+        a.fetch_new_comments(["P1"], None)
+
+
+def test_login_url_with_markers_is_login(clock) -> None:
+    a = ThreadsAdapter(
+        "@me",
+        clock,
+        repl=NodeRepl(
+            {"handle": "me", **POST_PAGE, "links": [], "url": "https://www.threads.com/login"}
+        ),
+    )
+    with pytest.raises(LoginRequiredError):
+        a.fetch_new_comments(["P1"], None)
+
+
+def test_marker_words_inside_a_sentence_do_not_count(clock) -> None:
+    """한 줄 전체가 그 낱말일 때만 표지("새로운 스레드에 대해" 같은 본문 문장은 아님)."""
+    text = "스레드\n새로운 스레드에 대해 이야기해요"
+    a = ThreadsAdapter(
+        "@me", clock, repl=NodeRepl({"handle": "me", "text": text, "counts": {}, "links": []})
+    )
+    with pytest.raises(LoginRequiredError):
+        a.fetch_new_comments(["P1"], None)
+
+
+def test_handle_present_passes_even_with_markers(clock) -> None:
+    """C39 (d): 핸들을 읽으면 표지와 상관없이 통과."""
+    links = [{"href": "/@me", "title": "프로필", "nav": True}]
+    a = ThreadsAdapter("@me", clock, repl=NodeRepl({"handle": "me", **POST_PAGE, "links": links}))
+    assert a.fetch_new_comments(["P1"], None) == []
 
 
 def test_health_reads_title_icon(clock) -> None:

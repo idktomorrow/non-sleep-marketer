@@ -13,7 +13,13 @@ from pathlib import Path
 
 from nsm.adapters.drivers.aside import AsideError, AsideRepl
 from nsm.adapters.platforms import PLATFORM_CAPABILITIES
-from nsm.adapters.platforms.auth_state import EVIDENCE_STATES, classify, is_blank
+from nsm.adapters.platforms.auth_state import (
+    EVIDENCE_STATES,
+    classify,
+    is_blank,
+    js_auth_args,
+    looks_logged_in,
+)
 from nsm.config import paths
 from nsm.domain.models import HealthStatus, Platform
 from nsm.ports import AdapterError, Clock, NotSupportedError
@@ -134,6 +140,9 @@ class AsideAdapterBase:
         self._evidence_at: dict[str, datetime] = {}  # 종류 → 마지막으로 증거를 남긴 시각
         # 마지막 health가 본 로그인 세부 상태(E5). 로그인돼 있으면 None. 엔진이 속성으로 읽는다(포트 동결)
         self.auth_state: str | None = None
+        # 마지막 health가 "로그인은 됐는데 계정 이름을 못 읽음"(화면 변경)을 봤으면 {"detail", "evidence_dir"}.
+        # 멈추지 않고 health 잡이 화면 변경으로 기록·알린다(C39, ADR 0064). 엔진이 속성으로 읽는다(포트 동결)
+        self.ui_warning: dict[str, str | None] | None = None
 
     def capabilities(self) -> set[str]:
         return set(PLATFORM_CAPABILITIES[self.platform])
@@ -160,6 +169,8 @@ class AsideAdapterBase:
             raise RateLimitedError(
                 f"{self.platform} 요청 제한으로 쉬는 중(HTTP 429)", self.blocked_until
             )
+        # 로그인된 화면 표지 규칙(C39): nsmAssertHandle이 핸들을 못 읽었을 때 화면 변경인지 가른다
+        args = {**args, "nsm_auth": js_auth_args(self.platform)}
         try:
             data = self.repl.run(body, args, files)
         except AsideError as e:
@@ -233,14 +244,26 @@ class AsideAdapterBase:
         - 하얀 빈 화면은 로그인 풀림이 아니라 일시적 실패로 던진다(연속일 때만 멈춤).
         - 로그인 페이지를 새로 열거나 확인 창을 누르지 않는다. 자동으로 풀지 않는다(ADR 0060).
         """
+        self.ui_warning = None
         # 스크린샷은 증거를 남길 수 있을 때만 찍게 한다(한 시간 쿨다운 안이면 화면 글만)
-        data = self._call(body, {"shot": self._evidence_open("auth")}, probe=True) or {}
+        shot = self._evidence_open("auth") or self._evidence_open("ui_changed")
+        data = self._call(body, {"shot": shot}, probe=True) or {}
         me, page = data.get("me", ""), data.get("page")
         page = page if isinstance(page, dict) else None
         if not me:
             if is_blank(page):
                 self.auth_state = None
                 raise self._blank_error()
+            if looks_logged_in(page, self.platform):
+                # 로그인 표지가 보이는데 핸들만 못 읽음: 로그인 문제가 아니라 화면 변경(C39, ADR 0064).
+                # 멈추지 않는다. 게시·답글은 행동 직전 nsmAssertHandle이 계정을 확인하지 못해 그 건만 실패한다
+                self.auth_state = None
+                detail = f"{name} 로그인은 됐으나 계정 이름을 못 읽음(화면 변경)"
+                d = self._save_evidence(
+                    "ui_changed", page, f"{self.platform} 로그인 확인: {detail}"
+                )
+                self.ui_warning = {"detail": detail, "evidence_dir": str(d) if d else None}
+                return HealthStatus(logged_in=True, detail=detail)
             self.auth_state = classify(page) if page else None
             detail = f"{name} 로그인 필요(Aside 브라우저)"
             if self.auth_state in EVIDENCE_STATES:
@@ -314,10 +337,28 @@ async function nsmAssertHandle(pg, readHandle) {
   const me = ((await readHandle(pg)) || '').replace(/^@/, '').toLowerCase();
   if (!me) {
     await nsmCheckPage(pg);  // 기다리는 사이 오류 화면이 떴으면 로그인 문제가 아니다(C37)
+    // 로그인한 사람만 보는 표지가 있고 로그인 폼·보안 확인이 없으면 화면 변경(C39). 계정을 확인하지 못했으니
+    // 이 동작은 하지 않는다(행동 직전엔 핸들 필수, ADR 0064)
+    if (await nsmLoggedInScreen(pg)) throw new NsmError('ui', '로그인은 됐으나 계정 이름을 못 읽음(화면 변경)');
     throw new NsmError('login', '로그인돼 있지 않음');
   }
   if (me !== ARGS.handle) throw new NsmError('mismatch', '로그인 계정 @' + me + ' ≠ 설정 @' + ARGS.handle);
   return me;
+}
+// 규칙(정규식 원문)은 Python이 ARGS.nsm_auth로 넘긴다(data/auth_states.json 한 곳, auth_state.js_auth_args)
+async function nsmLoggedInScreen(pg) {
+  const a = ARGS.nsm_auth;
+  if (!a || !a.markers) return false;
+  if (new RegExp(a.check_urls, 'i').test(pg.url() || '')) return false;
+  const seen = await pg.evaluate(() => {
+    const labels = [];
+    for (const el of document.querySelectorAll('svg title, [aria-label]')) {
+      const t = (el.tagName.toLowerCase() === 'title' ? el.textContent : el.getAttribute('aria-label')) || '';
+      if (t.trim() && labels.length < 200) labels.push(t.trim());
+    }
+    return [((document.body && document.body.innerText) || '').slice(0, 4000).trim(), ...labels].join('\n');
+  }).catch(() => '');
+  return new RegExp(a.markers, 'i').test(seen) && !new RegExp(a.blockers, 'i').test(seen);
 }
 async function nsmClickText(scope, text) {
   const cands = scope.locator('[role="button"], button, [role="menuitem"]');
