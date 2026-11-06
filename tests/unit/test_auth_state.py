@@ -307,6 +307,7 @@ OTHER_EVIDENCE = [
     "instagram-20261101-032543",
     "threads-20261102-235339",
 ]
+LOGGED_OUT_THREADS = "threads-logged-out-menu"  # 로그아웃 스레드 홈: 왼쪽 메뉴 + "가입하기"
 
 
 def test_real_logged_in_screen_without_handle_looks_logged_in() -> None:
@@ -320,6 +321,18 @@ def test_logout_and_challenge_evidence_never_look_logged_in(name: str) -> None:
     ev = _ev(name)
     assert not looks_logged_in(ev, ev["platform"])
     assert not looks_logged_in(ev, "threads") and not looks_logged_in(ev, "instagram")
+
+
+def test_logged_out_threads_menu_does_not_look_logged_in() -> None:
+    """로그아웃 화면에도 왼쪽 메뉴("새로운 스레드" 등)가 보인다. "가입하기"가 로그인 폼 규칙에 걸리고,
+    그 문구가 없어도 메뉴 문구만으로는 로그인으로 보지 않는다(표지는 글쓰기 칸 문구만)."""
+    ev = _ev(LOGGED_OUT_THREADS)
+    assert classify(ev) == "logged_out" and not looks_logged_in(ev, "threads")
+    lines = [w for w in ev["text"].split("\n") if w not in ("가입하기", "로그인")]
+    menu_only = {**ev, "text": "\n".join(lines)}
+    assert "새로운 스레드" in menu_only["text"] and "가입하기" not in menu_only["text"]
+    assert classify(menu_only) == "unknown"
+    assert not looks_logged_in(menu_only, "threads")
 
 
 def test_login_form_or_blank_beats_markers() -> None:
@@ -349,10 +362,12 @@ def test_login_form_or_blank_beats_markers() -> None:
         ("instagram", "알림", True),
         ("instagram", "새 계정 만들기", False),  # 문장 속 낱말은 표지가 아니다
         ("instagram", "알림 설정", False),
-        ("threads", "스레드\n새로운 스레드\n검색", True),
+        ("threads", "me님에게 답글 남기기...", True),
+        ("threads", "새로운 소식을 공유해보세요", True),
         ("threads", "Reply to nonsleepmarketer...", True),
         ("threads", "What's new?", True),
-        ("threads", "새로운 스레드를 시작해 보세요", False),
+        ("threads", "스레드\n새로운 스레드\n검색", False),  # 메뉴 문구는 로그아웃 화면에도 있다
+        ("threads", "Home\nStart a thread\nSearch", False),
     ],
 )
 def test_marker_words(platform: str, seen: str, ok: bool) -> None:

@@ -269,7 +269,7 @@ NO_HANDLE_LINKS = [
     [{"href": "/@me"}],  # 아이콘도 메뉴도 아닌 글 링크(예: 본문 속 멘션)는 내 계정 표시가 아니다
 ]
 NO_HANDLE_IDS = ["no-links", "post-author-only", "plain-link"]
-# 로그인 표지(답글 입력칸·"새로운 스레드")가 없는 화면: 글만 보이는 공개 화면
+# 로그인 표지(답글 입력칸·글쓰기 칸 문구)가 없는 화면: 글만 보이는 공개 화면
 PLAIN_PAGE = {"text": "스레드\n내 글 본문", "counts": {"container": 1}}
 
 
@@ -295,8 +295,8 @@ def test_markers_without_handle_is_ui_changed(clock, links) -> None:
 @pytest.mark.parametrize(
     "scene",
     [
-        {"labels": ["새로운 스레드"]},  # 표지가 라벨(svg title)에만 있어도
-        {"text": "스레드\n새로운 스레드\n내 글 본문"},
+        {"labels": ["새로운 소식을 공유해보세요"]},  # 표지가 라벨(aria-label)에만 있어도
+        {"text": "스레드\n새로운 소식을 공유해보세요\n내 글 본문"},
     ],
     ids=["label", "text-line"],
 )
@@ -331,9 +331,9 @@ def test_login_url_with_markers_is_login(clock) -> None:
         a.fetch_new_comments(["P1"], None)
 
 
-def test_marker_words_inside_a_sentence_do_not_count(clock) -> None:
-    """한 줄 전체가 그 낱말일 때만 표지("새로운 스레드에 대해" 같은 본문 문장은 아님)."""
-    text = "스레드\n새로운 스레드에 대해 이야기해요"
+def test_menu_words_alone_do_not_count(clock) -> None:
+    """왼쪽 메뉴("새로운 스레드")는 로그아웃 화면에도 보이므로 표지가 아니다: 핸들이 없으면 로그인 필요."""
+    text = "홈\n새로운 스레드\n검색\n메시지\n활동\n프로필\n인사이트\n더 보기"
     a = ThreadsAdapter(
         "@me", clock, repl=NodeRepl({"handle": "me", "text": text, "counts": {}, "links": []})
     )
