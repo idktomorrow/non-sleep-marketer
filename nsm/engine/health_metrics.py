@@ -17,7 +17,7 @@ from nsm.engine.pause import (
     remind_due,
     short_reason,
 )
-from nsm.engine.publish import PAUSED_KEY
+from nsm.engine.publish import PAUSED_KEY, ui_changed_notice_due
 from nsm.engine.rate_limit import NAMES, blocked_until, rest_until, resting, retry_at
 from nsm.engine.watchdog import check_stalls
 
@@ -33,6 +33,8 @@ def run_health(ctx: JobContext) -> JobResult:
     - 끄는 중(Ctrl+C)에 끊긴 점검은 멈춤·알림·기록 없이 "중단"으로만 남긴다(E4, incidents/0008).
     - 일시적 실패는 `health_pause_after_failures`번 연속일 때만 멈춘다. 로그인 풀림은 바로 멈춘다(ADR 0054 개정).
     - 멈출 때 이유(종류)와 시각을 저장해 화면·알림이 그대로 쓴다.
+    - 로그인은 됐는데 계정 이름을 못 읽으면(어댑터 `ui_warning`, C39) 멈추지 않고 화면 변경으로 기록·알린다
+      (플랫폼별 6시간에 한 번). 게시·답글은 행동 직전 계정 확인이 안 돼 그 건만 실패한다(ADR 0064).
     - 멈춘 플랫폼도 점검은 한다(E5). 실패 횟수는 다시 쌓지 않고, 로그인 세부 상태가 바뀌면 멈춤 정보를 고치고
       바로 알린다. 같은 상태면 마지막 알림부터 24시간마다 한 번만 다시 알린다.
     """
@@ -44,6 +46,7 @@ def run_health(ctx: JobContext) -> JobResult:
     before = (set(paused), {k: dict(v) for k, v in info.items()}, dict(streak))
     limited: list[str] = []
     retrying: list[str] = []
+    ui_warnings: list[str] = []
     now = ctx.clock.now()
     for platform, adapter in ctx.adapters.items():
         if until := blocked_until(adapter, now):
@@ -70,9 +73,17 @@ def run_health(ctx: JobContext) -> JobResult:
             if platform in paused:
                 paused.discard(platform)
                 info.pop(platform, None)
+                warn = getattr(adapter, "ui_warning", None)
                 ctx.notifier.notify(
-                    f"{platform} 다시 연결됨", f"{platform} 자동 활동을 다시 시작합니다", "info"
+                    f"{platform} 다시 연결됨",
+                    f"{platform} 로그인을 확인해 멈춤을 풉니다. 계정 이름을 읽지 못해 게시·답글은 "
+                    "계정 확인이 될 때까지 하지 않습니다(화면 변경)"
+                    if warn
+                    else f"{platform} 자동 활동을 다시 시작합니다",
+                    "info",
                 )
+            if warn := getattr(adapter, "ui_warning", None):
+                ui_warnings.append(_ui_warning(ctx, platform, warn))
             continue
         if is_interrupted(ctx):  # 끄는 중에 본 "로그인 안 됨"은 믿지 않는다
             _interrupted(result, platform, None)
@@ -134,6 +145,8 @@ def run_health(ctx: JobContext) -> JobResult:
         result.counts["health_retry"] = retrying
     if limited:
         result.counts["rate_limited"] = limited
+    if ui_warnings:
+        result.counts["ui_changed"] = ui_warnings
     try:
         stalls = check_stalls(ctx)  # 조용히 멈춘 수집·게시(C12)
     except Exception as e:  # noqa: BLE001  로그인 점검 결과를 가리지 않게
@@ -186,6 +199,35 @@ def _still_paused(ctx, platform, info, kind, state, err, detail, now) -> None:
     else:
         return
     cur["notified_at"] = now.isoformat()
+
+
+def _ui_warning(ctx: JobContext, platform: str, warn: dict) -> str:
+    """로그인은 됐는데 계정 이름을 못 읽음(C39): 멈추지 않는다. 알림을 보낼 차례(플랫폼별 6시간에 한 번,
+    게시의 화면 변경 알림과 같은 시계)일 때만 장애 기록에 남기고 알린다. 30분마다 같은 기록이 쌓이지 않게."""
+    detail = str(warn.get("detail") or f"{platform} 로그인은 됐으나 계정 이름을 못 읽음(화면 변경)")
+    if ui_changed_notice_due(ctx, platform):
+        err = KindedError(detail, "ui_changed")
+        err.evidence_dir = warn.get("evidence_dir")  # type: ignore[attr-defined]
+        diag = record_incident(
+            ctx,
+            platform,
+            "health",
+            "health",
+            err,
+            "멈추지 않음(게시·답글은 계정 확인될 때까지 실패)",
+        )
+        where = warn.get("evidence_dir")
+        ctx.notifier.notify(
+            f"{platform} 화면 변경",
+            with_diagnosis(
+                f"{platform} 화면 변경: 로그인은 돼 있지만 계정 이름을 읽지 못합니다. "
+                "게시·답글은 계정 확인이 될 때까지 건너뜁니다"
+                + (f" · 증거 폴더: {where}" if where else ""),
+                diag,
+            ),
+            "error",
+        )
+    return f"{NAMES.get(platform, platform)} 계정 이름 못 읽음(화면 변경)"
 
 
 def _interrupted(result: JobResult, platform: str, e: BaseException | None) -> None:

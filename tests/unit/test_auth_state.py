@@ -12,7 +12,14 @@ import pytest
 
 from nsm.adapters.drivers.aside import AsideError
 from nsm.adapters.platforms.aside_common import LoginRequiredError, PlatformError
-from nsm.adapters.platforms.auth_state import AUTH_STATES, _rules, classify, is_blank
+from nsm.adapters.platforms.auth_state import (
+    AUTH_STATES,
+    _rules,
+    classify,
+    is_blank,
+    js_auth_args,
+    looks_logged_in,
+)
 from nsm.adapters.platforms.instagram import _HEALTH as IG_HEALTH
 from nsm.adapters.platforms.instagram import JS_IG, InstagramAdapter
 from nsm.adapters.platforms.threads import _HEALTH as TH_HEALTH
@@ -282,6 +289,137 @@ def test_screenshot_only_when_evidence_can_be_saved(clock) -> None:
         seen.append(args["shot"]),
         run(body, args, files),
     )[1]
-    a.health()  # 증거를 남김 → 다음 한 시간은 찍지 않는다
+    a.health()  # 증거를 남김 → 다음 한 시간은 auth 증거를 남기지 않는다
+    a.health()  # C39: 화면 변경(ui_changed) 증거는 아직 남길 수 있어 찍는다
+    a._evidence_at["ui_changed"] = clock.now()
+    a.health()  # 두 종류 모두 한 시간 안: 찍지 않는다
+    assert seen == [True, True, False]
+
+
+# ------------------------------------------------------------------ C39: 로그인된 화면 표지(ADR 0064)
+
+LOGGED_IN_THREADS = (
+    "threads-20261105-205557"  # 로그인된 글 페이지인데 핸들을 못 읽은 실제 사례(incidents/0012)
+)
+OTHER_EVIDENCE = [
+    "instagram-20261029-085642",
+    "instagram-20261030-032618",
+    "instagram-20261101-032543",
+    "threads-20261102-235339",
+]
+LOGGED_OUT_THREADS = "threads-logged-out-menu"  # 로그아웃 스레드 홈: 왼쪽 메뉴 + "가입하기"
+
+
+def test_real_logged_in_screen_without_handle_looks_logged_in() -> None:
+    ev = _ev(LOGGED_IN_THREADS)
+    assert classify(ev) == "unknown" and not is_blank(ev)
+    assert looks_logged_in(ev, "threads")
+
+
+@pytest.mark.parametrize("name", OTHER_EVIDENCE)
+def test_logout_and_challenge_evidence_never_look_logged_in(name: str) -> None:
+    ev = _ev(name)
+    assert not looks_logged_in(ev, ev["platform"])
+    assert not looks_logged_in(ev, "threads") and not looks_logged_in(ev, "instagram")
+
+
+def test_logged_out_threads_menu_does_not_look_logged_in() -> None:
+    """로그아웃 화면에도 왼쪽 메뉴("새로운 스레드" 등)가 보인다. "가입하기"가 로그인 폼 규칙에 걸리고,
+    그 문구가 없어도 메뉴 문구만으로는 로그인으로 보지 않는다(표지는 글쓰기 칸 문구만)."""
+    ev = _ev(LOGGED_OUT_THREADS)
+    assert classify(ev) == "logged_out" and not looks_logged_in(ev, "threads")
+    lines = [w for w in ev["text"].split("\n") if w not in ("가입하기", "로그인")]
+    menu_only = {**ev, "text": "\n".join(lines)}
+    assert "새로운 스레드" in menu_only["text"] and "가입하기" not in menu_only["text"]
+    assert classify(menu_only) == "unknown"
+    assert not looks_logged_in(menu_only, "threads")
+
+
+def test_login_form_or_blank_beats_markers() -> None:
+    ev = _ev(LOGGED_IN_THREADS)
+    with_form = {**ev, "text": ev["text"] + "\nInstagram으로 계속"}
+    assert classify(with_form) == "logged_out" and not looks_logged_in(with_form, "threads")
+    challenge = {**ev, "text": ev["text"] + "\n사람임을 확인하세요"}
+    assert not looks_logged_in(challenge, "threads")
+    on_login_url = {**ev, "url": "https://www.threads.com/login"}
+    assert not looks_logged_in(on_login_url, "threads")
+    suspended = {
+        "url": "https://www.instagram.com/accounts/suspended/?next=%2F",
+        "text": "알림",
+        "labels": [],
+    }
+    assert classify(suspended) == "unknown" and not looks_logged_in(suspended, "instagram")
+    blank = {"url": ev["url"], "text": "", "labels": []}
+    assert not looks_logged_in(blank, "threads")
+    assert not looks_logged_in(None, "threads") and not looks_logged_in({}, "threads")
+
+
+@pytest.mark.parametrize(
+    ("platform", "seen", "ok"),
+    [
+        ("instagram", "홈\n검색\n새로운 게시물\n프로필", True),
+        ("instagram", "Home\nCreate\nProfile", True),
+        ("instagram", "알림", True),
+        ("instagram", "새 계정 만들기", False),  # 문장 속 낱말은 표지가 아니다
+        ("instagram", "알림 설정", False),
+        ("threads", "me님에게 답글 남기기...", True),
+        ("threads", "새로운 소식을 공유해보세요", True),
+        ("threads", "Reply to nonsleepmarketer...", True),
+        ("threads", "What's new?", True),
+        ("threads", "스레드\n새로운 스레드\n검색", False),  # 메뉴 문구는 로그아웃 화면에도 있다
+        ("threads", "Home\nStart a thread\nSearch", False),
+    ],
+)
+def test_marker_words(platform: str, seen: str, ok: bool) -> None:
+    page = {"url": "https://example.com/", "text": seen, "labels": []}
+    assert looks_logged_in(page, platform) is ok
+
+
+def test_js_args_come_from_the_same_data_file() -> None:
+    a = js_auth_args("threads")
+    assert a["markers"] == _rules()["raw"]["logged_in_markers"]["threads"]
+    assert "Instagram으로 계속" in a["blockers"] and "사람임을 확인" in a["blockers"]
+    assert "/login" in a["check_urls"] and "/two_factor" in a["check_urls"]
+    assert js_auth_args("dryrun") == {}
+
+
+@pytest.mark.parametrize(
+    ("make", "platform"),
+    [(ThreadsAdapter, "threads"), (InstagramAdapter, "instagram")],
+)
+def test_health_logged_in_markers_is_ok_with_ui_warning(
+    clock, _isolated_evidence, make, platform
+) -> None:
+    """C39: 핸들을 못 읽어도 로그인 표지가 보이면 health는 성공(멈추지 않음) + ui_warning과 증거.
+    인스타그램도 같은 공통 코드(AsideAdapterBase._health)를 탄다."""
+    page = (
+        _ev(LOGGED_IN_THREADS)
+        if platform == "threads"
+        else {"url": "https://www.instagram.com/", "text": "홈\n검색\n만들기", "labels": ["알림"]}
+    )
+    a = make("@nonsleepmarketer", clock, repl=FakeRepl({"me": "", "page": page}))
+    h = a.health()
+    assert h.logged_in and "계정 이름을 못 읽음(화면 변경)" in h.detail
+    assert a.auth_state is None and a.ui_warning is not None
+    saved = list(_isolated_evidence.iterdir())
+    assert len(saved) == 1 and a.ui_warning["evidence_dir"] == str(saved[0])
+    info = json.loads((saved[0] / "dialogs.json").read_text("utf-8"))
+    assert info["kind"] == "ui_changed"
+    # 정상 로그인이나 로그인 실패면 경고를 지운다
+    a.repl.data = {"me": "nonsleepmarketer"}
+    assert a.health().logged_in and a.ui_warning is None
+    a.repl.data = {"me": "", "page": _ev("instagram-20261030-032618")}
+    assert not a.health().logged_in and a.ui_warning is None
+
+
+def test_calls_carry_the_marker_rules(clock) -> None:
+    seen: list = []
+
+    class Spy(FakeRepl):
+        def run(self, body, args=None, files=None):
+            seen.append(args)
+            return super().run(body, args, files)
+
+    a = ThreadsAdapter("@nonsleepmarketer", clock, repl=Spy({"me": "nonsleepmarketer"}))
     a.health()
-    assert seen == [True, False]
+    assert seen[-1]["nsm_auth"] == js_auth_args("threads")

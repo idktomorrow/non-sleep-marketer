@@ -161,6 +161,18 @@ UI_CHANGED_NOTIFIED_KEY = "ui_changed_notified"  # {플랫폼: 마지막 "화면
 UI_CHANGED_NOTIFY_EVERY = timedelta(hours=6)
 
 
+def ui_changed_notice_due(ctx: JobContext, platform: str) -> bool:
+    """플랫폼별 "화면 변경" 알림을 6시간에 한 번만(게시·health 공용, C39). 보낼 차례면 시각을 적고 True."""
+    seen = dict(ctx.repo.get_setting(UI_CHANGED_NOTIFIED_KEY, {}) or {})
+    now = ctx.clock.now()
+    last = seen.get(platform)
+    if last is not None and now - datetime.fromisoformat(last) < UI_CHANGED_NOTIFY_EVERY:
+        return False
+    seen[platform] = now.isoformat()
+    ctx.repo.set_setting(UI_CHANGED_NOTIFIED_KEY, seen)
+    return True
+
+
 def _record_failure(
     ctx: JobContext,
     pub: Publication,
@@ -176,12 +188,7 @@ def _record_failure(
     if pol is not None and pol.retry == "none":
         ctx.repo.transition_publication(pub.id, "abandoned", error=msg)
         _back_to_review(ctx, content.id, f"{pub.platform} 게시 실패({pol.label}): {msg}")
-        seen = dict(ctx.repo.get_setting(UI_CHANGED_NOTIFIED_KEY, {}) or {})
-        now = ctx.clock.now()
-        last = seen.get(pub.platform)
-        if last is None or now - datetime.fromisoformat(last) >= UI_CHANGED_NOTIFY_EVERY:
-            seen[pub.platform] = now.isoformat()
-            ctx.repo.set_setting(UI_CHANGED_NOTIFIED_KEY, seen)
+        if ui_changed_notice_due(ctx, pub.platform):
             where = evidence_dir(error) if error is not None else None
             ctx.notifier.notify(
                 f"{pub.platform} 화면 변경",

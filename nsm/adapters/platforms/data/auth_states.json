@@ -35,5 +35,10 @@
     }
   ],
   "check_urls": "/accounts/|/challenge/|/two_factor|/login|chrome-error://",
+  "_markers_note": "logged_in_markers: 로그인한 사람만 보는 화면 문구(C39, ADR 0064). 핸들을 못 읽었는데 이것이 보이고 위 규칙(로그인 폼·보안 확인·제한·확인 주소)에 하나도 안 걸리면 로그아웃이 아니라 화면 변경(ui_changed)으로 본다. 스레드 왼쪽 메뉴('새로운 스레드'·'Start a thread')는 로그아웃 화면에도 보이므로 표지가 아니고, 글쓰기 칸 문구만 쓴다. (^|\n)…(\n|$)는 화면 글·라벨의 한 줄 전체가 그 낱말일 때만이다('알림 설정'·'새 계정 만들기' 같은 문장 속 낱말은 아님). 파이썬과 브라우저 JS가 같은 정규식을 쓰므로 두 문법에 공통인 것만 쓴다.",
+  "logged_in_markers": {
+    "threads": "님에게 답글 남기기|새로운 소식을 공유해보세요|Reply to \\S+(\\.\\.\\.|…)|What's new\\?",
+    "instagram": "(^|\\n)(새로운 게시물|New post|만들기|Create|알림|Notifications)(\\n|$)"
+  },
   "login_form": "비밀번호를 잊으셨나요|forgot password|전화번호, 사용자 이름 또는 이메일|phone number, username,? or email|가입하기|sign up|Instagram으로 계속|continue with instagram|log in with instagram|Instagram으로 로그인"
 }
