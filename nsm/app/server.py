@@ -57,6 +57,8 @@ from nsm.app.next_publish import next_publishes
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
+    CATCH_UP_CHOICES,
+    CATCH_UP_MARK,
     CHARACTER_NAMES,
     PERIODS,
     SettingsError,
@@ -69,6 +71,7 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
+from nsm.engine.catch_up import caught_up_today
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
@@ -324,6 +327,8 @@ def create_app(state: AppState) -> FastAPI:
             human_approved=state.repo.count_human_approved(),
             runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
             stalls=state.repo.get_setting(STALLS_KEY, []) or [],  # 계속 0건(C12)
+            # 오늘 따라잡기로 끝까지 돈 하루 한 번 잡(C40): "백업·정리·문서 색인"
+            caught_up=[JOB_LABELS.get(j, (j,))[0] for j in caught_up_today(state.repo, now, tz())],
             # 오늘 할 일: 가장 오래 기다린 원고부터 바로 연다
             first_pending=oldest_pending(),
             failed_pubs=failed,
@@ -582,6 +587,12 @@ def create_app(state: AppState) -> FastAPI:
                     **(
                         {"character_ai_made": form.get("character_ai_made", "")}
                         if "card_character" in form
+                        else {}
+                    ),
+                    # 따라잡기 칸도 끈 것은 폼에 없다: 저장된 "켬"으로 되살리지 않는다(C40 리뷰)
+                    **(
+                        {f"catch_up_{j}": form.get(f"catch_up_{j}", "") for j in CATCH_UP_CHOICES}
+                        if CATCH_UP_MARK in form
                         else {}
                     ),
                 },
