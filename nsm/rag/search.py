@@ -25,6 +25,7 @@ class Hit:
     heading_path: str
     text: str
     score: float
+    source_kind: str = "docs"  # R4: "docs"·"collected"·"posts"
 
 
 @dataclass
@@ -67,11 +68,11 @@ def search(
         where += " AND NOT list_contains(?::VARCHAR[], id)"
         params.append(sorted(exclude_ids))
     rows = db.execute(
-        "SELECT path, heading_path, text, list_cosine_similarity(embedding, ?::FLOAT[]) AS score "
+        "SELECT path, heading_path, text, list_cosine_similarity(embedding, ?::FLOAT[]) AS score, source_kind "
         f"FROM doc_chunks WHERE {where} ORDER BY score DESC NULLS LAST, id LIMIT ?",
         [*params, max(1, k)],
     )
-    cands = [Hit(p, h, t, float(s)) for p, h, t, s in rows if s is not None]
+    cands = [Hit(p, h, t, float(s), kind) for p, h, t, s, kind in rows if s is not None]
     return SearchResult(
         question=question,
         hits=[c for c in cands if c.score >= min_score],
