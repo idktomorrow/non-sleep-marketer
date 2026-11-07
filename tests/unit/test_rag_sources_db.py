@@ -107,11 +107,14 @@ def add_comment(
     platform: str = "threads",
     status: str = "auto_replied",
     author: str = "누군가의이름",
+    category: str | None = None,
+    reply_ext: str | None = None,
 ) -> None:
     t = to_db(NOW - timedelta(days=1))
     db.execute(
         "INSERT INTO comments (id, platform, external_id, post_external_id, author_id, author_name, text, "
-        "created_at, fetched_at, status, reply_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "created_at, fetched_at, status, reply_text, category, reply_external_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             f"{platform}:{cid}",
             platform,
@@ -124,6 +127,8 @@ def add_comment(
             t,
             status,
             reply,
+            category,
+            reply_ext,
         ],
     )
 
@@ -325,3 +330,64 @@ def test_unclosed_code_fence_in_source_text_does_not_swallow_later_sections(db: 
     add_item(db, "A", text="기사\n~~~\n# 제목처럼 보이는 줄")
     [doc] = _collected(db).documents()
     assert "\~~~" in doc.text and "\# 제목처럼" in doc.text
+
+
+# ------------------------------------------------------------------ 댓글·답글 경계: 스팸, 보내지 않은 초안, 빈 글 id
+
+
+def test_instagram_spam_kept_as_ignored_is_excluded(db: Database) -> None:
+    add_post(db, "C1", "instagram", ext="IG1")
+    add_comment(
+        db,
+        "c1",
+        "IG1",
+        "광고 링크 눌러요",
+        None,
+        platform="instagram",
+        status="ignored",
+        category="spam",
+    )
+    add_comment(
+        db,
+        "c2",
+        "IG1",
+        "정상 댓글(하루 한도)",
+        None,
+        platform="instagram",
+        status="ignored",
+        category="reaction",
+    )
+    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    assert "광고 링크" not in doc.text
+    assert "- 정상 댓글(하루 한도)" in doc.text
+
+
+def test_only_replies_that_were_sent_are_attached(db: Database) -> None:
+    add_post(db, "C1", "threads", ext="EXT1")
+    add_comment(db, "c1", "EXT1", "금칙어 걸린 댓글", "보내지 않은 초안", status="escalated")
+    add_comment(db, "c2", "EXT1", "처리 완료만 누른 댓글", "남은 초안", status="resolved")
+    add_comment(
+        db,
+        "c3",
+        "EXT1",
+        "사람이 답한 댓글",
+        "사람이 보낸 답글",
+        status="resolved",
+        reply_ext="seen:c1",
+    )
+    add_comment(db, "c4", "EXT1", "전송 중 댓글", "전송 중 초안", status="replying")
+    add_comment(db, "c5", "EXT1", "자동 답글 댓글", "자동으로 보낸 답글")
+    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    for line in ("- 금칙어 걸린 댓글\n", "- 처리 완료만 누른 댓글\n", "- 전송 중 댓글\n"):
+        assert line in doc.text  # 댓글 본문은 싣고 답글만 뺀다
+    for draft in ("보내지 않은 초안", "남은 초안", "전송 중 초안"):
+        assert draft not in doc.text
+    assert "- 사람이 답한 댓글 → 답글: 사람이 보낸 답글" in doc.text
+    assert "- 자동 답글 댓글 → 답글: 자동으로 보낸 답글" in doc.text
+
+
+def test_empty_external_id_does_not_match_empty_post_ids(db: Database) -> None:
+    add_post(db, "C1", "threads", ext="")
+    add_comment(db, "c1", "", "글 id가 빈 댓글", "답글")
+    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    assert "## 댓글" not in doc.text and "글 id가 빈 댓글" not in doc.text

@@ -151,19 +151,27 @@ class PostsSource:
             "WHERE p.status = 'published' ORDER BY p.content_id, p.platform"
         )
         comments: dict[tuple[str, str], list[tuple[str, str | None]]] = {}
-        for platform, post, text, reply, author in self.db.execute(
-            "SELECT platform, post_external_id, text, reply_text, author_name FROM comments "
-            "WHERE status <> 'hidden' ORDER BY created_at, id"  # 숨긴 댓글(악성·스팸)은 싣지 않는다
+        # 숨긴 댓글과 스팸은 싣지 않는다. 인스타는 숨기기가 없어 스팸이 status='ignored'로 남는다(policy.decide_comment).
+        # 같은 사람 하루 한도로 ignored된 정상 댓글은 싣는다
+        for platform, post, text, reply, author, status, reply_ext in self.db.execute(
+            "SELECT platform, post_external_id, text, reply_text, author_name, status, reply_external_id "
+            "FROM comments WHERE status <> 'hidden' AND coalesce(category, '') <> 'spam' "
+            "ORDER BY created_at, id"
         ):
+            # reply_text에는 보내지 못한 초안(금칙어·전송 실패·요청 제한 복귀)도 남는다. 실제로 나간 답글만 붙인다
+            sent = status == "auto_replied" or (status == "resolved" and reply_ext is not None)
             # 작성자 이름은 지우는 데만 쓰고 싣지 않는다
             comments.setdefault((platform, post), []).append(
-                (scrub_people(text, author), scrub_people(reply, author) if reply else None)
+                (
+                    scrub_people(text, author),
+                    scrub_people(reply, author) if reply and sent else None,
+                )
             )
         out = []
         for cid, platform, published, url, ext, topic, generated in rows:
-            md = self._markdown(
-                platform, published, url, topic, generated, comments.get((platform, ext), [])
-            )
+            # 실계정 어댑터는 글 주소를 못 찾으면 external_id를 ""로 남긴다: 빈 id끼리 잇지 않는다
+            mine = comments.get((platform, ext), []) if ext else []
+            md = self._markdown(platform, published, url, topic, generated, mine)
             out.append(Document(f"posts/{cid}/{platform}", md, label=POSTS_LABEL))
         return out
 

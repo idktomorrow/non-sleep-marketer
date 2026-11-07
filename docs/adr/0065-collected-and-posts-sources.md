@@ -44,7 +44,7 @@ R1에서 출처를 포트(`nsm/rag/ports.py` `DocumentSource`: `kind`, `document
   - 댓글은 `comments.platform = publications.platform AND comments.post_external_id = publications.external_id`로 잇는다. `external_id`가 없으면 댓글 절이 없다.
   - 작성자를 빼는 이유: 질문 화면과 Claude 프롬프트, 질문 기록(`doc_qa`, 90일 보관)에 남의 이름이 퍼지지 않게 하기 위해서다. 질문의 쓸모("그 댓글에 뭐라고 답했지")에는 이름이 필요 없다.
   - 글과 답글 속 `@핸들` 언급은 `@…`로, 그 댓글 작성자 이름(답글이 "OO님 고마워요"처럼 부를 때)은 `…`로 바꾼다. 답글 프롬프트가 작성자 이름을 받으므로 답글에 이름이 들어갈 수 있다(R4 리뷰).
-  - 숨긴 댓글(`status='hidden'`, 스팸·악성)도 싣지 않는다.
+  - 숨긴 댓글(`status='hidden'`)과 스팸(`category='spam'`, 인스타는 숨기기가 없어 `ignored`로 남음)은 싣지 않는다. 답글은 실제로 나간 것(`auto_replied`, 또는 `resolved`이면서 `reply_external_id`가 있음)만 붙인다. 금칙어·전송 실패로 남은 초안은 싣지 않는다. 글 `external_id`가 비어 있으면(`""` 포함) 댓글 절이 없다.
 - 제목 경로는 "우리 글 > <글 제목>", 댓글은 "우리 글 > <글 제목> > 댓글"이다.
 
 ### 색인 잡·상한 나눠 쓰기
