@@ -30,7 +30,7 @@ NOT_IN_DOCS = "문서에 그 내용이 없습니다."
 HINT = "한 가지를 짧게 물을수록 잘 찾습니다(예: 보호 모드가 뭐야)"
 
 SYSTEM = (
-    "당신은 '논슬립 마케터' 프로젝트 문서에 대해 답하는 도우미입니다. 사용자의 질문에 <docs> 안의 조각만 근거로 "
+    "당신은 '논슬립 마케터' 프로젝트 문서·수집 자료·우리가 올린 글에 대해 답하는 도우미입니다. 사용자의 질문에 <docs> 안의 조각만 근거로 "
     "한국어로 짧게(세 문장 안팎) 답합니다.\n"
     "규칙:\n"
     "- 조각 안에 있는 내용으로만 답합니다. 짐작하거나 조각 밖의 지식을 더하지 않습니다.\n"
@@ -206,14 +206,23 @@ def ask_docs(
     answerer: Any | None,
     question: str,
     now: datetime,
+    source_kind: str | None = None,
 ) -> QaResult:
-    """질문 하나: 검사 → 검색(Gemini 1건, 하루 장부) → 근거 없으면 Claude 없이 → 있으면 Claude → doc_qa에 저장."""
+    """질문 하나: 검사 → 검색(Gemini 1건, 하루 장부) → 근거 없으면 Claude 없이 → 있으면 Claude → doc_qa에 저장.
+
+    source_kind: 출처 하나로만 찾기("docs"·"collected"·"posts", R4). None이면 전체."""
     with _ASK_LOCK:
-        return _ask_docs(cfg, repo, embedder, answerer, question, now)
+        return _ask_docs(cfg, repo, embedder, answerer, question, now, source_kind)
 
 
 def _ask_docs(
-    cfg: Any, repo: Any, embedder: Any, answerer: Any, question: str, now: datetime
+    cfg: Any,
+    repo: Any,
+    embedder: Any,
+    answerer: Any,
+    question: str,
+    now: datetime,
+    source_kind: str | None = None,
 ) -> QaResult:
     from nsm.domain.policy import local_day_bounds, under_cost_cap
     from nsm.rag.budget import SearchUnavailable, budgeted_search
@@ -231,7 +240,9 @@ def _ask_docs(
         )
     t0 = time.monotonic()
     try:  # 키·비용 상한·Gemini 하루 장부(실패한 시도도 셈)
-        res = budgeted_search(cfg, repo, embedder, q, r.search_k, r.min_score, now)
+        res = budgeted_search(
+            cfg, repo, embedder, q, r.search_k, r.min_score, now, source_kind=source_kind
+        )
     except SearchUnavailable as e:
         raise QuestionRejected(f"질문을 찾아볼 수 없습니다: {e}") from e
     out = QaResult(id=uuid.uuid4().hex, question=q, answer=NO_GROUND_ANSWER, grounded=res.grounded)
@@ -239,6 +250,7 @@ def _ask_docs(
         out.sources = [
             {
                 "n": i,
+                "kind": h.source_kind,
                 "path": h.path,
                 "heading": h.heading_path,
                 "score": round(h.score, 3),
@@ -305,6 +317,7 @@ def _qa_row(row: tuple) -> dict[str, Any]:
     sources = json.loads(s or "[]")
     for src in sources:
         src.setdefault("text", None)  # R3c 전 기록엔 본문이 없다: 화면에 "원문 없음"
+        src.setdefault("kind", "docs")  # R4 전 기록은 문서만 찾았다
     return {
         "id": qid,
         "asked_at": from_db(a),

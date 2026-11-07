@@ -141,6 +141,13 @@ class RagSettings(_Model):
     # 문서 질문(R3): 질문 길이(길면 임베딩이 흐려져 검색이 나빠짐)와 하루 질문 수 상한
     qa_max_chars: int = Field(default=200, ge=20, le=1000)
     qa_daily_limit: int = Field(default=50, ge=1, le=1000)
+    # 색인할 출처와 순서(R4, ADR 0065). 하루 임베딩 상한은 앞 출처부터 쓰고 남은 만큼 다음 출처로 간다
+    sources: list[Literal["docs", "collected", "posts"]] = Field(
+        default_factory=lambda: ["docs", "collected", "posts"]
+    )
+    # 수집 자료: 관련성 이 값 이상(settings.relevance_threshold 기본값과 같음), 최근 이 일수 안에 모은 것만
+    collected_min_relevance: float = Field(default=0.8, ge=0.0, le=1.0)
+    collected_days: int = Field(default=180, ge=1, le=3650)
 
     @field_validator("index_time")
     @classmethod

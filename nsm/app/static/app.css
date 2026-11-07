@@ -260,6 +260,8 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 /* 문서 질문(R3) */
 .ask-row { display: flex; gap: 8px; margin-top: 6px; }
 .ask-row input[type="text"] { flex: 1; min-width: 0; }
+.ask-source { flex: 0 0 auto; max-width: 10em; }
+@media (max-width: 520px) { .ask-row { flex-wrap: wrap; } .ask-source { max-width: none; flex: 1 1 100%; } }
 .answer-text { white-space: pre-wrap; line-height: 1.7; font-size: 15px; }
 .ask-sources { padding-left: 0; list-style: none; margin: 0; }
 .ask-sources li { margin: 6px 0; }

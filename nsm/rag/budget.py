@@ -72,6 +72,7 @@ def budgeted_search(
     k: int,
     min_score: float,
     now: datetime,
+    source_kind: str | None = None,
 ):
     """질문 하나 검색: 예산 판단 → 질문 임베딩(1건) → 장부. 화면(ask_docs)과 `nsm ask`가 같이 쓴다.
 
@@ -83,7 +84,9 @@ def budgeted_search(
     if plan.embedder is None:
         raise SearchUnavailable(plan.note)
     try:
-        res = search(repo.db, plan.embedder, question, k=k, min_score=min_score)
+        res = search(
+            repo.db, plan.embedder, question, k=k, min_score=min_score, source_kind=source_kind
+        )
     except Exception as e:  # noqa: BLE001  429·연결 오류
         if getattr(e, "code", "") != "not_sent":  # 분당 창이 차서 보내지도 않았으면 세지 않는다
             add_used(repo, now, 1)

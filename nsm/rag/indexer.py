@@ -67,7 +67,9 @@ class ChunkStats:
 
 
 def chunk_source(source: DocumentSource, size: int, overlap: int) -> dict[str, list[Chunk]]:
-    return {d.path: chunk_markdown(d.path, d.text, size, overlap) for d in source.documents()}
+    return {
+        d.path: chunk_markdown(d.label or d.path, d.text, size, overlap) for d in source.documents()
+    }
 
 
 def chunk_stats(by_file: dict[str, list[Chunk]]) -> ChunkStats:
@@ -111,7 +113,7 @@ def index_documents(
         r[0]
         for r in db.execute("SELECT DISTINCT path FROM doc_chunks WHERE source_kind = ?", [kind])
     }
-    if not by_file and stored:
+    if not by_file and stored and not getattr(source, "allow_empty", False):
         # 문서 폴더 경로를 잘못 주면 "전부 사라짐"으로 보여 색인을 통째로 지운다. 그러지 않는다
         raise EmptySourceError(
             f"문서를 하나도 찾지 못했습니다(저장된 파일 {len(stored)}개는 그대로 둡니다). 문서 폴더 경로를 확인하세요"

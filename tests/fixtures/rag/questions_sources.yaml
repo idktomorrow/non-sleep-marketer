@@ -1,0 +1,26 @@
+# R4 출처 측정용 질문(ADR 0065): 수집 자료·우리가 올린 글을 겨냥한 5개. 운영 DB 백업(2026-11-04) 기준.
+# questions.yaml(문서 20개)은 run_eval·test_rag_search가 docs 전용으로 검사하므로 이 파일과 섞지 않는다.
+# 질문 문장은 devlog·ADR에 원문으로 옮기지 않고 "질문 N번"으로 가리킨다(ADR 0057 개정 1).
+# kind: 정답이 있어야 할 출처(collected·posts, 둘 다면 any). expected: 정답 조각 경로의 앞부분(하나라도 맞으면 정답).
+# 실제 Gemini 측정은 네트워크가 필요해 자동 테스트에 넣지 않는다. pytest는 이 파일의 형식만 본다.
+questions:
+  - n: 1
+    q: 극장판 치이카와 250만 관객은 개봉 며칠 만이야
+    kind: collected
+    expected: [source_items/01M6EEMEMM67MFS4QEN10X4QHF, source_items/01M6EEPC805S8V1X0G31MZ50NJ]
+  - n: 2
+    q: 더샘 먼작귀 에디션 구성이 뭐야
+    kind: any
+    expected: [source_items/01M6EEMZRA2SJVBDT467JW7EKN, posts/01M5MQCRX1GX74PYMERZSB34C4/]
+  - n: 3
+    q: 하치와레 이름 뜻이 뭐야
+    kind: posts
+    expected: [posts/01M4TM03XF9K685NQSRGSZZKJH/]
+  - n: 4
+    q: 치이카와 크리스마스 마켓 신청 기간은 언제야
+    kind: posts
+    expected: [posts/01M4WE7SGHKDWXT9JF8T62W6BV/, posts/01M5J5HXP4F418DBKJWM5MGACR/]
+  - n: 5
+    q: 아직 안 봤다는 댓글에 뭐라고 답했어
+    kind: posts
+    expected: [posts/01M4T64W2EMHXEB10EFEAFG0GQ/]

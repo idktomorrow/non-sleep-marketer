@@ -82,8 +82,13 @@ def index(
         None, "--chunk-chars", help="조각 크기 실험용(기본: 설정값)"
     ),
     overlap: int | None = typer.Option(None, "--overlap", help="겹침 실험용(기본: 설정값)"),
+    source: str = typer.Option(
+        "all",
+        "--source",
+        help="출처 docs|collected|posts|all(기본 all: 설정 rag.sources 순서, 하루 상한을 나눠 씀)",
+    ),
 ) -> None:
-    """문서 색인(개발·점검용, R1): docs를 조각내고 Gemini 임베딩을 붙여 DB에 저장. 기본은 증분."""
+    """문서 색인(개발·점검용, R1·R4): 문서·수집 자료·우리 글을 조각내고 Gemini 임베딩을 붙여 DB에 저장. 기본은 증분."""
     from nsm.config.presets import workspace_db_path
     from nsm.config.store import load_config
     from nsm.rag.command import DbLockedError, IndexInputError, run_index
@@ -100,6 +105,7 @@ def index(
             stats=stats,
             size=chunk_chars,
             overlap=overlap,
+            source=source,
             echo=typer.echo,
         )
     except IndexInputError as e:

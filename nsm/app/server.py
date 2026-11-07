@@ -369,10 +369,10 @@ def create_app(state: AppState) -> FastAPI:
     # ------------------------------------------------------------------ 설정 (M17)
 
     def doc_index_line() -> dict[str, Any]:
-        """설정 화면 한 줄(R2): 문서 색인 조각 수·벡터 없는 조각 수·마지막 실행 시각."""
+        """설정 화면 한 줄(R2): 문서 색인 조각 수(R4부터 출처 전체)·벡터 없는 조각 수·마지막 실행 시각."""
         from nsm.rag.indexer import stored_stats
 
-        st = stored_stats(state.repo.db, "docs")
+        st = stored_stats(state.repo.db)  # R4: 출처 전체(문서·수집 자료·우리 글)
         return {
             "chunks": st["chunks"],
             "without_vector": st["without_vector"],

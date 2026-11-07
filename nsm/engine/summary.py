@@ -159,6 +159,8 @@ def _index(c: dict[str, Any]) -> list[str]:
     parts = [
         f"조각 {_n(c, 'chunks')}개, 벡터 없음 {_n(c, 'without_vector')}개, 이번에 보냄 {_n(c, 'sent')}개"
     ]
+    if c.get("by_source"):
+        parts.append(f"출처별 {c['by_source']}")
     if c.get("seconds") is not None:
         parts.append(f"{c['seconds']}초")
     if _n(c, "deleted_files"):

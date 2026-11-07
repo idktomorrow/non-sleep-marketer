@@ -1,6 +1,7 @@
 """대시보드 "문서 질문" 탭(R3, ADR 0058, 고급 모드).
 
 - GET /ask: 질문 칸, 최근 질문 20개, 최근 측정. `?qa=<기록 id>`면 그 기록(답·근거·비용·시간)을 보여 준다.
+- 출처 고르기(R4, ADR 0065): 전체·프로젝트 문서·수집 자료·우리가 올린 글. 고른 값은 검색의 source_kind로 간다.
 - POST /ask: 질문 하나(CSRF). 처리해 doc_qa에 저장한 뒤 303으로 `/ask?qa=<id>`에 보낸다(R3c): 새로고침(F5)이
   같은 질문을 다시 보내 비용이 또 나가지 않게. 거절(길이·상한·키 없음)은 그 자리에 400으로 보인다.
 - POST /ask/qa/<id>/delete, POST /ask/qa/delete-all: 질문 기록 지우기(CSRF, 전부 지우기는 확인 한 번 더).
@@ -28,6 +29,7 @@ from nsm.rag.answer import (
 )
 from nsm.rag.evaluate import EvalRejected, recent_evals, run_eval
 from nsm.rag.indexer import stored_stats
+from nsm.rag.multi import KIND_BADGE, KIND_NAME, KINDS
 
 # 측정 결과 코드 → 화면 문구. 모르는 코드는 무시한다(주소창을 고쳐도 아무 글이나 뜨지 않게)
 EVAL_TEXT = {
@@ -49,6 +51,14 @@ QA_TEXT = {
     "deleted": "질문 기록을 지웠습니다.",
     "deleted_all": "질문 기록을 모두 지웠습니다.",
 }
+SOURCE_CHOICES = [("", "전체"), *((k, KIND_NAME[k]) for k in KINDS)]
+
+
+def pick_source(value: str | None) -> str:
+    """폼·주소창의 출처 값. 모르는 값은 전체("")로(주소창을 고쳐도 아무 출처나 넘어가지 않게)."""
+    return value if value in KINDS else ""
+
+
 MISSING_QA = "그 질문 기록이 없습니다(지웠거나 보관 기간이 지났습니다)."
 EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화면에 함께 보임)
 
@@ -56,8 +66,13 @@ EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화�
 def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
     """기록 하나를 화면용으로: 초·원화, 답 HTML(이스케이프 + 백틱 코드 + [n] 링크)."""
     ns = {int(s["n"]) for s in qa.get("sources", [])}
+    sources = [
+        {**s, "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서")}
+        for s in qa.get("sources", [])
+    ]
     return {
         **qa,
+        "sources": sources,
         "answer_html": ask_format.answer_html(qa.get("answer"), ns),
         "secs": ask_format.seconds(qa.get("ms")),
         "cost": ask_format.cost(qa.get("usd"), krw_per_usd),
@@ -73,7 +88,10 @@ def install_ask_routes(
     def _view(request: Request, **extra: Any) -> HTMLResponse:
         cfg = state.get_config()
         krw = cfg.settings.krw_per_usd
-        st = stored_stats(state.repo.db, "docs")
+        st = stored_stats(state.repo.db)
+        by_kind = [
+            {"badge": KIND_BADGE[k], **stored_stats(state.repo.db, k)} for k in KINDS
+        ]  # 상단 안내: 출처별 조각 수
         embedder, answerer = _rag()
         q = request.query_params
         last_error = state.repo.get_setting(EVAL_ERROR_KEY, "") if q.get("eval") else ""
@@ -85,6 +103,9 @@ def install_ask_routes(
             max_chars=cfg.settings.rag.qa_max_chars,
             min_score=cfg.settings.rag.min_score,
             stats=st,
+            by_kind=by_kind,
+            source_choices=SOURCE_CHOICES,
+            source=pick_source(extra.pop("source", None) or q.get("source")),
             has_embedder=embedder is not None,
             has_answerer=answerer is not None,
             # 목록은 비용 표시만(답 HTML은 상세에서만 만든다)
@@ -114,18 +135,28 @@ def install_ask_routes(
         )
 
     @app.post("/ask", response_model=None, dependencies=[Depends(check_csrf)])
-    def ask_post(request: Request, question: str = Form("")) -> HTMLResponse | RedirectResponse:
+    def ask_post(
+        request: Request, question: str = Form(""), source: str = Form("")
+    ) -> HTMLResponse | RedirectResponse:
         embedder, answerer = _rag()
+        kind = pick_source(source)
         try:
             result = ask_docs(
-                state.get_config(), state.repo, embedder, answerer, question, state.clock.now()
+                state.get_config(),
+                state.repo,
+                embedder,
+                answerer,
+                question,
+                state.clock.now(),
+                source_kind=kind or None,
             )
         except QuestionRejected as e:
-            resp = _view(request, result=None, error=str(e), question=question[:1000])
+            resp = _view(request, result=None, error=str(e), question=question[:1000], source=kind)
             resp.status_code = 400
             return resp
-        # 저장한 기록으로 보낸다: 새로고침해도 다시 묻지 않는다(R3c)
-        return RedirectResponse(f"/ask?qa={result.id}#answer", status_code=303)
+        # 저장한 기록으로 보낸다: 새로고침해도 다시 묻지 않는다(R3c). 고른 출처는 다음 질문에도 그대로
+        tail = f"&source={kind}" if kind else ""
+        return RedirectResponse(f"/ask?qa={result.id}{tail}#answer", status_code=303)
 
     @app.post("/ask/qa/{qa_id}/delete", dependencies=[Depends(check_csrf)])
     def ask_delete(qa_id: str) -> RedirectResponse:
