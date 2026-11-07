@@ -20,6 +20,8 @@ COST_CAP_MAX = 100.0
 IG_INTERVAL = "instagram_comment_interval_minutes"
 TH_INTERVAL = "threads_comment_interval_minutes"
 LOOKBACK = "comment_lookback_days"
+CATCH_UP_MARK = "catch_up_form"  # 따라잡기 체크 칸이 있는 폼(C40). 없으면(옛 폼) 지금 값을 지킨다
+CATCH_UP_CHOICES = ("maintenance", "index", "metrics", "weekly_report")
 
 
 class SettingsError(ValueError):
@@ -180,6 +182,9 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         comment_lookback_days=int(_number(form, LOOKBACK, "댓글을 볼 최근 일수", 1, 30))
         if LOOKBACK in form
         else cfg.settings.comment_lookback_days,
+        catch_up_jobs=[j for j in CATCH_UP_CHOICES if form.get(f"catch_up_{j}") == "on"]
+        if CATCH_UP_MARK in form
+        else cfg.settings.catch_up_jobs,
     )
     try:
         return AppConfig.model_validate(
@@ -232,4 +237,5 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
         "exclude_words": "\n".join(s.collect.exclude_words),
+        **{f"catch_up_{j}": "on" if j in s.catch_up_jobs else "" for j in CATCH_UP_CHOICES},
     }

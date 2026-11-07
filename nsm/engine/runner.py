@@ -51,7 +51,15 @@ INTERRUPTED_PREFIX = (
 )
 
 
-def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = None) -> JobResult:
+def run_job(
+    name: str,
+    ctx: JobContext,
+    manual: bool = False,
+    arg: str | None = None,
+    prefix: str = "",
+) -> JobResult:
+    """prefix: 실행 기록·로그 앞에 붙일 말(따라잡기 "따라잡기(04:30 놓침) · ", C40). 종료 중단이면
+    `INTERRUPTED_PREFIX`가 그보다 앞에 온다(배지가 접두어로 "중단"을 알아본다)."""
     if name in ARG_JOBS:
         if arg is None:
             raise ValueError(f"{name} 잡에는 값이 필요합니다(예: --keyword)")
@@ -66,14 +74,16 @@ def run_job(name: str, ctx: JobContext, manual: bool = False, arg: str | None = 
     except Exception as e:
         if is_interrupted(ctx, e):
             # 끄는 순간 끊긴 것(Ctrl+C가 브라우저 CLI까지 끊음): 실패가 아니라 중단. 알림도 보내지 않는다(C33)
-            log.info("잡 %s 중단(프로그램 종료 중): %s", name, e)
-            ctx.repo.finish_run(run_id, False, f"{INTERRUPTED_PREFIX}{type(e).__name__}: {e}")
+            log.info("잡 %s %s중단(프로그램 종료 중): %s", name, prefix, e)
+            ctx.repo.finish_run(
+                run_id, False, f"{INTERRUPTED_PREFIX}{prefix}{type(e).__name__}: {e}"
+            )
             return JobResult(name, ok=False, errors=[str(e)])
-        log.exception("잡 %s 실패", name)
-        ctx.repo.finish_run(run_id, False, f"{type(e).__name__}: {e}")
+        log.exception("잡 %s %s실패", name, prefix)
+        ctx.repo.finish_run(run_id, False, f"{prefix}{type(e).__name__}: {e}")
         ctx.notifier.notify(f"잡 실패: {name}", str(e)[:200], "error")
         return JobResult(name, ok=False, errors=[str(e)])
-    summary = result.summary()
+    summary = f"{prefix}{result.summary()}"
     if not result.ok and (ctx.shutting_down() or result.interrupted):
         summary = f"{INTERRUPTED_PREFIX}{summary}"
     ctx.repo.finish_run(run_id, result.ok, summary)

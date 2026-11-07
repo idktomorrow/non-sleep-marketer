@@ -129,6 +129,12 @@
     <label>스레드 댓글 확인 간격(분, 5~180) <span class="hint">스레드도 댓글을 보려고 글 페이지를 하나씩 엽니다. 위 간격과 따로 이보다 자주 보지 않습니다. 글이 안 열리는 날 확인 한 번이 길어지는 것을 막습니다. 15분 추천</span><input type="number" name="threads_comment_interval_minutes" value="{{ v.threads_comment_interval_minutes }}" min="5" max="180" step="1" required></label>
     <label>댓글을 볼 최근 일수(1~30) <span class="hint">스레드는 최근 이 일수 안에 올린 글의 댓글만 봅니다(인스타그램은 3일). 길게 잡을수록 확인할 때마다 여는 글이 많아집니다. 7일 추천</span><input type="number" name="comment_lookback_days" value="{{ v.comment_lookback_days }}" min="1" max="30" step="1" required></label>
   </div>
+  <fieldset class="adv-only catch-up" {% if simple %}hidden{% endif %}><legend>꺼져 있었거나 절전이어서 놓친 일 따라잡기 <span class="hint">예정 시각에 프로그램이 꺼져 있었거나 PC가 절전이면, 켤 때와 그 뒤 30분마다 오늘 못 한 일을 한 번 돌립니다. 하루에 한 번만 하고 알림은 보내지 않습니다</span></legend>
+    <input type="hidden" name="catch_up_form" value="1">
+    {% for name, label in [('maintenance', '백업·정리(새벽 4:30)'), ('index', '문서 색인(저녁 ' ~ doc_index.time ~ ')'), ('metrics', '성과 읽기(새벽 3:10)'), ('weekly_report', '주간 리포트(월요일 8:00)')] %}
+    <label class="check"><input type="checkbox" name="catch_up_{{ name }}" {% if v['catch_up_' ~ name] == 'on' %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
   <label class="check"><input type="checkbox" name="ad_label" {% if v.ad_label == 'on' %}checked{% endif %}> 모든 게시물에 "광고" 표기 <span class="hint">협찬·광고 계정일 때만 켜세요. 원고마다 광고로 표시된 것은 이 설정과 상관없이 표기됩니다</span></label>
 </div>
 

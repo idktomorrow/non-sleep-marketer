@@ -199,6 +199,11 @@ class Settings(_Model):
     comment_lookback_days: int = Field(default=7, ge=1, le=30)
     # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
     reply_interval_minutes: int = Field(default=5, ge=3, le=60)
+    # 예정 시각에 꺼져 있었거나 절전이면 켤 때·30분마다 따라잡는 잡(C40, ADR 0066). 빈 목록이면 따라잡지 않는다.
+    # 비용이 들거나 게시 시간·쿼터와 얽힌 수집·원고 만들기는 넣지 않는다
+    catch_up_jobs: list[Literal["maintenance", "index", "metrics", "weekly_report"]] = Field(
+        default_factory=lambda: ["maintenance", "index", "metrics", "weekly_report"]
+    )
     # 인스타그램은 댓글을 보려면 글 페이지를 하나씩 열어야 해서 요청 제한(HTTP 429)에 걸리기 쉽다.
     # 위 간격과 따로, 이 간격(분)보다 자주 보지 않고 최근 며칠 글만 본다(ADR 0038).
     instagram_comment_interval_minutes: int = Field(default=30, ge=10, le=180)

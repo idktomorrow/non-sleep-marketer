@@ -901,7 +901,8 @@ class Repository:
         return int(
             self.db.execute(
                 "SELECT count(*) FROM run_logs WHERE job = ? AND started_at >= ? "
-                "AND ok AND coalesce(message, '') NOT LIKE '건너뜀:%'",
+                "AND ok AND coalesce(message, '') NOT LIKE '건너뜀:%' "
+                "AND coalesce(message, '') NOT LIKE '따라잡기(%) · 건너뜀:%'",
                 [job, to_db(since)],
             )[0][0]
         )

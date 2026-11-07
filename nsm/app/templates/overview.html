@@ -61,6 +61,7 @@
       <li class="all-done muted">아직 할 일이 없습니다. 위 순서대로 시작해 보세요.</li>
       {% endif %}
     </ul>
+    {% if caught_up %}<p class="muted small caught-up" style="margin:8px 0 0">오늘 따라잡은 일: {{ caught_up|join('·') }} <span class="hint">예정 시각에 꺼져 있었거나 절전이어서 켠 뒤 돌렸습니다</span></p>{% endif %}
   </section>
 
   <section>

@@ -338,15 +338,23 @@ def run_forever() -> None:
         recover_interrupted_replies(ctx)
         scheduler = JobScheduler(lambda: ctx, set(JOBS))
         installed = scheduler.install(cfg)
+        # 하루·주 한 번 잡 따라잡기(C40): 켠 뒤 90초에 한 번, 그 뒤 30분마다
+        installed += scheduler.install_catch_up()
         scheduler.start()
         log.info("잡 %s 예약됨. 대시보드: %s", ", ".join(installed), url)
 
         def set_config(new: AppConfig) -> None:
             save_config(new)
             old, ctx.config = ctx.config, new
-            if (new.persona.active_hours, new.settings.reply_interval_minutes) != (
+            # 문서 색인 시각(rag.index_time)도 예약을 다시 건다(C40). 따라잡기는 점검마다 ctx.config를 읽는다
+            if (
+                new.persona.active_hours,
+                new.settings.reply_interval_minutes,
+                new.settings.rag.index_time,
+            ) != (
                 old.persona.active_hours,
                 old.settings.reply_interval_minutes,
+                old.settings.rag.index_time,
             ):
                 log.info(
                     "활동 시간이 바뀌어 예약을 다시 겁니다: %s",
