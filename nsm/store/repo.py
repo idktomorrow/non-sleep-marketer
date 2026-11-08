@@ -439,6 +439,30 @@ class Repository:
             if not rows:
                 raise KeyError(content_id)
             raise InvalidTransitionError(f"콘텐츠 {content_id}: {rows[0][0]} → {new_status} 불가")
+        if new_status == "discarded":
+            # 폐기한 원고의 대기·재시도 게시 줄은 포기로(C41). 남겨 두면 게시 감시가 "올릴 원고 N개 대기"로 센다.
+            # 올리는 중(publishing)은 화면이 폐기를 막는다
+            self.abandon_publications(content_id, "원고 폐기")
+
+    def abandon_publications(self, content_id: str, reason: str) -> int:
+        """그 콘텐츠의 queued·failed 게시 줄을 abandoned로. 바꾼 줄 수."""
+        return self._count(
+            self.db.execute(
+                "UPDATE publications SET status = 'abandoned', next_attempt_at = NULL, "
+                "last_error = coalesce(last_error, ?) WHERE content_id = ? AND status IN ('queued', 'failed')",
+                [reason, content_id],
+            )
+        )
+
+    def abandon_discarded_leftovers(self) -> int:
+        """C41 전에 폐기된 원고에 남은 queued·failed 게시 줄을 abandoned로(유지보수 잡이 부른다). 바꾼 줄 수."""
+        return self._count(
+            self.db.execute(
+                "UPDATE publications SET status = 'abandoned', next_attempt_at = NULL, "
+                "last_error = coalesce(last_error, '원고 폐기') WHERE status IN ('queued', 'failed') "
+                "AND content_id IN (SELECT id FROM contents WHERE status = 'discarded')"
+            )
+        )
 
     def update_generated(self, content_id: str, generated: GeneratedContent) -> None:
         """검토 대기열에서 사람이 고친 원고 저장. 검토 대기 상태일 때만 바뀐다(C24).
@@ -917,14 +941,24 @@ class Repository:
         )
 
     def waiting_publications(self, platform: Platform, before: datetime) -> int:
-        """before보다 먼저 만들어져 아직 못 올린(대기·실패 후 재시도 대기) 게시 수."""
+        """before보다 먼저 만들어져 아직 못 올린(대기·실패 후 재시도 대기) 게시 수. 승인된 원고 것만 센다(C41):
+        폐기·검토 대기 원고에 남은 줄은 게시하기가 올리지 않으므로 "올릴 원고"가 아니다."""
         return int(
             self.db.execute(
-                "SELECT count(*) FROM publications WHERE platform = ? "
-                "AND status IN ('queued', 'failed') AND created_at < ?",
+                "SELECT count(*) FROM publications p JOIN contents c ON c.id = p.content_id "
+                "WHERE p.platform = ? AND p.status IN ('queued', 'failed') AND p.created_at < ? "
+                "AND c.status = 'approved'",
                 [platform, to_db(before)],
             )[0][0]
         )
+
+    def count_contents_in_status(self, status: str) -> int:
+        return int(
+            self.db.execute("SELECT count(*) FROM contents WHERE status = ?", [status])[0][0]
+        )
+
+    def has_any_run(self, job: str) -> bool:
+        return bool(self.db.execute("SELECT 1 FROM run_logs WHERE job = ? LIMIT 1", [job]))
 
     # 원고에 쓰이지 않은 자료: used_in_content_id가 비었거나 표시값(중복 사건·생성 실패)인 것
     _UNUSED_SOURCE = "(used_in_content_id IS NULL OR used_in_content_id IN ('duplicate_event', 'generation_failed'))"

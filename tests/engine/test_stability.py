@@ -45,7 +45,7 @@ def _items(ctx: JobContext, relevance: float) -> None:
         ctx.repo.set_source_relevance(item.id, relevance)
 
 
-def _waiting(ctx: JobContext, platform: str = "instagram") -> None:
+def _waiting(ctx: JobContext, platform: str = "instagram", cid: str = "c1") -> None:
     from nsm.domain.models import Content, ContentBrief
 
     gen = FakeTextGenerator().generate_content(
@@ -55,14 +55,14 @@ def _waiting(ctx: JobContext, platform: str = "instagram") -> None:
     )
     ctx.repo.insert_content(
         Content(
-            id="c1",
+            id=cid,
             status="approved",
             generated=gen,
             relevance_confidence=0.9,
             created_at=ctx.clock.now(),
         )
     )
-    ctx.repo.create_publications("c1", [platform])
+    ctx.repo.create_publications(cid, [platform])
 
 
 # --- 계속 0건 -----------------------------------------------------------------------
@@ -196,8 +196,7 @@ def test_changing_waiting_count_does_not_notify_again(db, clock, app_config) -> 
     _waiting(ctx)
     clock.advance(days=3)
     check_stalls(ctx)
-    ctx.repo.db.execute("UPDATE publications SET content_id = 'c2'")  # 다른 원고처럼
-    ctx.repo.create_publications("c1", ["instagram"])
+    _waiting(ctx, cid="c2")  # 승인된 원고가 하나 더(C41: 승인된 원고의 줄만 센다)
     ctx.repo.db.execute(
         "UPDATE publications SET created_at = ?", [ctx.repo._now() - timedelta(days=3)]
     )  # noqa: SLF001

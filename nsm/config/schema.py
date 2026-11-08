@@ -6,7 +6,7 @@ API 키는 여기 두지 않는다. keyring(Windows 자격 증명 관리자)에 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -19,6 +19,10 @@ class _Model(BaseModel):
 
 # 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
 CardStyle = Literal["clean", "photo", "illust"]
+CatchUpJob = Literal["collect", "generate", "maintenance", "metrics", "index", "weekly_report"]
+CATCH_UP_CHOICES: tuple[str, ...] = get_args(
+    CatchUpJob
+)  # 따라잡기 실행 순서와 같다(engine.catch_up)
 CARD_STYLES: tuple[str, ...] = get_args(CardStyle)
 
 
@@ -199,11 +203,23 @@ class Settings(_Model):
     comment_lookback_days: int = Field(default=7, ge=1, le=30)
     # 댓글 확인 간격(분). 너무 짧으면 플랫폼이 자동화로 의심할 수 있어 3분 아래로는 두지 않는다(ADR 0029).
     reply_interval_minutes: int = Field(default=5, ge=3, le=60)
-    # 예정 시각에 꺼져 있었거나 절전이면 켤 때·30분마다 따라잡는 잡(C40, ADR 0066). 빈 목록이면 따라잡지 않는다.
-    # 비용이 들거나 게시 시간·쿼터와 얽힌 수집·원고 만들기는 넣지 않는다
-    catch_up_jobs: list[Literal["maintenance", "index", "metrics", "weekly_report"]] = Field(
-        default_factory=lambda: ["maintenance", "index", "metrics", "weekly_report"]
-    )
+    # 예정 시각에 꺼져 있었거나 절전이면 켤 때·30분마다 따라잡는 잡(C40·C41, ADR 0066). 빈 목록이면 따라잡지 않는다.
+    # 원고 만들기는 오늘 목표를 채웠으면 잡이 스스로 건너뛰어 늦게 돌려도 하루 비용이 같다(C41에서 대상에 넣음)
+    catch_up_jobs: list[CatchUpJob] = Field(default_factory=lambda: list(CATCH_UP_CHOICES))
+    # 설정 화면에 보여 준 따라잡기 칸(C41). 이 값이 없는 예전 설정 파일(0.4.26)은 그때 없던 칸(수집·생성)을
+    # 켠 채로 더한다. 사용자가 끈 적 없는 새 칸이라서다. 따라잡기를 모두 꺼 둔 파일은 그대로 둔다
+    catch_up_offered: list[CatchUpJob] = Field(default_factory=lambda: list(CATCH_UP_CHOICES))
+
+    @model_validator(mode="before")
+    @classmethod
+    def _offer_new_catch_up_jobs(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or "catch_up_offered" in data or "catch_up_jobs" not in data:
+            return data
+        jobs = list(data.get("catch_up_jobs") or [])
+        if jobs:
+            jobs = [*(j for j in ("collect", "generate") if j not in jobs), *jobs]
+        return {**data, "catch_up_jobs": jobs, "catch_up_offered": list(CATCH_UP_CHOICES)}
+
     # 인스타그램은 댓글을 보려면 글 페이지를 하나씩 열어야 해서 요청 제한(HTTP 429)에 걸리기 쉽다.
     # 위 간격과 따로, 이 간격(분)보다 자주 보지 않고 최근 며칠 글만 본다(ADR 0038).
     instagram_comment_interval_minutes: int = Field(default=30, ge=10, le=180)

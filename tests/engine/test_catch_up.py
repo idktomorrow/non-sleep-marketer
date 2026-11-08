@@ -34,6 +34,8 @@ def clk() -> FixedClock:
 
 @pytest.fixture
 def cctx(db, clk, app_config) -> JobContext:
+    # C40의 네 잡만으로 본다(수집·생성은 test_catch_up_activity.py, C41)
+    app_config.settings.catch_up_jobs = ["maintenance", "index", "metrics", "weekly_report"]
     return JobContext(
         config=app_config,
         repo=Repository(db, clk),
@@ -166,7 +168,14 @@ def test_queue_spaces_jobs_one_minute_apart_with_prefix(cctx) -> None:
         "따라잡기(월 08:00 놓침) · ",
     ]
     rec = cctx.repo.get_setting(TRIED_KEY)
-    assert rec == {"day": "2026-11-07", "boot": "boot-1", "jobs": queued}
+    assert rec["day"] == "2026-11-07" and rec["boot"] == "boot-1"
+    assert sorted(rec["jobs"]) == sorted(
+        [
+            "maintenance@2026-11-07T04:30:00+09:00",
+            "metrics@2026-11-07T03:10:00+09:00",
+            "weekly_report@2026-11-02T08:00:00+09:00",
+        ]
+    )  # 회차까지 적는다(C41)
 
 
 def test_tried_today_is_not_requeued_even_if_it_failed(cctx, clk) -> None:
@@ -318,10 +327,20 @@ def test_long_grace_only_for_daily_jobs(app_config) -> None:
     s.scheduler.start(paused=True)
     try:
         grace = {j.id: j.misfire_grace_time for j in s.scheduler.get_jobs()}
-        for name in ("maintenance", "index", "metrics", "weekly_report"):
+        # 하루 1~2회 잡(따라잡기 대상 여섯, C41에서 수집·생성 추가)은 3시간, 30분 간격 잡은 15분
+        for name in (
+            "maintenance",
+            "index",
+            "metrics",
+            "weekly_report",
+            "generate",
+            "collect#0",
+            "collect#1",
+        ):
             assert grace[name] == LONG_GRACE == 10800
-        for name in ("health", "publish", "reply", "generate", "collect#0"):
+        for name in ("health", "publish", "reply"):
             assert grace[name] == DEFAULT_GRACE == 900
+        assert {j.id for j in s.scheduler.get_jobs()} == set(installed)  # 잡 ID는 그대로
         assert s.install_catch_up() == ["catch_up#start", "catch_up"]
         start = s.scheduler.get_job("catch_up#start").next_run_time
         assert (

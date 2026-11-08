@@ -68,4 +68,9 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     result.counts["sources_pruned"] = ctx.repo.prune_stale_source_records(
         s.relevance_threshold, s.source_keep_days
     )
+    # 폐기된 원고에 남은 대기·재시도 게시 줄(C41 전에 생긴 것): 포기로 바꿔 게시 감시가 세지 않게
+    abandoned = ctx.repo.abandon_discarded_leftovers()
+    if abandoned:
+        log.info("폐기된 원고의 게시 대기 줄 %d개를 포기로 정리", abandoned)
+        result.counts["leftover_pubs"] = abandoned
     return result

@@ -4,7 +4,7 @@
 잡끼리 같은 브라우저·DB 행을 동시에 건드리지 않게 하려는 것이다. 대시보드가 플랫폼 동작(직접 답글)을
 요청할 때도 `submit()`으로 같은 스레드에 넣는다.
 
-하루·주 한 번 잡(백업·정리, 문서 색인, 성과 읽기, 주간 리포트)은 두 겹으로 지킨다(C40, ADR 0066).
+하루 한 번 이하로 도는 잡(자료 모으기·원고 만들기·백업·정리·문서 색인·성과 읽기·주간 리포트)은 두 겹으로 지킨다(C40·C41, ADR 0066).
 - 예약 유예를 3시간(`LONG_GRACE`)으로: 짧은 절전에서 깨면 APScheduler가 스스로 돌린다.
 - 따라잡기 점검(`install_catch_up`): 켤 때 한 번과 30분마다, 꺼져 있었거나 3시간 넘게 잔 날을 찾아 한 번 돌린다.
 """
@@ -25,33 +25,34 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from nsm.config.schema import AppConfig
-from nsm.engine.catch_up import fixed_slots, queue_catch_ups, ran_since
+from nsm.engine.catch_up import (
+    activity_slots,
+    catch_up_slots,
+    fixed_slots,
+    queue_catch_ups,
+    ran_since,
+)
 from nsm.engine.context import JobContext, JobResult
 from nsm.engine.runner import run_job
 
 log = logging.getLogger(__name__)
 
 DEFAULT_GRACE = 900  # 초. 30분 간격 잡 등: 늦으면 다음 회차가 곧 온다
-LONG_GRACE = 3 * 3600  # 하루·주 한 번 잡: 절전에서 3시간 안에 깨면 그날 것을 그대로 돌린다(C40)
+LONG_GRACE = (
+    3 * 3600
+)  # 하루 1~2회 잡(따라잡기 대상 여섯): 절전에서 3시간 안에 깨면 그날 것을 그대로 돌린다(C40·C41)
 CATCH_UP_FIRST_DELAY = timedelta(seconds=90)  # 켠 뒤 시작 점검(로그인 확인 등)이 먼저 돌게
 CATCH_UP_EVERY = timedelta(minutes=30)
-
-
-def _at(start, minutes: int) -> tuple[int, int]:
-    t = datetime.combine(datetime(2000, 1, 1), start) + timedelta(minutes=minutes)
-    return t.hour, t.minute
 
 
 def job_triggers(cfg: AppConfig) -> dict[str, Any]:
     """잡 이름 → 트리거. 활동 시간 창의 시작 시각을 기준으로 수집·생성 시각을 잡는다."""
     tz = cfg.settings.timezone
-    windows = cfg.persona.active_hours
-    first, last = windows[0], windows[-1]
-    collect_times = {_at(first.start, 20), _at(last.start, 20)}
-    gen_h, gen_m = _at(first.start, 50)
+    act = activity_slots(cfg)  # 수집·생성 시각은 따라잡기와 같은 계산(catch_up.activity_slots)
+    gen = act["generate"][0]
     triggers: dict[str, Any] = {
         "health": IntervalTrigger(minutes=30, jitter=120, timezone=tz),
-        "generate": CronTrigger(hour=gen_h, minute=gen_m, jitter=600, timezone=tz),
+        "generate": CronTrigger(hour=gen.hour, minute=gen.minute, jitter=gen.jitter, timezone=tz),
         "publish": IntervalTrigger(minutes=30, jitter=600, timezone=tz),
         "reply": IntervalTrigger(
             minutes=cfg.settings.reply_interval_minutes, jitter=60, timezone=tz
@@ -66,8 +67,10 @@ def job_triggers(cfg: AppConfig) -> dict[str, Any]:
             jitter=slot.jitter,
             timezone=tz,
         )
-    for i, (h, m) in enumerate(sorted(collect_times)):
-        triggers[f"collect#{i}"] = CronTrigger(hour=h, minute=m, jitter=1800, timezone=tz)
+    for i, slot in enumerate(act["collect"]):
+        triggers[f"collect#{i}"] = CronTrigger(
+            hour=slot.hour, minute=slot.minute, jitter=slot.jitter, timezone=tz
+        )
     return triggers
 
 
@@ -94,7 +97,7 @@ class JobScheduler:
 
     def install(self, cfg: AppConfig) -> list[str]:
         installed = []
-        long_grace = set(fixed_slots(cfg))
+        long_grace = set(catch_up_slots(cfg))  # 따라잡기 대상 여섯(수집·생성 포함, C41)
         for job_id, trigger in job_triggers(cfg).items():
             name = job_id.split("#")[0]
             if name not in self.available:

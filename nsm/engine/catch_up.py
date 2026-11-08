@@ -9,7 +9,7 @@ APScheduler는 꺼져 있던 동안의 예약을 모르고, 절전도 유예(mis
   끝나지 않은 실행(프로그램이 실행 중에 꺼짐)은 돌지 않은 것으로 본다.
 - 예정 시각에서 지터(트리거의 무작위 지연)+5분이 지나야 놓침으로 본다. 정상으로 켜져 있을 때 예약 실행보다 먼저
   따라잡기가 돌아 하루 두 번 백업하지 않게.
-- 같은 프로세스 안에서는 하루에 한 번만 띄운다(`TRIED_KEY`에 현지 날짜·기동 id·잡). 띄운 뒤 실패하거나 기다리는 중이어도
+- 같은 프로세스 안에서는 한 회차를 한 번만 띄운다(`TRIED_KEY`에 현지 날짜·기동 id·잡과 회차). 띄운 뒤 실패하거나 기다리는 중이어도
   30분마다 다시 띄우지 않는다. 다음 기동은 기동 id가 달라 다시 판단한다(실행 전·중에 꺼진 것은 실행 기록이 없거나 중단이라
   다시 띄우고, 실패로 끝난 것은 기록이 있어 띄우지 않는다).
 - 실제로 돌리기 직전에 끄는 중이면 하지 않고, 그새 예약 실행이 끝났으면(절전에서 깨며 APScheduler가 스스로 돌린 경우)
@@ -25,8 +25,12 @@ from zoneinfo import ZoneInfo
 
 from nsm.store.db import to_db
 
-CATCH_UP_JOBS = ("maintenance", "index", "metrics", "weekly_report")
-TRIED_KEY = "catch_up_tried"  # {"day": "2026-11-07", "boot": "<기동 id>", "jobs": ["maintenance"]}
+# 따라잡기 대상과 실행 순서(C41). 설정 저장 순서와 상관없이 이 순서로 1분 간격: 자료를 모은 뒤 원고를 만들고,
+# 그다음 백업(새 원고까지 담기게)·지표·색인·주간 리포트
+CATCH_UP_JOBS = ("collect", "generate", "maintenance", "metrics", "index", "weekly_report")
+ACTIVITY_JOBS = ("collect", "generate")  # 활동 시간을 따르는 잡: 페르소나를 꺼 두면 따라잡지 않는다
+# {"day": "2026-11-07", "boot": "<기동 id>", "jobs": ["collect@2026-11-07T09:20:00+09:00", ...]}: 회차까지 적는다
+TRIED_KEY = "catch_up_tried"
 RAN_WINDOW = timedelta(hours=1)  # 예정 1시간 전 이후의 실행만 "오늘 그 일"로 본다
 MARGIN = timedelta(minutes=5)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -64,6 +68,30 @@ def fixed_slots(cfg: Any) -> dict[str, Slot]:
     }
 
 
+def at_offset(start: time, minutes: int) -> tuple[int, int]:
+    """활동 시간 창 시작에서 minutes분 뒤(시, 분). 스케줄러 트리거와 따라잡기가 같이 쓴다."""
+    t = datetime.combine(datetime(2000, 1, 1), start) + timedelta(minutes=minutes)
+    return t.hour, t.minute
+
+
+def activity_slots(cfg: Any) -> dict[str, list[Slot]]:
+    """활동 시간을 따르는 잡의 예정 시각: 자료 모으기는 첫 창·마지막 창 시작 20분 뒤(창이 하나면 하루 1회),
+    원고 만들기는 첫 창 시작 50분 뒤."""
+    windows = cfg.persona.active_hours
+    first, last = windows[0], windows[-1]
+    collect = sorted({at_offset(first.start, 20), at_offset(last.start, 20)})
+    gen_h, gen_m = at_offset(first.start, 50)
+    return {
+        "collect": [Slot(h, m, 1800) for h, m in collect],
+        "generate": [Slot(gen_h, gen_m, 600)],
+    }
+
+
+def catch_up_slots(cfg: Any) -> dict[str, list[Slot]]:
+    """따라잡기 대상 잡마다 예정 시각 목록(자료 모으기는 하루 2회일 수 있다)."""
+    return {**activity_slots(cfg), **{k: [v] for k, v in fixed_slots(cfg).items()}}
+
+
 def scheduled_at(slot: Slot, now: datetime, tz: str) -> datetime:
     """now가 속한 현지 날짜(주간이면 그 주 월요일)의 예정 시각(aware)."""
     local = now.astimezone(ZoneInfo(tz))
@@ -87,6 +115,11 @@ def missed_slot(slot: Slot, now: datetime, tz: str) -> datetime | None:
     return None
 
 
+def finished_since(repo: Any, job: str, since: datetime) -> bool:
+    """since 이후 끝난 실행(성공·실패·건너뜀, 종료 중단과 끝나지 않은 것 제외)이 있나. 게시 감시도 쓴다."""
+    return _ran_since(repo, job, since)
+
+
 def ran_since(repo: Any, job: str, missed_at: datetime) -> bool:
     """그 회차(예정 1시간 전 이후)에 끝난 실행이 있나."""
     return _ran_since(repo, job, missed_at - RAN_WINDOW)
@@ -94,6 +127,26 @@ def ran_since(repo: Any, job: str, missed_at: datetime) -> bool:
 
 def prefix_for(slot: Slot) -> str:
     return f"따라잡기({slot.label} 놓침) · "
+
+
+def latest_missed(slots: list[Slot], now: datetime, tz: str) -> tuple[Slot, datetime] | None:
+    """하루 여러 회차면 가장 최근에 지난(기다림까지 지난) 회차 하나."""
+    found = [(sl, at) for sl in slots if (at := missed_slot(sl, now, tz)) is not None]
+    return max(found, key=lambda x: x[1]) if found else None
+
+
+def _next_regular_soon(slots: list[Slot], at: datetime, now: datetime, tz: str) -> bool:
+    """놓친 회차 뒤에 같은 잡의 다른 회차가 1시간 안에 있거나, 이미 예정 시각이 지나 지터로 도는 중인가."""
+    for sl in slots:
+        nxt = scheduled_at(sl, now, tz)
+        wait = timedelta(seconds=sl.jitter) + MARGIN
+        if at < nxt and nxt - RAN_WINDOW <= now < nxt + wait:
+            return True
+    return False
+
+
+def _key(job: str, at: datetime) -> str:
+    return f"{job}@{at.isoformat()}"
 
 
 def _ran_since(repo: Any, job: str, since: datetime) -> bool:
@@ -123,38 +176,44 @@ def mark_tried(repo: Any, now: datetime, tz: str, boot: str, jobs: list[str]) ->
     repo.set_setting(TRIED_KEY, {"day": _local_day(now, tz), "boot": boot, "jobs": sorted(done)})
 
 
-def due_catch_ups(
-    cfg: Any, repo: Any, now: datetime, boot: str | None = None
-) -> list[tuple[str, datetime]]:
-    """[(잡, 놓친 예정 시각)], 설정 순서대로. boot가 있으면 이 기동에서 오늘 이미 띄운 잡은 뺀다."""
+def _due(cfg: Any, repo: Any, now: datetime, boot: str | None) -> list[tuple[str, datetime, Slot]]:
     s = cfg.settings
-    slots = fixed_slots(cfg)
+    wanted = set(s.catch_up_jobs)
+    slots = catch_up_slots(cfg)
     tried = _tried(repo, now, s.timezone, boot) if boot else set()
     out = []
-    for job in s.catch_up_jobs:
-        slot = slots.get(job)
-        if slot is None or job in tried:
+    for job in CATCH_UP_JOBS:  # 정해진 순서(설정 저장 순서와 무관)
+        if job not in wanted or (job in ACTIVITY_JOBS and not cfg.persona.enabled):
             continue
-        at = missed_slot(slot, now, s.timezone)
-        if at is None:
+        hit = latest_missed(slots[job], now, s.timezone)
+        if hit is None:
             continue  # 아직 예정 전이거나, 예약 실행이 지터로 늦게 돌 수 있는 동안
-        if ran_since(repo, job, at):
+        slot, at = hit
+        if _key(job, at) in tried or ran_since(repo, job, at):
             continue
-        out.append((job, at))
+        if _next_regular_soon(slots[job], at, now, s.timezone):
+            continue  # 같은 잡의 다음 예약(예: 저녁 모으기)이 곧 돈다: 겹쳐 두 번 돌지 않게(C41 리뷰)
+        out.append((job, at, slot))
     return out
 
 
+def due_catch_ups(
+    cfg: Any, repo: Any, now: datetime, boot: str | None = None
+) -> list[tuple[str, datetime]]:
+    """[(잡, 놓친 예정 시각)], `CATCH_UP_JOBS` 순서. boot가 있으면 이 기동에서 그 회차를 이미 띄운 잡은 뺀다."""
+    return [(job, at) for job, at, _ in _due(cfg, repo, now, boot)]
+
+
 def queue_catch_ups(sched: Any, cfg: Any, repo: Any, now: datetime, boot: str) -> list[str]:
-    """놓친 잡을 1분 간격으로 작업 스레드에 예약한다. 띄우기 전에 오늘 시도로 적는다(실패해도 같은 날 다시 띄우지 않게)."""
-    due = due_catch_ups(cfg, repo, now, boot)
+    """놓친 잡을 1분 간격으로 작업 스레드에 예약한다. 띄우기 전에 그 회차를 시도로 적는다(실패해도 같은 회차를
+    다시 띄우지 않게. 자료 모으기의 저녁 회차처럼 다른 회차는 따로 따라잡는다)."""
+    due = _due(cfg, repo, now, boot)
     if not due:
         return []
-    jobs = [j for j, _ in due]
-    mark_tried(repo, now, cfg.settings.timezone, boot, jobs)
-    slots = fixed_slots(cfg)
-    for i, (job, at) in enumerate(due):
-        sched.schedule_once(job, now + timedelta(minutes=i), prefix_for(slots[job]), at)
-    return jobs
+    mark_tried(repo, now, cfg.settings.timezone, boot, [_key(j, at) for j, at, _ in due])
+    for i, (job, at, slot) in enumerate(due):
+        sched.schedule_once(job, now + timedelta(minutes=i), prefix_for(slot), at)
+    return [j for j, _, _ in due]
 
 
 def caught_up_today(repo: Any, now: datetime, tz: str) -> list[str]:
