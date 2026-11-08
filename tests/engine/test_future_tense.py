@@ -2,6 +2,7 @@
 
 연도 없는 날짜("1월 3일")는 오늘과 같은 해로 본다. 그래서 12월 30일에 쓴 "1월 3일에 열렸어요"(내년 일정)는
 지난 날짜로 읽혀 잡히지 않는다. 이 한계는 ADR 0061에 적었고, 일부러 테스트하지 않는다.
+C42: 같은 문장 앞에 연도 단서("2025년", 작년·올해·내년)가 있으면 뒤의 연도 없는 날짜가 그 해를 이어받는다(개정 1).
 """
 
 from __future__ import annotations
@@ -140,3 +141,50 @@ def test_early_january_limit_is_known(app_config) -> None:
     """한계(ADR 0061): 1월 초에 '지난 12월 28일에 열렸어요'는 올해 12월로 읽혀 검토로 간다(오탐 쪽).
     연도 없는 날짜는 같은 해로 본다는 결정을 바꾸지 않았음을 고정한다."""
     assert _tense(app_config, "12월 28일에 팝업이 열렸어요", today=date(2027, 1, 3))
+
+
+# ------------------------------------------------------------------ C42: 연도 이어받기
+
+NOV8 = date(2026, 11, 8)
+
+
+def test_production_sentence_with_year_then_yearless_end_passes(app_config) -> None:  # (a)
+    """운영 문장(11-08 19:08): 앞의 "2025년"을 뒤의 "12월 31일"이 이어받는다."""
+    s = "지난해 연말 성수기(2025년 10월 15일~12월 31일)에 한정 메뉴로 큰 인기를 얻었어요"
+    assert _tense(app_config, s, today=NOV8) == []
+
+
+def test_year_carries_over_range_and_list(app_config) -> None:  # (b)
+    assert _tense(app_config, "2025년 10월 15일~12월 31일에 열렸어요", today=NOV8) == []
+    assert _tense(app_config, "2025년 10월 15일과 12월 31일에 열렸어요", today=NOV8) == []
+    assert _tense(app_config, "2025년 10월 15일부터 12월 31일까지 열렸어요", today=NOV8) == []
+
+
+def test_yearless_range_is_this_year(app_config) -> None:  # (c)
+    assert _tense(app_config, "11월 20일~12월 5일에 열렸어요", today=NOV8)
+
+
+def test_last_year_hint(app_config) -> None:  # (d)
+    assert _tense(app_config, "작년 12월 24일에 나왔어요", today=NOV8) == []
+    assert _tense(app_config, "지난해 12월 24일에 나왔어요", today=NOV8) == []
+    assert _tense(app_config, "전년 12월 24일에 나왔어요", today=NOV8) == []
+
+
+def test_next_year_hint_is_caught(app_config) -> None:  # (e)
+    assert _tense(app_config, "내년 1월 10일에 나왔어요", today=NOV8)
+
+
+def test_explicit_future_year_is_caught(app_config) -> None:  # (f)
+    assert _tense(app_config, "2026년 12월 31일에 끝났어요", today=NOV8)
+
+
+def test_year_changes_within_one_sentence(app_config) -> None:  # (g)
+    s = "작년 12월 24일부터 올해 1월 10일까지 열렸어요"
+    assert _tense(app_config, s, today=NOV8) == []
+    assert Q._dates_in(s, NOV8) == [date(2025, 12, 24), date(2026, 1, 10)]
+
+
+def test_standalone_year_sets_base_and_latest_date_decides(app_config) -> None:
+    assert Q._dates_in("2025년 연말, 12월 31일", NOV8) == [date(2025, 12, 31)]
+    # 가장 늦은 날짜가 오늘 뒤면 걸린다(앞 날짜가 지났어도)
+    assert _tense(app_config, "2026년 10월 1일~12월 31일에 열렸어요", today=NOV8)
