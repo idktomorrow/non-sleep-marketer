@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from nsm.config.schema import AppConfig
+from nsm.config.schema import CATCH_UP_CHOICES, AppConfig
 from nsm.config.store import format_windows, parse_windows
 
 MAX_TOPICS = 10
@@ -21,7 +21,6 @@ IG_INTERVAL = "instagram_comment_interval_minutes"
 TH_INTERVAL = "threads_comment_interval_minutes"
 LOOKBACK = "comment_lookback_days"
 CATCH_UP_MARK = "catch_up_form"  # 따라잡기 체크 칸이 있는 폼(C40). 없으면(옛 폼) 지금 값을 지킨다
-CATCH_UP_CHOICES = ("maintenance", "index", "metrics", "weekly_report")
 
 
 class SettingsError(ValueError):

@@ -131,7 +131,7 @@
   </div>
   <fieldset class="adv-only catch-up" {% if simple %}hidden{% endif %}><legend>꺼져 있었거나 절전이어서 놓친 일 따라잡기 <span class="hint">예정 시각에 프로그램이 꺼져 있었거나 PC가 절전이면, 켤 때와 그 뒤 30분마다 오늘 못 한 일을 한 번 돌립니다. 하루에 한 번만 하고 알림은 보내지 않습니다</span></legend>
     <input type="hidden" name="catch_up_form" value="1">
-    {% for name, label in [('maintenance', '백업·정리(새벽 4:30)'), ('index', '문서 색인(저녁 ' ~ doc_index.time ~ ')'), ('metrics', '성과 읽기(새벽 3:10)'), ('weekly_report', '주간 리포트(월요일 8:00)')] %}
+    {% for name, label in [('collect', '자료 모으기(활동 시간 시작 20분 뒤)'), ('generate', '원고 만들기(활동 시간 시작 50분 뒤, 오늘 목표를 채웠으면 만들지 않음)'), ('maintenance', '백업·정리(새벽 4:30)'), ('metrics', '성과 읽기(새벽 3:10)'), ('index', '문서 색인(저녁 ' ~ doc_index.time ~ ')'), ('weekly_report', '주간 리포트(월요일 8:00)')] %}
     <label class="check"><input type="checkbox" name="catch_up_{{ name }}" {% if v['catch_up_' ~ name] == 'on' %}checked{% endif %}> {{ label }}</label>
     {% endfor %}
   </fieldset>

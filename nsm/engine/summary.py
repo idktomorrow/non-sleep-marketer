@@ -152,6 +152,8 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
         parts.append(f"오래된 문서 질문 기록 {_n(c, 'qa_pruned')}개 정리")
     if _n(c, "evidence_pruned"):
         parts.append(f"오래된 실패 증거 {_n(c, 'evidence_pruned')}개 지움")
+    if _n(c, "leftover_pubs"):
+        parts.append(f"폐기된 원고의 게시 대기 {_n(c, 'leftover_pubs')}줄 정리")
     return parts or ["정리할 것 없음"]
 
 
