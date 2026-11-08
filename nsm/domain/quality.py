@@ -246,10 +246,14 @@ def hashtag_count(text: str) -> int:
 
 
 # 미래 일정을 지난 일로 쓴 문장(C36, ADR 0061). 날짜는 _FACT_DATE와 같은 꼴을 읽는다(연-월-일, "N월 N일",
-# 앞에 "YYYY년"이 붙은 것). 연도가 없으면 오늘과 같은 해로 본다: 12월 30일에 쓴 "1월 3일"은 지난 날짜가 된다(한계).
+# 앞에 "YYYY년"이 붙은 것). 문장을 왼쪽부터 읽으며 기준 연도를 이어받는다(C42): 날짜에 붙은 연도·단독 "YYYY년"·
+# "작년·지난해·전년 / 올해 / 내년"이 나오면 기준 연도가 바뀌고, 그 뒤의 연도 없는 날짜가 그 해를 쓴다.
+# 문장에 연도 단서가 하나도 없으면 오늘과 같은 해로 본다: 12월 30일에 쓴 "1월 3일"은 지난 날짜가 된다(한계).
 _DATE_PARTS = re.compile(
     r"(?:(?P<y1>\d{4})년\s*)?(?P<m1>\d{1,2})월\s*(?P<d1>\d{1,2})일|(?P<y2>\d{4})[-./](?P<m2>\d{1,2})[-./](?P<d2>\d{1,2})"
+    r"|(?P<y3>\d{4})년|(?P<rel>재작년|작년|지난해|전년|올해|금년|내년)"
 )
+_YEAR_SHIFT = {"재작년": -2, "작년": -1, "지난해": -1, "전년": -1, "올해": 0, "금년": 0, "내년": 1}
 # 문장 끝의 지난 일 끝맺음: 됐어요·했어요·열렸어요·나왔어요·끝났어요 … (출시됐·발매됐·개봉했·시작됐도 걸린다).
 # 문장 끝만 본다: 가운데의 "기다렸던"(꾸밈말)은 지난 일 서술이 아니다. 끝의 이모지·해시태그·ㅎㅎ·문장부호는 떼고 본다.
 _PAST_END = re.compile(
@@ -267,12 +271,21 @@ FUTURE_AS_PAST = "미래 일정을 지난 일로 씀"
 
 def _dates_in(text: str, today: date) -> list[date]:
     out = []
+    year = today.year  # 기준 연도: 앞에서 나온 연도 단서를 뒤의 연도 없는 날짜가 이어받는다
     for m in _DATE_PARTS.finditer(text):
+        if m.group("rel"):
+            year = today.year + _YEAR_SHIFT[m.group("rel")]
+            continue
+        if m.group("y3"):
+            year = int(m.group("y3"))
+            continue
         y = m.group("y1") or m.group("y2")
+        if y:
+            year = int(y)
         mo = m.group("m1") or m.group("m2")
         d = m.group("d1") or m.group("d2")
         try:
-            out.append(date(int(y) if y else today.year, int(mo), int(d)))
+            out.append(date(year, int(mo), int(d)))
         except ValueError:  # 2월 30일 같은 날짜는 건너뛴다
             continue
     return out
@@ -287,8 +300,9 @@ def future_as_past(gen: GeneratedContent, today: date) -> list[str]:
             if not sent or sent in found:
                 continue
             tail = _TRAILING.sub("", sent)
+            # 날짜가 여러 개면 가장 늦은 날짜가 오늘 뒤일 때만 미래로 본다
             if (
-                any(d > today for d in _dates_in(sent, today))
+                max(_dates_in(sent, today), default=today) > today
                 and _PAST_END.search(tail)
                 and not _ANNOUNCED.search(tail.split()[-1] if tail.split() else "")
             ):
