@@ -470,3 +470,10 @@ def test_index_has_one_card_chunk_per_content(db: Database) -> None:
         ("posts/C1/cards", "우리 글 > 하치와레 이름 뜻 > 카드 문구")
     ]
     assert len(rows) == 4  # 스레드 본문·댓글, 인스타 본문, 카드
+
+
+def test_non_object_generated_json_gives_platform_document_only(db: Database) -> None:
+    add_post(db, "C1", "threads")
+    db.execute("UPDATE contents SET generated = '[]' WHERE id = 'C1'")
+    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    assert doc.path == "posts/C1/threads" and doc.text.startswith("# 제목 없음\n")
