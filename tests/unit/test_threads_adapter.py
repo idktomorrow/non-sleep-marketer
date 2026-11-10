@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,7 @@ from nsm.adapters.drivers.aside import AsideError
 from nsm.adapters.platforms.aside_common import (
     AccountMismatchError,
     LoginRequiredError,
+    PlatformError,
     check_upload_paths,
 )
 from nsm.adapters.platforms.threads import ThreadsAdapter, _probe
@@ -215,13 +218,53 @@ def test_comment_key_fits_dashboard_route(tmp_path, clock, db) -> None:
     assert "/" not in c.external_id
 
 
-def test_publish_is_idempotent_and_never_errors_after_posting(tmp_path, clock) -> None:
-    """지난 시도가 이미 올라갔으면 그 글을, 올라갔는데 주소를 못 찾으면 프로필 주소를 돌려준다(재시도 = 중복 게시 방지)."""
+def test_publish_is_idempotent_existing_post_is_not_posted_again(tmp_path, clock) -> None:  # (4)
+    """지난 시도가 이미 올라갔으면(게시 전 멱등 확인) 그 글을 돌려준다. 스크립트는 게시 단계에 가지 않는다."""
     a, media = _adapter(tmp_path, clock, data={"code": "OLD1", "existing": True})
-    assert a.publish(_post(media)).external_id == "OLD1"
-    a.repl.data = {"code": "", "posted": True}
     res = a.publish(_post(media))
+    assert res.external_id == "OLD1" and res.url.endswith("/post/OLD1")
+    body, args, _ = a.repl.calls[0]
+    # 멱등 확인이 게시 버튼보다 먼저다
+    assert body.index("if (before) return") < body.index("nsmClickText(dlg, '게시')")
+    # 재시도는 게시 시간·절전·쉬기로 밤을 넘긴다(11:30 실패 → 다음 날 09:00 재시도도 찾게)
+    assert datetime.fromisoformat(args["since"]) <= clock.now() - timedelta(hours=48)
+
+
+@pytest.mark.parametrize("posted", [True, "unknown"])  # (1) (2)
+def test_posted_but_not_found_is_a_transient_error_with_evidence(
+    tmp_path, clock, posted, _isolated_evidence
+) -> None:
+    """C43: 프로필에서 글을 못 찾으면 성공이 아니라 일시적 실패(엔진이 재시도, 재시도는 멱등 확인부터)."""
+    page = {"url": "https://www.threads.com/@nonsleepmarketer", "dialogs": 0, "text": "프로필"}
+    a, media = _adapter(tmp_path, clock, data={"code": "", "posted": posted, "page": page})
+    with pytest.raises(PlatformError) as ei:
+        a.publish(_post(media))
+    err = ei.value
+    assert err.kind == "transient" and "게시를 확인하지 못함" in str(err)
+    assert err.evidence_dir and Path(err.evidence_dir).is_dir()
+    assert str(err).endswith(f"(증거: {Path(err.evidence_dir).name})")
+    info = json.loads((Path(err.evidence_dir) / "dialogs.json").read_text("utf-8"))
+    assert info["kind"] == "publish_unverified" and info["captured"]
+    assert a.repl.calls[0][1]["find_ms"] == 90_000  # 게시 뒤 글 찾기 45초 → 90초
+
+
+def test_short_post_without_probe_keeps_old_success(tmp_path, clock, caplog) -> None:  # (3)
+    """본문 8자 미만은 고유 문구가 없어 재시도의 중복을 막을 수 없다: 예전처럼 주소 없이 성공."""
+    a, media = _adapter(tmp_path, clock, data={"code": "", "posted": True})
+    with caplog.at_level(logging.WARNING):
+        res = a.publish(_post(media, f"{VIRTUAL_PERSON_TEXT}\n\n짧은 글\n#태그"))
+    assert a.repl.calls[0][1]["probe"] == ""
     assert res.external_id == "" and res.url == "https://www.threads.com/@nonsleepmarketer"
+    assert "짧은 글이라 확인 생략" in caplog.text
+
+
+def test_post_metrics_read_counts_in_one_evaluate(tmp_path, clock) -> None:
+    """C43: 지표는 표시(data-nsm-mark)를 달고 다시 찾지 않고 evaluate 한 번 안에서 읽는다(화면이 다시 그려져도)."""
+    from nsm.adapters.platforms.threads import _POST_METRICS
+
+    tail = _POST_METRICS.split("const readCounts")[1]
+    assert "nsmMarkIcon" not in tail and "data-nsm-mark" not in tail
+    assert "closest('[role=\"button\"], button, a')" in tail
 
 
 def test_comments_are_read_in_small_batches(tmp_path, clock) -> None:

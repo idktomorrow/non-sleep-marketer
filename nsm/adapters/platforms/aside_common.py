@@ -24,6 +24,8 @@ from nsm.config import paths
 from nsm.domain.models import HealthStatus, Platform
 from nsm.ports import AdapterError, Clock, NotSupportedError
 
+PUBLISH_UNVERIFIED = "게시를 확인하지 못함(프로필에서 글을 못 찾음)"
+
 
 class PlatformError(AdapterError):
     """종류(`kind`)가 붙은 어댑터 실패(E1, ADR 0054). 엔진은 이 클래스를 몰라도 `kind` 속성으로 표를 읽는다
@@ -208,6 +210,20 @@ class AsideAdapterBase:
             err.evidence_dir = str(d)
             # 집 폴더 경로가 알림·대시보드에 드러나지 않게 이름만(logs\\shots 아래)
             err.args = (f"{err.args[0]} (증거: {d.name})", *err.args[1:])
+
+    def _unverified(self, data: dict) -> PlatformError:
+        """게시 버튼은 눌렀지만 프로필에서 글을 못 찾음(C43, ADR 0020 개정 1). 스크립트가 탭을 닫기 전에 찍은
+        화면(`page`)을 증거로 남기고 일시적 실패로 돌려준다: 엔진이 간격대로 재시도하고, 재시도는 게시 전
+        멱등 확인으로 이미 올라간 글을 찾아 다시 올리지 않는다."""
+        err = PlatformError(f"{self.platform}: {PUBLISH_UNVERIFIED}", "transient")
+        page = data.get("page")
+        d = self._save_evidence(
+            "publish_unverified", page if isinstance(page, dict) else None, str(err)
+        )
+        if d is not None:
+            err.evidence_dir = str(d)
+            err.args = (f"{err.args[0]} (증거: {d.name})",)
+        return err
 
     def _blank_error(self) -> PlatformError:
         return PlatformError(

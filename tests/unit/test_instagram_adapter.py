@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -9,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from nsm.adapters.drivers.aside import AsideError
-from nsm.adapters.platforms.aside_common import AccountMismatchError, LoginRequiredError
+from nsm.adapters.platforms.aside_common import (
+    AccountMismatchError,
+    LoginRequiredError,
+    PlatformError,
+)
 from nsm.adapters.platforms.instagram import InstagramAdapter, _probe
 from nsm.domain.labels import VIRTUAL_PERSON_TEXT
 from nsm.domain.models import Comment, RenderedPost
@@ -79,10 +84,39 @@ def test_wrong_ratio_is_reported_loudly(tmp_path, clock, caplog) -> None:
     assert "4:5가 아님" in caplog.text
 
 
-def test_posted_but_unconfirmed_is_success_without_id(tmp_path, clock) -> None:
-    a, media = _adapter(tmp_path, clock, data={"code": "", "posted": "unknown"})
-    res = a.publish(_post(media))
+@pytest.mark.parametrize("posted", [True, "unknown"])  # (1) (2)
+def test_posted_but_unconfirmed_is_a_transient_error_with_evidence(tmp_path, clock, posted) -> None:
+    """C43: 예전엔 주소 없이 성공으로 적었다. 이제 일시적 실패로 재시도하고(재시도는 멱등 확인부터) 증거를 남긴다."""
+    page = {"url": "https://www.instagram.com/", "dialogs": 1, "text": "공유되었습니다"}
+    a, media = _adapter(tmp_path, clock, data={"code": "", "posted": posted, "page": page})
+    with pytest.raises(PlatformError) as ei:
+        a.publish(_post(media))
+    err = ei.value
+    assert err.kind == "transient" and "게시를 확인하지 못함" in str(err)
+    assert err.evidence_dir and Path(err.evidence_dir).is_dir()
+    assert f"(증거: {Path(err.evidence_dir).name})" in str(err)
+    info = json.loads((Path(err.evidence_dir) / "dialogs.json").read_text("utf-8"))
+    assert info["kind"] == "publish_unverified"
+
+
+def test_short_caption_without_probe_keeps_old_success(tmp_path, clock, caplog) -> None:  # (3)
+    a, media = _adapter(tmp_path, clock, data={"code": "", "posted": True})
+    post = _post(media).model_copy(update={"text": f"{VIRTUAL_PERSON_TEXT}\n\n짧은 글\n#홈카페"})
+    with caplog.at_level(logging.WARNING):
+        res = a.publish(post)
+    assert a.repl.calls[0][1]["probe"] == ""
     assert res.external_id == "" and res.url == "https://www.instagram.com/nonsleepmarketer/"
+    assert "짧은 글이라 확인 생략" in caplog.text
+
+
+def test_existing_post_is_returned_not_posted_again(tmp_path, clock) -> None:  # (4)
+    a, media = _adapter(tmp_path, clock, data={"code": "X", "ratio": 0.8, "existing": True})
+    res = a.publish(_post(media))
+    assert res.external_id == "X"
+    body, args, _ = a.repl.calls[0]
+    assert body.index("if (before) return") < body.index("'공유하기'")
+    # 재시도는 게시 시간·절전·쉬기로 밤을 넘긴다(11:30 실패 → 다음 날 09:00 재시도도 찾게)
+    assert datetime.fromisoformat(args["since"]) <= clock.now() - timedelta(hours=48)
 
 
 @pytest.mark.parametrize(
