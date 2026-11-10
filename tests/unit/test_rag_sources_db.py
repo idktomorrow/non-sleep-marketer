@@ -9,7 +9,13 @@ from pathlib import Path
 import yaml
 
 from nsm.rag.indexer import chunk_source, index_documents
-from nsm.rag.sources_db import CollectedSource, PostsSource, card_lines, post_title
+from nsm.rag.sources_db import (
+    CollectedSource,
+    PostsSource,
+    _cards_markdown,
+    card_lines,
+    post_title,
+)
 from nsm.store.db import Database, to_db
 from tests.fakes import FakeEmbedder
 
@@ -133,6 +139,13 @@ def add_comment(
     )
 
 
+def _platform_doc(db: Database):
+    """카드 문서(posts/<cid>/cards)를 뺀 플랫폼 문서 하나."""
+    docs = PostsSource(db, tz="Asia/Seoul").documents()
+    [doc] = [d for d in docs if not d.path.endswith("/cards")]
+    return doc
+
+
 def _collected(db: Database, **kw) -> CollectedSource:
     return CollectedSource(
         db,
@@ -189,7 +202,7 @@ def test_posts_only_published_with_platform_body_and_cards(db: Database) -> None
     add_post(db, "C2", "threads", status="queued", ext=None)  # 아직 안 올림
     add_post(db, "C3", "threads", status="failed", ext=None)
     docs = {d.path: d for d in PostsSource(db, tz="Asia/Seoul").documents()}
-    assert sorted(docs) == ["posts/C1/instagram", "posts/C1/threads"]
+    assert sorted(docs) == ["posts/C1/cards", "posts/C1/instagram", "posts/C1/threads"]
     th = docs["posts/C1/threads"].text
     assert th.splitlines()[:5] == [
         "# 하치와레 이름 뜻",
@@ -200,13 +213,15 @@ def test_posts_only_published_with_platform_body_and_cards(db: Database) -> None
     ]
     assert "하치와레 이름은 털 무늬에서 왔대요." in th and "인스타 캡션" not in th
     assert "인스타 캡션: 하치와레" in docs["posts/C1/instagram"].text  # 플랫폼에 맞는 본문
-    assert "## 카드 문구" in th and "- 八처럼 갈라진 무늬" in th and "- 알고 있었나요?" in th
-    assert "https://x.example/a" not in th  # 카드의 출처 주소 목록은 싣지 않는다
-    heads = {
-        c.heading_path
-        for c in chunk_source(PostsSource(db, tz="Asia/Seoul"), 500, 80)["posts/C1/threads"]
-    }
-    assert heads == {"우리 글 > 하치와레 이름 뜻", "우리 글 > 하치와레 이름 뜻 > 카드 문구"}
+    # 카드 문구는 플랫폼 문서에 없고 원고당 카드 문서 하나에만 있다(R4c)
+    for platform in ("threads", "instagram"):
+        assert "## 카드 문구" not in docs[f"posts/C1/{platform}"].text
+    cards = docs["posts/C1/cards"].text
+    assert "- 八처럼 갈라진 무늬" in cards and "- 알고 있었나요?" in cards
+    assert "https://x.example/a" not in cards  # 카드의 출처 주소 목록은 싣지 않는다
+    assert docs["posts/C1/cards"].label == "우리 글"
+    chunks = chunk_source(PostsSource(db, tz="Asia/Seoul"), 500, 80)
+    assert {c.heading_path for c in chunks["posts/C1/threads"]} == {"우리 글 > 하치와레 이름 뜻"}
 
 
 def test_post_comments_without_author_names(db: Database) -> None:
@@ -234,7 +249,7 @@ def test_post_comments_without_author_names(db: Database) -> None:
 def test_post_without_external_id_has_no_comment_section(db: Database) -> None:
     add_post(db, "C1", "threads", ext=None)
     add_comment(db, "c1", "", "엉뚱한 댓글", None)
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     assert "## 댓글" not in doc.text and "주소: 없음" in doc.text
 
 
@@ -262,7 +277,7 @@ def test_title_falls_back_to_first_sentence_and_cards_cover_all_kinds() -> None:
 def test_broken_generated_json_still_gives_a_document(db: Database) -> None:
     add_post(db, "C1", "threads")
     db.execute("UPDATE contents SET generated = '{not json' WHERE id = 'C1'")
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     assert doc.text.startswith("# 제목 없음\n플랫폼: threads")
 
 
@@ -312,7 +327,7 @@ def test_handles_and_author_name_are_scrubbed_from_comments_and_replies(db: Data
         "@friend_99 이거 봐 @other.person",
         "누군가의이름님 고마워요! @friend_99님도 반가워요",
     )
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     assert "friend_99" not in doc.text and "other.person" not in doc.text
     assert "누군가의이름" not in doc.text
     assert "- @… 이거 봐 @… → 답글: …님 고마워요! @…님도 반가워요" in doc.text
@@ -325,8 +340,9 @@ def test_unclosed_code_fence_in_source_text_does_not_swallow_later_sections(db: 
         c.heading_path
         for c in chunk_source(PostsSource(db, tz="Asia/Seoul"), 500, 80)["posts/C1/threads"]
     }
-    assert "우리 글 > 하치와레 이름 뜻 > 카드 문구" in heads
     assert "우리 글 > 하치와레 이름 뜻 > 댓글" in heads
+    cards = chunk_source(PostsSource(db, tz="Asia/Seoul"), 500, 80)["posts/C1/cards"]
+    assert {c.heading_path for c in cards} == {"우리 글 > 하치와레 이름 뜻 > 카드 문구"}
     add_item(db, "A", text="기사\n~~~\n# 제목처럼 보이는 줄")
     [doc] = _collected(db).documents()
     assert "\~~~" in doc.text and "\# 제목처럼" in doc.text
@@ -357,7 +373,7 @@ def test_instagram_spam_kept_as_ignored_is_excluded(db: Database) -> None:
         status="ignored",
         category="reaction",
     )
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     assert "광고 링크" not in doc.text
     assert "- 정상 댓글(하루 한도)" in doc.text
 
@@ -377,7 +393,7 @@ def test_only_replies_that_were_sent_are_attached(db: Database) -> None:
     )
     add_comment(db, "c4", "EXT1", "전송 중 댓글", "전송 중 초안", status="replying")
     add_comment(db, "c5", "EXT1", "자동 답글 댓글", "자동으로 보낸 답글")
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     for line in ("- 금칙어 걸린 댓글\n", "- 처리 완료만 누른 댓글\n", "- 전송 중 댓글\n"):
         assert line in doc.text  # 댓글 본문은 싣고 답글만 뺀다
     for draft in ("보내지 않은 초안", "남은 초안", "전송 중 초안"):
@@ -389,5 +405,68 @@ def test_only_replies_that_were_sent_are_attached(db: Database) -> None:
 def test_empty_external_id_does_not_match_empty_post_ids(db: Database) -> None:
     add_post(db, "C1", "threads", ext="")
     add_comment(db, "c1", "", "글 id가 빈 댓글", "답글")
-    [doc] = PostsSource(db, tz="Asia/Seoul").documents()
+    doc = _platform_doc(db)
     assert "## 댓글" not in doc.text and "글 id가 빈 댓글" not in doc.text
+
+
+# ------------------------------------------------------------------ R4c: 카드 문구는 원고당 한 번
+
+CARD_LINES = (
+    "- 하치와레 이름 뜻\n- 털 무늬 이야기\n- 이름 뜻\n- 八처럼 갈라진 무늬\n- 알고 있었나요?"
+)
+
+
+def _cards_docs(db: Database) -> dict[str, str]:
+    docs = PostsSource(db, tz="Asia/Seoul").documents()
+    return {d.path: d.text for d in docs if d.path.endswith("/cards")}
+
+
+def test_card_document_once_even_when_posted_on_two_platforms(db: Database) -> None:
+    add_post(db, "C1", "threads")
+    add_post(db, "C1", "instagram", ext="IG1")
+    add_post(db, "C2", "instagram", ext="IG2")  # 한 플랫폼만 올라도 카드 문서는 하나
+    assert sorted(_cards_docs(db)) == ["posts/C1/cards", "posts/C2/cards"]
+
+
+def test_no_card_document_without_deck_or_without_published_post(db: Database) -> None:
+    add_post(db, "C1", "threads")
+    no_deck = json.dumps({"threads_text": "본문"})
+    db.execute("UPDATE contents SET generated = ? WHERE id = 'C1'", [no_deck])
+    add_post(db, "C2", "threads", status="queued", ext=None)
+    add_post(db, "C3", "threads", status="failed", ext=None)
+    assert _cards_docs(db) == {}
+    assert [d.path for d in PostsSource(db, tz="Asia/Seoul").documents()] == ["posts/C1/threads"]
+
+
+def test_card_document_has_only_cards_section_and_matches_old_card_chunk(db: Database) -> None:
+    add_post(db, "C1", "threads", ext="EXT1")
+    add_post(db, "C1", "instagram", ext="IG1")
+    add_comment(db, "c1", "EXT1", "댓글이에요", "답글이에요")
+    [cards] = _cards_docs(db).values()
+    assert cards == "# 하치와레 이름 뜻\n\n## 카드 문구\n" + CARD_LINES + "\n"
+    for leak in ("댓글", "답글이에요", "털 무늬에서 왔대요", "인스타 캡션", "플랫폼:", "주소:"):
+        assert leak not in cards
+    chunks = chunk_source(PostsSource(db, tz="Asia/Seoul"), 500, 80)["posts/C1/cards"]
+    # 예전 플랫폼 문서의 카드 조각과 같은 글(같은 제목 경로 + 같은 줄): 점수 비교가 그대로 된다
+    assert [c.text for c in chunks] == ["우리 글 > 하치와레 이름 뜻 > 카드 문구\n" + CARD_LINES]
+
+
+def test_card_title_does_not_depend_on_platform_body() -> None:
+    gen = {"deck": {"slides": [{"kind": "outro", "cta": "끝"}]}, "threads_text": "스레드 첫 문장."}
+    # 표지·블로그 제목이 없으면 본문 첫 문장 대신 "제목 없음"(플랫폼마다 달라지지 않게)
+    assert _cards_markdown(gen).startswith("# 제목 없음\n")
+
+
+def test_index_has_one_card_chunk_per_content(db: Database) -> None:
+    add_post(db, "C1", "threads", ext="EXT1")
+    add_post(db, "C1", "instagram", ext="IG1")
+    add_comment(db, "c1", "EXT1", "댓글이에요", "답글이에요")
+    emb = FakeEmbedder()
+    index_documents(db, PostsSource(db, tz="Asia/Seoul"), emb, size=500, overlap=80, now=NOW)
+    rows = db.execute(
+        "SELECT path, heading_path FROM doc_chunks WHERE source_kind = 'posts' ORDER BY path, seq"
+    )
+    assert [r for r in rows if r[1].endswith("카드 문구")] == [
+        ("posts/C1/cards", "우리 글 > 하치와레 이름 뜻 > 카드 문구")
+    ]
+    assert len(rows) == 4  # 스레드 본문·댓글, 인스타 본문, 카드

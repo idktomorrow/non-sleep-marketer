@@ -149,3 +149,12 @@ def test_once_embedder_counts_failed_send_but_not_not_sent() -> None:
     with pytest.raises(RuntimeError):
         unsent.embed_query("질문")
     assert unsent.sent == 0
+
+
+def test_cards_path_is_not_counted_as_a_platform() -> None:
+    """R4c: 카드 문서(posts/<cid>/cards)는 원고당 하나라 한 플랫폼 글과 같이 와도 중복이 아니다."""
+    one_platform = [hit("posts/A/cards", 0.82, "posts"), hit("posts/A/threads", 0.81, "posts")]
+    assert m.duplicate_cards(one_platform) == (0, 0)
+    both = [*one_platform, hit("posts/A/instagram", 0.80, "posts")]
+    assert m.duplicate_cards(both) == (1, 3)  # 본문 두 벌은 여전히 중복, 자리 수엔 카드도 넣음
+    assert m.content_id("posts/A/cards") == "A"

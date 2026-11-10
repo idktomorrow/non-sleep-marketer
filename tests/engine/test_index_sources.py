@@ -190,7 +190,8 @@ def test_cli_source_option(app_config, docs: Path, tmp_path: Path, clock) -> Non
         "[우리 ",
     ]
     code, out = _cli(app_config, db_path, docs, dry_run=True, source="posts")
-    assert code == 0 and any(line.startswith("[우리 글] 파일 1개 · 조각 2개") for line in out)
+    # 글 하나: 플랫폼 문서(본문)와 카드 문서(R4c, 원고당 하나)
+    assert code == 0 and any(line.startswith("[우리 글] 파일 2개 · 조각 2개") for line in out)
     code, out = _cli(app_config, db_path, docs, stats=True)
     assert any("[수집] 조각 1개" in line for line in out)
 

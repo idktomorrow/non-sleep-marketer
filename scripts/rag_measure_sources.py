@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from nsm.rag.search import Hit  # noqa: E402
+from nsm.rag.sources_db import CARDS  # noqa: E402
 
 KINDS = ("docs", "collected", "posts")  # 출처별 1등 점수 칸 순서(문서/수집/우리 글)
 BADGE = {"docs": "문서", "collected": "수집", "posts": "우리 글"}
@@ -62,20 +63,26 @@ def rank_of(hits: list[Hit], expected: list[str]) -> int | None:
 
 
 def content_id(path: str) -> str | None:
-    """우리 글 경로 `posts/<content_id>/<platform>`의 원고 id."""
+    """우리 글 경로 `posts/<content_id>/<platform>`·`posts/<content_id>/cards`의 원고 id."""
     parts = path.split("/")
     return parts[1] if len(parts) >= 3 and parts[0] == "posts" and parts[1] else None
 
 
 def duplicate_cards(hits: list[Hit]) -> tuple[int, int]:
-    """같은 원고가 두 플랫폼 경로로 함께 들어온 원고 수와 그 원고들이 차지한 자리 수."""
+    """같은 원고가 두 플랫폼 경로로 함께 들어온 원고 수와 그 원고들이 차지한 자리 수.
+
+    카드 문서 `posts/<content_id>/cards`(R4c)는 원고당 하나라 플랫폼으로 세지 않는다. 자리 수에는 그 원고의 카드
+    조각도 넣는다(같은 원고가 차지한 자리).
+    """
     platforms: dict[str, set[str]] = {}
     slots: dict[str, int] = {}
     for h in hits:
         cid = content_id(h.path)
         if cid is None:
             continue
-        platforms.setdefault(cid, set()).add(h.path.split("/", 2)[2])
+        tail = h.path.split("/", 2)[2]
+        if tail != CARDS:
+            platforms.setdefault(cid, set()).add(tail)
         slots[cid] = slots.get(cid, 0) + 1
     dup = [cid for cid, ps in platforms.items() if len(ps) >= 2]
     return len(dup), sum(slots[cid] for cid in dup)
