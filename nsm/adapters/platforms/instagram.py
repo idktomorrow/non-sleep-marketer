@@ -35,7 +35,8 @@ log = logging.getLogger(__name__)
 
 BASE = "https://www.instagram.com"
 COMMENT_BATCH = 4
-IDEMPOTENCY_WINDOW = timedelta(hours=6)
+# 게시 전 멱등 확인 범위(C43에서 6시간 → 72시간). 재시도는 게시 시간·절전·요청 제한 쉬기로 밤을 넘길 수 있다(threads.py 참고)
+IDEMPOTENCY_WINDOW = timedelta(hours=72)
 CARD_RATIO = 0.8  # 4:5
 RATIO_TOLERANCE = 0.03
 
@@ -221,16 +222,20 @@ if (thrState.some(Boolean)) throw new NsmError('ui', '"Threads에 공유" 스위
 // 공유하기도 처리 중이면 비활성이다. 실제로 누를 때까지 기다린다('busy'는 누른 게 아님).
 const shareClicked = await nsmUntil(async () => (await clickDialogButton(pg, '공유하기')) === true, 20000, 1000);
 if (!shareClicked) throw new NsmError('ui', '공유하기 버튼 없음 또는 계속 비활성');
-// 여기부터는 올라갔을 수 있으니 어떤 오류도 밖으로 내지 않는다(오류 → 재시도 → 중복 게시)
+// 여기부터는 올라갔을 수 있으니 던지지 않고 결과로 돌려준다. 글을 못 찾으면 Python이 "확인 실패"로 재시도하고,
+// 재시도는 게시 전 findMine으로 같은 글을 먼저 찾아 중복을 막는다(C43, ADR 0020 개정 1).
+// 못 찾았을 때는 탭이 닫히기 전에 화면을 증거로 담는다
+const evidence = async () => (ARGS.probe && nsmLeft() > 6000 ? await nsmEvidence().catch(() => null) : null);
 try {
   const shared = await nsmUntil(async () => /공유되었습니다|게시물이 공유/.test(await pg.evaluate(() => document.body.innerText)), 60000, 1500);
-  if (!shared) return { code: '', posted: 'unknown' };
+  if (!shared) return { code: '', posted: 'unknown', page: await evidence() };
   await pg.keyboard.press('Escape');
   // 글 하나를 여는 데 약 10초. 120초 강제 종료에 걸리지 않을 만큼 남았을 때만 주소를 찾는다.
   const mine = nsmLeft() > 25000 ? await findMine(pg, 2) : null;
-  return { code: mine ? mine.code : '', ratio: mine ? mine.ratio : null, posted: true };
+  if (mine) return { code: mine.code, ratio: mine.ratio, posted: true };
+  return { code: '', posted: true, page: await evidence() };
 } catch (e) {
-  return { code: '', posted: 'unknown', note: String((e && e.message) || e).slice(0, 200) };
+  return { code: '', posted: 'unknown', note: String((e && e.message) || e).slice(0, 200), page: await evidence() };
 }
 """
 )
@@ -460,7 +465,14 @@ class InstagramAdapter(AsideAdapterBase):
                 "인스타그램: 지난 시도에서 이미 올라간 글을 찾아 다시 올리지 않음(%s)", code
             )
         if not code:
-            log.warning("인스타그램: 게시는 됐지만 글 주소를 찾지 못함(%s)", post.content_id)
+            if args["probe"]:
+                # 프로필에서 글을 못 찾음: 재시도로 돌린다. 재시도는 게시 전 멱등 확인이 중복을 막는다(C43)
+                raise self._unverified(data)
+            # 짧은 글(고유 문구 없음)은 다시 올리면 중복을 막을 수 없어 예전처럼 성공으로 기록한다
+            log.warning(
+                "인스타그램: 게시는 됐지만 글 주소를 찾지 못함, 짧은 글이라 확인 생략(%s)",
+                post.content_id,
+            )
             return PublishResult(external_id="", url=f"{BASE}/{self.handle}/")
         ratio = data.get("ratio")
         if ratio is not None and abs(float(ratio) - CARD_RATIO) > RATIO_TOLERANCE:

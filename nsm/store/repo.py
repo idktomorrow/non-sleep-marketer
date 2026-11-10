@@ -464,6 +464,41 @@ class Repository:
             )
         )
 
+    UNVERIFIED_CLEANUP_KEY = "c43_unverified_publish_cleanup"
+    UNVERIFIED_CUTOFF_KEY = "c43_started_at"
+
+    def stamp_unverified_cutoff(self) -> None:
+        """C43 코드가 처음 켜진 시각을 한 번 적는다(켤 때 부름). 그 뒤의 빈 주소 published 줄은 짧은 글의
+        정상 기록이라 아래 정리가 건드리지 않는다. 그 전 줄은 옛 코드가 적은 것이다."""
+        if self.get_setting(self.UNVERIFIED_CUTOFF_KEY) is None:
+            self.set_setting(self.UNVERIFIED_CUTOFF_KEY, self._now().isoformat())
+
+    UNVERIFIED_CLEANUP_ERROR = "게시 확인 안 됨(C43 이전: 프로필에 글 없음)"
+
+    def abandon_unverified_published_once(self) -> int:
+        """C43 전에 "게시는 됐지만 주소 못 찾음"으로 published가 된 줄(external_id 빈 것)을 abandoned로. 바꾼 줄 수.
+
+        한 번만 돈다(settings_kv 표시), 그리고 C43 코드가 처음 켜진 시각(`stamp_unverified_cutoff`) 전 줄만 본다:
+        C43 뒤에도 짧은 글(고유 문구 없음)은 주소 없이 published로 남는데, 그건 정상 기록이다. 전이 규칙은 published → abandoned를 막으므로 직접
+        UPDATE 한다. 콘텐츠 상태는 그대로 둔다(옛 소식을 다시 올리지 않는다).
+        """
+        if self.get_setting(self.UNVERIFIED_CLEANUP_KEY):
+            return 0
+        stamp = self.get_setting(self.UNVERIFIED_CUTOFF_KEY)
+        cutoff = datetime.fromisoformat(stamp) if stamp else self._now()
+        n = self._count(
+            self.db.execute(
+                "UPDATE publications SET status = 'abandoned', next_attempt_at = NULL, last_error = ? "
+                "WHERE status = 'published' AND coalesce(external_id, '') = '' "
+                "AND (published_at IS NULL OR published_at < ?)",
+                [self.UNVERIFIED_CLEANUP_ERROR, cutoff],
+            )
+        )
+        self.set_setting(
+            self.UNVERIFIED_CLEANUP_KEY, {"done_at": self._now().isoformat(), "rows": n}
+        )
+        return n
+
     def update_generated(self, content_id: str, generated: GeneratedContent) -> None:
         """검토 대기열에서 사람이 고친 원고 저장. 검토 대기 상태일 때만 바뀐다(C24).
 

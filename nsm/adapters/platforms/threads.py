@@ -31,7 +31,12 @@ log = logging.getLogger(__name__)
 
 BASE = "https://www.threads.com"
 COMMENT_BATCH = 4  # repl 한 번에 읽을 글 수(글당 약 10초)
-IDEMPOTENCY_WINDOW = timedelta(hours=6)  # 재시도 간격 합(15분·1시간·4시간)보다 넉넉히
+# 게시 전 멱등 확인 범위(C43에서 6시간 → 72시간). 재시도 간격 합은 15분 + 1시간 + 4시간 = 5시간 15분이지만,
+# 게시 잡은 게시 시간 안에서만 돌아 재시도가 밤을 넘기고(예: 11:30 실패 → 12:45 재시도가 18:00에), 절전·
+# 요청 제한 쉬기(최대 8시간)·플랫폼 멈춤도 재시도를 민다. 6시간이면 첫 시도에 올라간 글을 못 찾고 다시 올린다.
+# 같은 고유 문구(본문 앞 40자)의 다른 글이 사흘 안에 있을 일은 드물어 넓게 잡는다
+IDEMPOTENCY_WINDOW = timedelta(hours=72)
+FIND_AFTER_POST_MS = 90_000  # 게시 뒤 프로필에서 글을 찾는 최대 시간(3초 간격, C43: 45초 → 90초)
 
 JS_HANDLE = (
     JS_ASSERT_HANDLE
@@ -122,11 +127,17 @@ if (files.length) {
   if (!ok) throw new NsmError('ui', '이미지 미리보기가 나타나지 않음');
 }
 if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('ui', '게시 버튼 없음');
-// 게시 버튼을 누른 뒤에는 오류로 돌리지 않는다: 오류 → 재시도 → 중복 게시가 될 수 있다.
+// 게시 버튼을 누른 뒤에는 던지지 않고 결과로 돌려준다. 글을 못 찾으면 Python이 "확인 실패"로 재시도하고,
+// 재시도는 게시 전에 위의 findMine으로 같은 글을 먼저 찾아 중복을 막는다(C43, ADR 0020 개정 1).
+// 못 찾았을 때 증거(화면)를 찍을 시간(약 8초)은 남긴다. nsmUntil은 마감을 회차 앞에서만 보므로 한 회차
+// (findMine 이동·대기 약 6초 + 간격 3초)만큼 더 남긴다. 탭은 스크립트가 끝나면 닫힌다.
+const evidence = async () => (ARGS.probe && nsmLeft() > 6000 ? await nsmEvidence() : null);
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 90000);
-if (!closed) return { code: '', posted: 'unknown' };
-const found = ARGS.probe ? await nsmUntil(() => findMine(pg), 45000, 3000) : '';
-return { code: found || '', posted: true };
+if (!closed) return { code: '', posted: 'unknown', page: await evidence() };
+const wait = Math.min(ARGS.find_ms, nsmLeft() - 17000);
+const found = ARGS.probe && wait > 0 ? await nsmUntil(() => findMine(pg), wait, 3000) : '';
+if (found) return { code: found, posted: true };
+return { code: '', posted: true, page: await evidence() };
 """
 )
 
@@ -172,13 +183,28 @@ _POST_METRICS = (
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle + '/post/' + ARGS.code);
 await nsmAssertHandle(pg, readHandle);
-await nsmNeed(pg, async () => (await pg.locator('svg title').count()) > 0 && await nsmMarkIcon(pg, MAIN, '좋아요', 0), 30000, '게시물 본문이 30초 안에 열리지 않음');
-const counts = {};
-// 글 페이지에서 처음 나오는 동작 버튼들이 본문 글의 것이다(답글들은 그 아래)
-for (const lab of ['좋아요', '답글', '리포스트', '공유하기']) {
-  const b = await nsmMarkIcon(pg, MAIN, lab, 0);
-  counts[lab] = b ? ((await b.innerText()) || '').trim() : null;
-}
+// 글 페이지에서 처음 나오는 동작 버튼들이 본문 글의 것이다(답글들은 그 아래). 아이콘 이름(svg aria-label·<title>)
+// → 가장 가까운 버튼 → 그 글을 evaluate 한 번 안에서 읽는다. 표시를 달고 locator로 다시 찾으면 그 사이 화면이
+// 다시 그려져 표시가 사라질 수 있다(2026-11-10 03:23 "Selector [data-nsm-mark=...] not found", C43)
+const readCounts = () => pg.evaluate(([main, labs]) => {
+  const scopes = Array.from(document.querySelectorAll(main));
+  const svgs = Array.from(new Set(scopes.flatMap(sc => Array.from(sc.querySelectorAll('svg')))));
+  const out = {};
+  for (const lab of labs) {
+    // 표시 달기 도우미와 같은 순서: 이름이 맞는 svg 중 버튼 안에 있는 첫 것
+    const b = svgs.filter(s => {
+      const t = s.querySelector('title');
+      return s.getAttribute('aria-label') === lab || (t && t.textContent === lab);
+    }).map(s => s.closest('[role="button"], button, a')).find(Boolean);
+    out[lab] = b ? (b.innerText || '').trim() : null;
+  }
+  return out;
+}, [MAIN, ['좋아요', '답글', '리포스트', '공유하기']]);
+const counts = await nsmNeed(pg, async () => {
+  if (!(await pg.locator('svg title').count())) return null;
+  const c = await readCounts();
+  return c['좋아요'] === null ? null : c;
+}, 30000, '게시물 본문이 30초 안에 열리지 않음');
 await pg.goto('https://www.threads.com/insights/post/' + ARGS.code);
 const txt = await nsmUntil(async () => {
   const t = await pg.evaluate(() => document.body.innerText);
@@ -349,15 +375,23 @@ class ThreadsAdapter(AsideAdapterBase):
         self._need("publish")
         images = check_upload_paths(post.images, self.media_dir)
         since = (self._now() - IDEMPOTENCY_WINDOW).isoformat()
-        args = {"text": post.text, "probe": _probe(post.text), "since": since}
+        probe = _probe(post.text)
+        args = {"text": post.text, "probe": probe, "since": since, "find_ms": FIND_AFTER_POST_MS}
         data = self._run(_PUBLISH, args, images) or {}
         code = data.get("code", "")
         if data.get("existing"):
             log.warning("스레드: 지난 시도에서 이미 올라간 글을 찾아 다시 올리지 않음(%s)", code)
         if not code:
-            # 올라갔지만 주소를 못 찾음: 다시 올리면 중복이므로 성공으로 기록하고 프로필 주소를 남긴다.
+            if probe:
+                # 프로필에서 글을 못 찾음 = 실제로 안 올라간 경우가 많았다(incidents/0015). 재시도로 돌리고,
+                # 재시도는 게시 전 멱등 확인(findMine)이 이미 올라간 글을 찾아 중복을 막는다(C43)
+                raise self._unverified(data)
+            # 짧은 글(고유 문구 없음)은 다시 올리면 중복을 막을 수 없어 예전처럼 성공으로 기록한다.
             # external_id가 비면 댓글·지표 수집에서 빠진다.
-            log.warning("스레드: 게시는 됐지만 글 주소를 찾지 못함(%s)", post.content_id)
+            log.warning(
+                "스레드: 게시는 됐지만 글 주소를 찾지 못함, 짧은 글이라 확인 생략(%s)",
+                post.content_id,
+            )
             return PublishResult(external_id="", url=f"{BASE}/@{self.handle}")
         return PublishResult(external_id=code, url=f"{BASE}/@{self.handle}/post/{code}")
 

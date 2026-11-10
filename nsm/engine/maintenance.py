@@ -73,4 +73,10 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     if abandoned:
         log.info("폐기된 원고의 게시 대기 줄 %d개를 포기로 정리", abandoned)
         result.counts["leftover_pubs"] = abandoned
+    # "게시는 됐지만 주소 못 찾음"으로 성공 처리된 C43 이전 줄: 실제로는 안 올라간 경우였다(incidents/0015).
+    # 한 번만 포기로 바꾼다. 원고 상태는 그대로(옛 소식을 다시 올리지 않음)
+    unverified = ctx.repo.abandon_unverified_published_once()
+    if unverified:
+        log.info("확인 안 된 게시 줄 %d개를 포기로 정리(C43 이전)", unverified)
+        result.counts["unverified_pubs"] = unverified
     return result

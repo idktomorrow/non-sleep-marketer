@@ -119,6 +119,7 @@ def build_post(content: Content, platform: Platform, images: list[Path]) -> Rend
 
 def recover_interrupted(ctx: JobContext) -> int:
     """프로세스가 게시 도중 죽었을 때: 실제로 올라갔는지 모르므로 사람에게 확인을 맡긴다."""
+    ctx.repo.stamp_unverified_cutoff()  # 켤 때마다 불린다. C43 이전 빈 주소 줄 정리의 기준 시각(처음 한 번만 적힘)
     n = 0
     for pub in ctx.repo.publications_in_status("publishing"):
         try:
