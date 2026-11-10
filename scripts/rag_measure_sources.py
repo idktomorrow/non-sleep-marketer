@@ -130,13 +130,13 @@ def render_table(rows: list[Row], k: int = 5) -> str:
     )
     lines = [head, "|" + "---|" * 8]
     for r in rows:
-        top = f"{BADGE[r.top[0]]}({r.top[1]:.3f})" if r.top else "-"
+        top = f"{BADGE.get(r.top[0], r.top[0])}({r.top[1]:.3f})" if r.top else "-"
         if len(r.rank_kind) == 1:
             rank_kind = _rank(next(iter(r.rank_kind.values())))
         else:
-            rank_kind = " / ".join(f"{BADGE[t]} {_rank(v)}" for t, v in r.rank_kind.items())
+            rank_kind = " / ".join(f"{BADGE.get(t, t)} {_rank(v)}" for t, v in r.rank_kind.items())
         counts = ", ".join(
-            f"{BADGE[kk]} {c}" for kk, c in sorted(r.counts.items(), key=lambda x: -x[1])
+            f"{BADGE.get(kk, kk)} {c}" for kk, c in sorted(r.counts.items(), key=lambda x: -x[1])
         )
         scores = " / ".join(_score(r.top_by_kind.get(kk)) for kk in KINDS)
         dup = f"{r.dup_cards}({r.dup_slots}자리)" if r.dup_cards else "0"
@@ -156,7 +156,7 @@ def render_detail(rows: list[Row], questions: list[dict[str, Any]]) -> str:
         for i, h in enumerate(r.detail, 1):
             mark = " ← 정답" if is_expected(h.path, exp[r.n]) else ""
             out.append(
-                f"  {i}. [{BADGE[h.source_kind]} {h.score:.3f}] {h.path} | {h.heading_path}{mark}"
+                f"  {i}. [{BADGE.get(h.source_kind, h.source_kind)} {h.score:.3f}] {h.path} | {h.heading_path}{mark}"
             )
     return "\n".join(out)
 
@@ -262,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "조각 "
             + " · ".join(
-                f"{BADGE[kk]} {s['chunks']:,}(벡터 없음 {s['without_vector']})"
+                f"{BADGE.get(kk, kk)} {s['chunks']:,}(벡터 없음 {s['without_vector']})"
                 for kk, s in st.items()
             )
             + f" · 질문 문장이 든 조각 {leaked}개는 그 질문에서 뺌"

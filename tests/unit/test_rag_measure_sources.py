@@ -110,3 +110,42 @@ def test_question_text_never_in_output() -> None:
     out = m.render_table(rows) + m.render_detail(rows, qs)
     assert QUESTION not in out
     assert "질문 1번" in out
+
+
+class _Inner:
+    model = "fake"
+    dim = 2
+
+    def __init__(self, fail_code: str | None = None) -> None:
+        self.calls = 0
+        self.fail_code = fail_code
+
+    def embed_query(self, text: str) -> list[float]:
+        self.calls += 1
+        if self.fail_code is not None:
+            e = RuntimeError("막힘")
+            e.code = self.fail_code
+            raise e
+        return [1.0, 0.0]
+
+
+def test_once_embedder_sends_each_question_once() -> None:
+    inner = _Inner()
+    once = m._OnceEmbedder(inner)
+    for _ in range(4):
+        once.embed_query("질문")
+    once.embed_query("다른 질문")
+    assert inner.calls == 2 and once.sent == 2
+
+
+def test_once_embedder_counts_failed_send_but_not_not_sent() -> None:
+    import pytest
+
+    blocked = m._OnceEmbedder(_Inner("rate_limit"))
+    with pytest.raises(RuntimeError):
+        blocked.embed_query("질문")
+    assert blocked.sent == 1  # 막힌 시도도 하루 한도에 세어진다
+    unsent = m._OnceEmbedder(_Inner("not_sent"))
+    with pytest.raises(RuntimeError):
+        unsent.embed_query("질문")
+    assert unsent.sent == 0
