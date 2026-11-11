@@ -70,8 +70,10 @@ def post_links(links: dict[str, str] | None) -> list[tuple[str, str]]:
     주소는 게시 어댑터가 받아 온 값이지만, 다른 스킴(javascript: 등)이 섞여도 링크로 만들지 않는다.
     이스케이프는 템플릿 자동 이스케이프에 맡긴다.
     """
+    if not isinstance(links, dict):  # 기록 JSON이 다른 모양이어도 화면이 깨지지 않게
+        return []
     items = sorted(
-        (links or {}).items(),
+        links.items(),
         key=lambda kv: (
             _LINK_ORDER.index(kv[0]) if kv[0] in _LINK_ORDER else len(_LINK_ORDER),
             kv[0],

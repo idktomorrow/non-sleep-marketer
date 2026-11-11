@@ -335,3 +335,24 @@ def test_per_doc_setting_default_and_range() -> None:
     for bad in (0, 6):
         with pytest.raises(ValidationError):
             RagSettings(per_doc=bad)
+
+
+def test_pool_is_four_times_k_when_larger_than_minimum() -> None:
+    """k=6이면 후보 24개: 같은 묶음 23조각 뒤 24번째의 다른 문서가 채워진다(25번째는 후보 밖)."""
+    db = Database()
+    for i in range(23):
+        _put(db, "docs", "devlog/long.md", i, 0.99 - i * 0.001)
+    _put(db, "docs", "adr/in-pool.md", 0, 0.6)
+    _put(db, "docs", "adr/out-of-pool.md", 0, 0.5)
+    res = search(db, _AxisEmbedder(), "q", k=6, min_score=0.0, per_doc=1)
+    assert [h.path for h in res.candidates] == ["devlog/long.md", "adr/in-pool.md"]
+
+
+def test_post_links_ignores_odd_shapes() -> None:
+    from nsm.app.ask_format import post_links
+
+    assert post_links(None) == [] and post_links(["https://x.test"]) == []  # type: ignore[arg-type]
+    assert post_links({"instagram": "https://i.test/p", "threads": "https://t.test/p"}) == [
+        ("스레드 글 보기", "https://t.test/p"),
+        ("인스타그램 글 보기", "https://i.test/p"),
+    ]
