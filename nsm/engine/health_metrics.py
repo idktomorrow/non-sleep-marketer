@@ -29,6 +29,7 @@ METRICS_LOOKBACK_DAYS = 7
 REREAD_KEY = "c44_instagram_reread"
 REREAD_PLATFORM = "instagram"
 REREAD_DAYS = 90
+REREAD_PASSES = 3  # 일시적 실패로 못 읽은 글이 있으면 끝까지 돈 횟수가 이만큼 될 때까지 다시
 
 
 def run_health(ctx: JobContext) -> JobResult:
@@ -295,7 +296,12 @@ def _reread_state(ctx: JobContext, platform: str) -> dict | None:
     if st.get("done"):
         return None
     read = st.get("read")
-    return {"read": [str(x) for x in read] if isinstance(read, list) else [], "done": False}
+    passes = st.get("passes")
+    return {
+        "read": [str(x) for x in read] if isinstance(read, list) else [],
+        "passes": passes if isinstance(passes, int) else 0,
+        "done": False,
+    }
 
 
 def _platform_metrics(
@@ -316,7 +322,8 @@ def _platform_metrics(
             done_ids = set(state["read"])
             # 최근 글은 늘 읽고, 그 전 글은 지난 다시 읽기에서 못 읽은 것만
             todo = recent + [x for x in total if x not in done_ids and x not in recent]
-        stopped = False
+        finished = False  # 끝까지 돌았나. 요청 제한·끄는 중·그 밖의 중단(Ctrl+C 등)이면 거짓
+        transient = 0  # 일시적 실패(빈 화면 등)로 못 읽은 글 수
         try:
             for ext in todo:
                 try:
@@ -326,22 +333,26 @@ def _platform_metrics(
                         state["read"].append(ext)
                 except Exception as e:  # noqa: BLE001
                     if retry_at(e):
-                        stopped = True
                         raise
-                    if is_interrupted(ctx, e):
-                        stopped = (
-                            True  # 끄는 중 끊긴 글은 못 읽은 것: 다시 읽기를 끝냈다고 적지 않는다
-                        )
                     result.errors.append(f"{platform} 게시물 지표 실패: {e}")
+                    if is_interrupted(ctx, e):
+                        break  # 끄는 중: 남은 글마다 브라우저를 열지 않는다
+                    if kind_of(e) == "transient":
+                        transient += 1
+            else:
+                finished = not is_interrupted(ctx)
         finally:
             if state is not None:
-                # 끝까지 돌았으면 끝(못 읽은 글은 오류로 남았다). 요청 제한으로 멈췄으면 다음 실행에 이어서
-                state["done"] = not stopped
+                # 끝까지 돌면 끝(못 읽은 글은 오류로 남는다). 일시적 실패가 있으면 끝까지 돈 횟수가
+                # REREAD_PASSES가 될 때까지 다음 실행에 다시. 요청 제한·끄는 중이면 다음 실행에 이어서
+                if finished:
+                    state["passes"] += 1
+                state["done"] = finished and (not transient or state["passes"] >= REREAD_PASSES)
                 ctx.repo.set_setting(REREAD_KEY, state)
                 if total:
                     n = len(set(state["read"]) & set(total))
                     result.counts["reread"] = f"인스타그램 지표 다시 읽기 {n}/{len(total)}" + (
-                        "" if state["done"] else "(요청 제한으로 쉼, 다음 실행에 이어서)"
+                        "" if state["done"] else "(다음 실행에 이어서)"
                     )
     if "account_metrics" in caps:
         try:

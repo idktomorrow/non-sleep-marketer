@@ -145,7 +145,7 @@ def test_reread_resumes_after_rate_limit(ctx: JobContext, app_config) -> None:
     ig.read_post_metrics = limited
     r = run_metrics(ctx)
     st = ctx.repo.get_setting(REREAD_KEY)
-    assert st == {"read": [ids[0]], "done": False}
+    assert st == {"read": [ids[0]], "passes": 0, "done": False}
     assert r.counts["reread"].startswith("인스타그램 지표 다시 읽기 1/3")
     assert "다시 읽기 1/3" in describe("metrics", counts=r.counts)
     calls: list[str] = []
@@ -169,3 +169,52 @@ def test_reread_failures_are_errors_not_zeros(ctx: JobContext, app_config) -> No
     assert _read_ids(ctx) == []  # 0으로 저장하지 않는다
     assert any("조회수를 못 찾음" in e for e in r.errors)
     assert r.counts["reread"] == "인스타그램 지표 다시 읽기 0/1"
+
+
+def test_reread_not_done_after_hard_stop(ctx: JobContext, app_config) -> None:
+    from nsm.engine.health_metrics import REREAD_KEY
+
+    _published(ctx, app_config, 0, 20)
+    _published(ctx, app_config, 1, 21)
+
+    def stop(ext: str):
+        raise KeyboardInterrupt
+
+    ctx.adapters["instagram"].read_post_metrics = stop
+    with pytest.raises(KeyboardInterrupt):
+        run_metrics(ctx)
+    assert ctx.repo.get_setting(REREAD_KEY)["done"] is False
+
+
+def test_reread_stops_opening_posts_when_shutting_down(ctx: JobContext, app_config) -> None:
+    from nsm.adapters.platforms.aside_common import PlatformError
+    from nsm.engine.health_metrics import REREAD_KEY
+
+    for n in range(3):
+        _published(ctx, app_config, n, 20 + n)
+    calls: list[str] = []
+
+    def cut(ext: str):
+        calls.append(ext)
+        raise PlatformError("끊김", "transient", "interrupted")
+
+    ctx.adapters["instagram"].read_post_metrics = cut
+    run_metrics(ctx)
+    assert len(calls) == 1
+    assert ctx.repo.get_setting(REREAD_KEY)["done"] is False
+
+
+def test_reread_retries_transient_failures_up_to_passes(ctx: JobContext, app_config) -> None:
+    from nsm.adapters.platforms.aside_common import PlatformError
+    from nsm.engine.health_metrics import REREAD_KEY, REREAD_PASSES
+
+    _published(ctx, app_config, 0, 20)
+
+    def blank(ext: str):
+        raise PlatformError("빈 화면", "transient")
+
+    ctx.adapters["instagram"].read_post_metrics = blank
+    for n in range(1, REREAD_PASSES + 1):
+        run_metrics(ctx)
+        st = ctx.repo.get_setting(REREAD_KEY)
+        assert (st["passes"], st["done"]) == (n, n == REREAD_PASSES)

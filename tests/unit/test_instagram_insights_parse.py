@@ -185,3 +185,30 @@ def test_zero_views_with_zero_reach_is_kept(clock) -> None:
         "P1"
     )
     assert (m.views, m.reach) == (0, 0)
+
+
+def test_dash_keeps_its_slot_so_values_do_not_shift() -> None:
+    # 지금 화면에서 한 칸이 "--"여도 앞 우선으로 뒤집혀 값이 한 칸씩 밀리지 않는다(리뷰 지적)
+    i = REAL_2026_11.rindex("공유\n0")
+    text = REAL_2026_11[:i] + "공유\n--" + REAL_2026_11[i + len("공유\n0") :]
+    got = parse_insights(text)
+    assert (got["views"], got["reach"], got["shares"]) == (10, 4, None)
+
+
+def test_unit_followed_by_letters_is_not_a_unit() -> None:
+    assert parse_insights("조회수\n4 만들기")["views"] == 4
+    assert parse_insights("조회수\n3 천천히")["views"] == 3
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        ("조회수\n0\n좋아요\n3", "좋아요 3인데 조회수 0"),
+        ("조회수\n0\n저장\n1", "저장 1인데 조회수 0"),
+    ],
+)
+def test_zero_views_with_reactions_is_impossible(clock, tmp_path, monkeypatch, text, why) -> None:
+    monkeypatch.setenv("NSM_HOME", str(tmp_path))
+    with pytest.raises(PlatformError) as ei:
+        _adapter(clock, {"text": text, "comments": 0}).read_post_metrics("P1")
+    assert why in str(ei.value)
