@@ -28,7 +28,8 @@
   <ol class="ask-sources">
   {% for s in result.sources %}<li id="src-{{ s.n }}"><details><summary><b>[{{ s.n }}]</b> {{ s.heading }} <span class="badge gray src-kind">{{ s.badge }}</span> {% if s.summary or s.score is none %}<span class="badge src-summary">요약</span>{% else %}<span class="badge">{{ '%.3f'|format(s.score) }}</span>{% endif %}</summary>{% if s.link_items or s.metric_lines %}<p class="small src-links">{% for name, url in s.link_items %}{% if not loop.first %} · {% endif %}<a href="{{ url }}" target="_blank" rel="noopener noreferrer">{{ name }}</a>{% endfor %}{% for line in s.metric_lines %}{% if s.link_items or not loop.first %}<br>{% endif %}<span class="src-metrics">{{ line }}</span>{% endfor %}</p>{% endif %}{% if s.text %}<pre class="chunk-text">{{ s.text }}</pre>{% else %}<p class="muted small">원문 없음(이 기록을 만들 때 본문을 저장하지 않았습니다)</p>{% endif %}</details></li>{% endfor %}
   </ol>
-  {% elif result.similar %}
+  {% endif %}
+  {% if result.similar %}
   <h3>비슷한 문서 <span class="hint">기준값 아래라 근거로 쓰지 않았습니다</span></h3>
   <ul class="ask-similar">{% for t in result.similar %}<li>{{ t }}</li>{% endfor %}</ul>
   {% endif %}

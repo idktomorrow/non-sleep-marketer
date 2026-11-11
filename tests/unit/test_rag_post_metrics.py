@@ -300,3 +300,96 @@ def test_old_records_read_metrics_as_empty(db: Database) -> None:
     )
     src = get_qa(db, "old")["sources"][0]
     assert src["metrics"] == {} and src["links"] == {}
+
+
+# ------------------------------------------------------------------ 리뷰 반영(R5)
+
+
+def test_summary_dates_each_line_by_its_own_capture(db: Database) -> None:
+    """성과 읽기는 게시 뒤 7일까지만이라 글마다 읽은 날이 다르다: 줄마다 그 날짜를 단다."""
+    _post_with(db, "NEW", "threads", "n1", 2, views=50, likes=5)
+    _post_with(db, "OLD", "threads", "o1", 40, views=80, likes=1)
+    db.execute(
+        "UPDATE metrics_posts SET captured_at = ? WHERE post_external_id = 'o1'",
+        [to_db(datetime(2026, 10, 10, 18, 0, tzinfo=UTC))],  # 10-11 03:00 KST
+    )
+    hit = performance_summary(_repo(db), NOW, TZ)
+    rows = {ln.split(" |")[0][2:]: ln for ln in hit.text.split("\n") if ln.startswith("- ")}
+    assert "(10-11 기준)" in rows["OLD"] and "(11-12 기준)" in rows["NEW"]
+    assert hit.heading_path.endswith("11-12 기준)")  # 제목은 요약을 만든 날
+
+
+def test_summary_ties_put_newer_post_first(db: Database) -> None:
+    _post_with(db, "OLDER", "threads", "a1", 20, views=10, likes=1)
+    _post_with(db, "NEWER", "threads", "b1", 3, views=10, likes=1)
+    rows = [
+        ln for ln in performance_summary(_repo(db), NOW, TZ).text.split("\n") if ln.startswith("- ")
+    ]
+    assert rows[0].startswith("- NEWER") and "참여율 1위" in rows[0]
+
+
+def test_odd_stored_values_do_not_break_formatting() -> None:
+    from nsm.rag.answer import _day
+
+    assert (
+        metric_parts(
+            "threads",
+            {"views": float("nan"), "likes": float("inf"), "rate": float("nan")},
+            with_rate=True,
+        )
+        == []
+    )
+    assert _day("어제", TZ) == "" and _day(12345, TZ) == "" and _day(None, TZ) == ""
+    assert (
+        metrics_note({"threads": {"views": 3, "captured_at": "날짜 아님"}}, TZ)
+        == "성과(스레드): 조회 3"
+    )
+
+
+class _NotInDocs(_Answerer):
+    def answer(self, q, hits, notes=None):
+        self.calls.append((q, hits, notes))
+        from nsm.rag.answer import NOT_IN_DOCS
+
+        return SimpleNamespace(text=NOT_IN_DOCS, model="m", usd=0.001)
+
+
+def test_summary_only_without_answer_stays_no_ground_with_similar(db: Database, app_config) -> None:
+    """요약만 붙고 답을 못 만들면(키 없음·답 생성 실패) 근거 없음으로 남고, 비슷한 문서 안내도 그대로다."""
+    _post_with(db, "BOTH", "threads", "b1", 4, views=900, likes=9)
+    from tests.unit.test_rag_sources_db import add_item
+
+    add_item(db, "A", now=NOW)
+    from nsm.rag.indexer import index_documents
+    from nsm.rag.sources_db import CollectedSource
+    from tests.fakes import FakeEmbedder
+
+    index_documents(
+        db,
+        CollectedSource(db, min_relevance=0.8, days=180, now=NOW, tz=TZ),
+        FakeEmbedder(),
+        size=500,
+        overlap=80,
+        now=NOW,
+    )
+    res = _ask(db, app_config, "가장 중요한 결정", None)  # 키 없음
+    assert not res.grounded and res.similar and [s["path"] for s in res.sources] == [SUMMARY_PATH]
+
+    class _Fails(_Answerer):
+        def answer(self, q, hits, notes=None):
+            from nsm.rag.answer import AnswerError
+
+            raise AnswerError("가짜 실패", 0.001)
+
+    failed = _ask(db, app_config, "조회수 1등 글", _Fails())  # 답 생성 실패
+    assert not failed.grounded and "가짜 실패" in failed.error and failed.similar
+
+
+def test_unrelated_rank_word_question_counts_as_no_ground_when_claude_finds_nothing(
+    db: Database, app_config
+) -> None:
+    """'가장' 같은 흔한 낱말로 요약이 붙어도, Claude가 '문서에 그 내용이 없습니다'면 근거 없음으로 센다."""
+    _post_with(db, "BOTH", "threads", "b1", 4, views=900, likes=9)
+    ans = _NotInDocs()
+    res = _ask(db, app_config, "가장 중요한 결정", ans)
+    assert len(ans.calls) == 1 and not res.grounded

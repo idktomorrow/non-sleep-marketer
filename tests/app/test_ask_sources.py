@@ -324,3 +324,10 @@ def test_summary_record_shows_summary_badge_without_score(senv) -> None:
     )
     first = page.split('id="src-1"')[1].split("</li>")[0]
     assert '<span class="badge">0.700</span>' in first
+
+
+def test_metrics_line_is_escaped(senv) -> None:
+    db = senv["repo"].db
+    _put_qa(db, "esc", [_src(metrics={"<script>x</script>": {"views": 5, "captured_at": None}})])
+    li = senv["client"].get("/ask?qa=esc").text.split('id="src-1"')[1].split("</li>")[0]
+    assert "&lt;script&gt;x&lt;/script&gt; 조회 5" in li and "<script>x" not in li

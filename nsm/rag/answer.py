@@ -292,7 +292,11 @@ def _ask_docs(
     summary = performance_summary(repo, now, tz) if wants_summary(q, source_kind) else None
     if summary is not None:  # 순위 질문: 검색이 근거 없음이어도 요약으로 답한다(ADR 0068)
         hits.append(summary)
-    out = QaResult(id=uuid.uuid4().hex, question=q, answer=NO_GROUND_ANSWER, grounded=bool(hits))
+    # grounded는 검색 기준으로 시작한다. 요약만 붙은 질문은 Claude가 실제로 답했을 때만 근거 있음(R5 리뷰)
+    out = QaResult(id=uuid.uuid4().hex, question=q, answer=NO_GROUND_ANSWER, grounded=res.grounded)
+    if not res.grounded:
+        # 검색은 근거 없음: 비슷한 문서 제목(기준값 아래 후보). 요약이 붙어도 함께 보인다
+        out.similar = list(dict.fromkeys(h.heading_path for h in res.candidates[:3]))
     if hits:
         out.sources = [
             {
@@ -318,16 +322,12 @@ def _ask_docs(
             try:
                 a = answerer.answer(q, hits, notes)
                 out.answer, out.model, out.usd = a.text, a.model, a.usd
-                if a.text.strip().startswith(NOT_IN_DOCS.rstrip(".")):
-                    out.grounded = (
-                        False  # 조각은 찾았지만 답이 없었다: 근거 없음으로 센다(기록·배지)
-                    )
+                # 조각은 찾았지만 답이 없었으면 근거 없음, 요약으로 답했으면 근거 있음(기록·배지)
+                out.grounded = not a.text.strip().startswith(NOT_IN_DOCS.rstrip("."))
             except AnswerError as e:
                 out.error, out.answer = f"답을 만들지 못했습니다: {e}", ""
                 out.usd = e.usd  # 실패해도 쓴 비용은 기록
-    else:
-        # 근거 없음: Claude를 부르지 않는다. 비슷한 문서 제목만(기준값 아래 후보)
-        out.similar = list(dict.fromkeys(h.heading_path for h in res.candidates[:3]))
+    # 근거도 요약도 없으면 Claude를 부르지 않는다(답은 NO_GROUND_ANSWER 그대로)
     out.ms = int((time.monotonic() - t0) * 1000)
     save_qa(repo.db, out, now)
     count_question(repo, now, cfg.settings.timezone)  # 기록을 지워도 오늘 질문 수는 그대로
@@ -370,10 +370,19 @@ def wants_summary(question: str, source_kind: str | None) -> bool:
 
 def _day(at: Any, tz: str) -> str:
     """지표를 읽은 시각(datetime 또는 ISO 문자열) → 현지 "MM-DD"."""
-    if not at:
-        return ""
-    when = datetime.fromisoformat(at) if isinstance(at, str) else at
-    return when.astimezone(ZoneInfo(tz)).strftime("%m-%d")
+    try:
+        when = datetime.fromisoformat(at) if isinstance(at, str) else at
+        if not isinstance(when, datetime):
+            return ""
+        return when.astimezone(ZoneInfo(tz)).strftime("%m-%d")
+    except (ValueError, TypeError, OverflowError, OSError):
+        return ""  # 기록 JSON에 이상한 값이 있어도 화면이 깨지지 않게
+
+
+def _number(v: Any) -> bool:
+    import math
+
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
 def metric_parts(platform: str, m: dict[str, Any], *, with_rate: bool) -> list[str]:
@@ -383,10 +392,10 @@ def metric_parts(platform: str, m: dict[str, Any], *, with_rate: bool) -> list[s
         if key == "saves" and platform != "instagram":
             continue
         v = m.get(key)
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if _number(v):
             parts.append(f"{name} {int(v):,}")
     rate = m.get("rate")
-    if with_rate and isinstance(rate, (int, float)):
+    if with_rate and _number(rate):
         parts.append(f"참여율 {rate * 100:.1f}%")
     return parts
 
@@ -444,24 +453,25 @@ def performance_summary(repo: Any, now: datetime, tz: str) -> Hit | None:
     rate_rank = {id(p): i for i, p in enumerate(by_rate, 1)}
     view_rank = {id(p): i for i, p in enumerate(by_views, 1)}
     picked = list({id(p): p for p in [*by_rate, *by_views]}.values())
-    seen_at = [p["captured_at"] for p in picked if p.get("captured_at")]
-    base = _day(max(seen_at) if seen_at else now, tz)
-    heading = f"우리 글 > 성과 요약(최근 {SUMMARY_DAYS}일, {base} 기준)"
+    heading = f"우리 글 > 성과 요약(최근 {SUMMARY_DAYS}일, {_day(now, tz)} 기준)"  # 요약을 만든 날
     lines = [
         heading,
         f"최근 {SUMMARY_DAYS}일에 게시한 글 중 참여율 상위 {SUMMARY_TOP}개와 조회 상위 {SUMMARY_TOP}개(겹치면 한 번). "
-        "참여율 = (좋아요+댓글+저장+공유) ÷ 조회. 숫자는 기준 날짜에 읽은 값.",
+        "참여율 = (좋아요+댓글+저장+공유) ÷ 조회. 성과는 게시 뒤 며칠만 읽으므로, 숫자는 줄마다 적힌 날짜에 읽은 값.",
     ]
     for p in picked:
         gen = _parse(p.get("generated"))
         title = post_title(gen, str(gen.get(_BODY_KEY.get(p["platform"], "")) or ""))
+        seen = _day(p.get("captured_at"), tz)
+        when = f" ({seen} 기준)" if seen else ""
         ranks = [
             f"참여율 {rate_rank[id(p)]}위" if id(p) in rate_rank else "",
             f"조회 {view_rank[id(p)]}위" if id(p) in view_rank else "",
         ]
         lines.append(
             f"- {title} | {PLATFORM_KO.get(p['platform'], p['platform'])} | {_day(p['published_at'], tz)} 게시 | "
-            f"{' · '.join(metric_parts(p['platform'], p, with_rate=True))} | {' · '.join(r for r in ranks if r)}"
+            f"{' · '.join(metric_parts(p['platform'], p, with_rate=True))}{when} | "
+            f"{' · '.join(r for r in ranks if r)}"
         )
     return Hit(SUMMARY_PATH, heading, "\n".join(lines), 0.0, "posts")
 
