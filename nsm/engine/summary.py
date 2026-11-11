@@ -124,7 +124,10 @@ def _health(c: dict[str, Any]) -> list[str]:
 
 
 def _metrics(c: dict[str, Any]) -> list[str]:
-    return [f"게시물 지표 {_n(c, 'posts')}개, 계정 지표 {_n(c, 'accounts')}개 읽음"]
+    parts = [f"게시물 지표 {_n(c, 'posts')}개, 계정 지표 {_n(c, 'accounts')}개 읽음"]
+    if c.get("reread"):  # C44 한 번 다시 읽기: "인스타그램 지표 다시 읽기 N/63"
+        parts.append(str(c["reread"]))
+    return parts
 
 
 def _weekly(c: dict[str, Any]) -> list[str]:
