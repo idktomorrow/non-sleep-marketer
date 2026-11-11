@@ -477,3 +477,20 @@ def test_non_object_generated_json_gives_platform_document_only(db: Database) ->
     db.execute("UPDATE contents SET generated = '[]' WHERE id = 'C1'")
     [doc] = PostsSource(db, tz="Asia/Seoul").documents()
     assert doc.path == "posts/C1/threads" and doc.text.startswith("# 제목 없음\n")
+
+
+def test_publication_links_only_published_with_url(db: Database) -> None:
+    """R4d: 문서 질문의 우리 글 근거에 붙일 글 주소. 게시됨이고 주소가 있는 것만, 원고 여럿을 한 번에."""
+    from nsm.store.repo import Repository
+    from tests.fakes import FixedClock
+
+    add_post(db, "C1", "threads")
+    add_post(db, "C1", "instagram", ext=None)  # 주소 없음
+    add_post(db, "C2", "threads", ext="T2")
+    add_post(db, "C3", "threads", status="failed", ext="T3")
+    repo = Repository(db, FixedClock(NOW))
+    assert repo.publication_links(["C1", "C2", "C3", "없음"]) == {
+        "C1": {"threads": "https://www.threads.com/@nonsleepmarketer/post/EXT1"},
+        "C2": {"threads": "https://www.threads.com/@nonsleepmarketer/post/T2"},
+    }
+    assert repo.publication_links([]) == {}

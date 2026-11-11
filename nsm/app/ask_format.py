@@ -57,3 +57,28 @@ def estimate_won(model: str, krw_per_usd: float) -> str:
 
     krw = claude_cost(model, 2000, 250) * krw_per_usd
     return f"약 {krw:.1f}원" if krw < 10 else f"약 {krw:,.0f}원"
+
+
+# 우리 글 근거의 "글 보기" 링크 순서와 이름(R4d). 모르는 플랫폼은 뒤에 이름 그대로
+_LINK_ORDER = ("threads", "instagram")
+_LINK_NAME = {"threads": "스레드", "instagram": "인스타그램", "naver_blog": "네이버 블로그"}
+
+
+def post_links(links: dict[str, str] | None) -> list[tuple[str, str]]:
+    """근거의 `links`(플랫폼 → 주소)를 화면용 [(이름, 주소)]로. http·https 주소만 둔다.
+
+    주소는 게시 어댑터가 받아 온 값이지만, 다른 스킴(javascript: 등)이 섞여도 링크로 만들지 않는다.
+    이스케이프는 템플릿 자동 이스케이프에 맡긴다.
+    """
+    items = sorted(
+        (links or {}).items(),
+        key=lambda kv: (
+            _LINK_ORDER.index(kv[0]) if kv[0] in _LINK_ORDER else len(_LINK_ORDER),
+            kv[0],
+        ),
+    )
+    return [
+        (f"{_LINK_NAME.get(p, p)} 글 보기", u)
+        for p, u in items
+        if isinstance(u, str) and u.lower().startswith(("https://", "http://"))
+    ]

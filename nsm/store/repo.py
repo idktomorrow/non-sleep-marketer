@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -733,6 +734,25 @@ class Repository:
             [platform, to_db(since)],
         )
         return [self._row_to_pub(r) for r in rows]
+
+    def publication_links(self, content_ids: Collection[str]) -> dict[str, dict[str, str]]:
+        """원고마다 게시된 글 주소(플랫폼 → url). 문서 질문의 우리 글 근거에 붙인다(R4d, ADR 0067).
+
+        게시됨(status='published')이고 주소가 있는 것만. 질문 한 번에 한 번 부르게 원고 id를 한꺼번에 받는다.
+        """
+        ids = sorted(set(content_ids))
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            "SELECT content_id, platform, url FROM publications "
+            "WHERE list_contains(?::VARCHAR[], content_id) AND status = 'published' "
+            "AND url IS NOT NULL AND url <> '' ORDER BY content_id, platform",
+            [ids],
+        )
+        out: dict[str, dict[str, str]] = {}
+        for cid, platform, url in rows:
+            out.setdefault(cid, {})[platform] = url
+        return out
 
     def content_for_post(self, platform: Platform, external_id: str) -> Content | None:
         rows = self.db.execute(

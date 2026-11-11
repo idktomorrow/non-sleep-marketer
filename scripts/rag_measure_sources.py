@@ -1,4 +1,4 @@
-"""문서 질문 출처 측정(R4·R4b, ADR 0065): `questions_sources.yaml` 질문을 DB 복사본으로 돌려 출처별 표를 만든다.
+"""문서 질문 출처 측정(R4·R4b·R4d, ADR 0065·0067): `questions_sources.yaml` 질문을 DB 복사본으로 돌려 출처별 표를 만든다.
 
 - 운영 DB가 아니라 백업 복사본에서만 돌린다(`--db`). nsm run이 운영 DB를 쥐고 있고, 측정이 복사본의 장부·비용을 쓴다.
 - 질문마다 출처 전체 / 문서 / 수집 자료 / 우리 글 네 번 `nsm.rag.search.search`를 부른다. 새 검색 로직은 없다.
@@ -6,8 +6,11 @@
 - 하루 장부(`nsm/rag/budget.py`)는 복사본 DB 기준으로 그대로 따른다. 막힌 시도도 1건으로 센다.
 - 질문 문장이 그대로 든 조각은 그 질문에서만 빼고 센다(`leaked_by_question`, R3d·ADR 0057 개정 1).
 - 출력은 devlog에 붙일 마크다운 표다. 질문 문장은 내보내지 않고 "질문 N번"으로만 쓴다.
+- 검색은 문서 단위로 묶는다(R4d, `--per-doc`, 기본은 설정 `rag.per_doc`). 묶기 전 결과는 `--per-doc 99`로 본다.
+- "중복 문서" 칸: 같은 묶음 키(`search.group_key`, 같은 원고·같은 수집 기사·같은 문서 파일)가 상위 k에 두 자리 이상
+  차지한 문서 수와 그 자리 수. 출처를 가리지 않는다(R4c까지의 "중복 카드"는 우리 글 플랫폼 두 벌만 셌다).
 
-    uv run python scripts/rag_measure_sources.py --db <복사본.duckdb> [--questions …] [--k 5] [--detail]
+    uv run python scripts/rag_measure_sources.py --db <복사본.duckdb> [--questions …] [--k 5] [--per-doc N] [--detail]
 
 표를 만드는 `build_rows`·`render_table`은 네트워크 없는 순수 함수다(tests/unit/test_rag_measure_sources.py).
 """
@@ -24,8 +27,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from nsm.rag.search import Hit  # noqa: E402
-from nsm.rag.sources_db import CARDS  # noqa: E402
+from nsm.rag.search import Hit, group_key  # noqa: E402
 
 KINDS = ("docs", "collected", "posts")  # 출처별 1등 점수 칸 순서(문서/수집/우리 글)
 BADGE = {"docs": "문서", "collected": "수집", "posts": "우리 글"}
@@ -46,8 +48,8 @@ class Row:
     rank_kind: dict[str, int | None]  # 그 출처만 검색한 정답 순위(any면 collected·posts 각각)
     counts: dict[str, int]  # 전체 상위 k의 출처별 개수
     top_by_kind: dict[str, float | None]  # 출처마다 1등 점수
-    dup_cards: int  # 전체 상위 k 안에서 같은 원고가 인스타·스레드 두 경로로 함께 든 원고 수
-    dup_slots: int = 0  # 그 원고들이 차지한 자리 수
+    dup_docs: int  # 전체 상위 k 안에서 두 자리 이상 차지한 묶음(원고·수집 기사·문서 파일) 수
+    dup_slots: int = 0  # 그 묶음들이 차지한 자리 수
     detail: list[Hit] = field(default_factory=list)  # 전체 상위 k(--detail 출력용)
 
 
@@ -62,30 +64,17 @@ def rank_of(hits: list[Hit], expected: list[str]) -> int | None:
     return None
 
 
-def content_id(path: str) -> str | None:
-    """우리 글 경로 `posts/<content_id>/<platform>`·`posts/<content_id>/cards`의 원고 id."""
-    parts = path.split("/")
-    return parts[1] if len(parts) >= 3 and parts[0] == "posts" and parts[1] else None
+def duplicate_docs(hits: list[Hit]) -> tuple[int, int]:
+    """상위 k 안에서 같은 묶음 키가 두 자리 이상 차지한 묶음 수와 그 자리 수(출처 무관, R4d).
 
-
-def duplicate_cards(hits: list[Hit]) -> tuple[int, int]:
-    """같은 원고가 두 플랫폼 경로로 함께 들어온 원고 수와 그 원고들이 차지한 자리 수.
-
-    카드 문서 `posts/<content_id>/cards`(R4c)는 원고당 하나라 플랫폼으로 세지 않는다. 자리 수에는 그 원고의 카드
-    조각도 넣는다(같은 원고가 차지한 자리).
+    묶음 키는 검색이 쓰는 `group_key`와 같다: 같은 원고의 플랫폼 문서·카드 문서, 같은 수집 기사, 같은 문서 파일.
     """
-    platforms: dict[str, set[str]] = {}
     slots: dict[str, int] = {}
     for h in hits:
-        cid = content_id(h.path)
-        if cid is None:
-            continue
-        tail = h.path.split("/", 2)[2]
-        if tail != CARDS:
-            platforms.setdefault(cid, set()).add(tail)
-        slots[cid] = slots.get(cid, 0) + 1
-    dup = [cid for cid, ps in platforms.items() if len(ps) >= 2]
-    return len(dup), sum(slots[cid] for cid in dup)
+        g = group_key(h.path, h.source_kind)
+        slots[g] = slots.get(g, 0) + 1
+    dup = [n for n in slots.values() if n >= 2]
+    return len(dup), sum(dup)
 
 
 def build_rows(
@@ -100,7 +89,7 @@ def build_rows(
         res = results.get(n, {})
         top_all = res.get("all", [])[:k]
         targets = ["collected", "posts"] if kind == "any" else [kind]
-        dup, slots = duplicate_cards(top_all)
+        dup, slots = duplicate_docs(top_all)
         rows.append(
             Row(
                 n=n,
@@ -114,7 +103,7 @@ def build_rows(
                     if any(h.source_kind == kk for h in top_all)
                 },
                 top_by_kind={kk: (res[kk][0].score if res.get(kk) else None) for kk in KINDS},
-                dup_cards=dup,
+                dup_docs=dup,
                 dup_slots=slots,
                 detail=top_all,
             )
@@ -133,7 +122,7 @@ def _score(s: float | None) -> str:
 def render_table(rows: list[Row], k: int = 5) -> str:
     head = (
         "| 질문 | 노린 출처 | 전체 검색 1등(점수) | 정답 순위(전체) | 정답 순위(그 출처만) | "
-        f"전체 상위 {k}개의 출처 | 출처별 1등 점수(문서/수집/우리 글) | 중복 카드 |"
+        f"전체 상위 {k}개의 출처 | 출처별 1등 점수(문서/수집/우리 글) | 중복 문서 |"
     )
     lines = [head, "|" + "---|" * 8]
     for r in rows:
@@ -146,7 +135,7 @@ def render_table(rows: list[Row], k: int = 5) -> str:
             f"{BADGE.get(kk, kk)} {c}" for kk, c in sorted(r.counts.items(), key=lambda x: -x[1])
         )
         scores = " / ".join(_score(r.top_by_kind.get(kk)) for kk in KINDS)
-        dup = f"{r.dup_cards}({r.dup_slots}자리)" if r.dup_cards else "0"
+        dup = f"{r.dup_docs}({r.dup_slots}자리)" if r.dup_docs else "0"
         lines.append(
             f"| 질문 {r.n}번 | {TARGET.get(r.kind, r.kind)} | {top} | {_rank(r.rank_all)} | "
             f"{rank_kind} | {counts or '-'} | {scores} | {dup} |"
@@ -192,7 +181,15 @@ class _OnceEmbedder:
         return self._cache[text]
 
 
-def measure(cfg: Any, repo: Any, embedder: Any, questions: list[dict[str, Any]], k: int, now):
+def measure(
+    cfg: Any,
+    repo: Any,
+    embedder: Any,
+    questions: list[dict[str, Any]],
+    k: int,
+    now,
+    per_doc: int | None = None,
+):
     """복사본 DB에서 질문마다 네 범위를 검색한다. 반환: 질문 번호 → 범위 → Hit 목록, 뺀 조각 수."""
     from nsm.rag.budget import add_used, plan_embedding
     from nsm.rag.evaluate import leaked_by_question
@@ -223,6 +220,7 @@ def measure(cfg: Any, repo: Any, embedder: Any, questions: list[dict[str, Any]],
                     min_score=0.0,
                     source_kind=None if scope == "all" else scope,
                     exclude_ids=leaked[q["q"]],
+                    per_doc=per_doc,
                 ).candidates
                 for scope in SCOPES
             }
@@ -249,6 +247,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--db", type=Path, required=True, help="DuckDB 복사본 경로(운영 DB 아님)")
     p.add_argument("--questions", type=Path, default=default_questions_path())
     p.add_argument("--k", type=int, default=5)
+    p.add_argument(
+        "--per-doc",
+        type=int,
+        default=None,
+        help="묶음마다 상위 k에 둘 최대 조각 수(기본: 설정 rag.per_doc, 99면 사실상 묶기 전)",
+    )
     p.add_argument("--detail", action="store_true", help="질문마다 상위 k 경로·제목 경로도 출력")
     a = p.parse_args(argv)
     if not a.db.is_file():
@@ -256,12 +260,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     questions = yaml.safe_load(a.questions.read_text(encoding="utf-8"))["questions"]
     cfg = load_config()
+    per_doc = a.per_doc if a.per_doc is not None else cfg.settings.rag.per_doc
+    if per_doc < 1:
+        print("--per-doc은 1 이상이어야 합니다", file=sys.stderr)
+        return 2
     db = open_db(a.db)
     try:
         repo = Repository(db, SystemClock())
         made = make_embedder(cfg, KeyringSecretStore(), repo)  # 비용은 복사본 costs 표에
         try:
-            results, leaked = measure(cfg, repo, made, questions, a.k, datetime.now(UTC))
+            results, leaked = measure(
+                cfg, repo, made, questions, a.k, datetime.now(UTC), per_doc=per_doc
+            )
         finally:
             close_embedder(made)
         st = {kk: stored_stats(db, kk) for kk in KINDS}
@@ -272,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{BADGE.get(kk, kk)} {s['chunks']:,}(벡터 없음 {s['without_vector']})"
                 for kk, s in st.items()
             )
-            + f" · 질문 문장이 든 조각 {leaked}개는 그 질문에서 뺌"
+            + f" · 질문 문장이 든 조각 {leaked}개는 그 질문에서 뺌 · 묶음당 최대 {per_doc}자리"
         )
         print()
         print(render_table(rows, a.k))

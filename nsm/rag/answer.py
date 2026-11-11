@@ -258,6 +258,7 @@ def _ask_docs(
             }
             for i, h in enumerate(res.hits, 1)
         ]
+        _attach_post_links(repo, out.sources)
         if answerer is None:
             out.error = "Claude 키가 없어 답을 만들지 못했습니다(근거 조각만 보여 드립니다)"
             out.answer = ""
@@ -282,6 +283,21 @@ def _ask_docs(
     save_qa(repo.db, out, now)
     count_question(repo, now, cfg.settings.timezone)  # 기록을 지워도 오늘 질문 수는 그대로
     return out
+
+
+def _attach_post_links(repo: Any, sources: list[dict[str, Any]]) -> None:
+    """우리 글 근거에 게시된 글 주소(`links`: 플랫폼 → url)를 붙인다(R4d, ADR 0067).
+
+    색인 본문은 그대로 두고(카드 문서엔 주소 줄이 없다) 보여 줄 때 DB에서 찾는다. 질문 한 번에 조회 한 번.
+    주소가 없는 원고도 `links`는 빈 dict다. 예전 기록(R4d 전)은 `_qa_row`가 빈 dict로 읽는다.
+    """
+    from nsm.rag.search import post_content_id
+
+    posts = [s for s in sources if s.get("kind") == "posts"]
+    cids = {c for s in posts if (c := post_content_id(s.get("path") or ""))}
+    links = repo.publication_links(cids) if cids else {}
+    for s in posts:
+        s["links"] = dict(links.get(post_content_id(s.get("path") or "") or "", {}))
 
 
 def save_qa(db: Any, r: QaResult, now: datetime) -> None:
@@ -318,6 +334,7 @@ def _qa_row(row: tuple) -> dict[str, Any]:
     for src in sources:
         src.setdefault("text", None)  # R3c 전 기록엔 본문이 없다: 화면에 "원문 없음"
         src.setdefault("kind", "docs")  # R4 전 기록은 문서만 찾았다
+        src.setdefault("links", {})  # R4d 전 기록엔 글 주소가 없다
     return {
         "id": qid,
         "asked_at": from_db(a),

@@ -1,4 +1,4 @@
-"""R4b 출처 측정 스크립트의 표 만드는 순수 함수(네트워크·키 없음). 측정 자체는 devlog에 있다."""
+"""R4b·R4d 출처 측정 스크립트의 표 만드는 순수 함수(네트워크·키 없음). 측정 자체는 devlog에 있다."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_kind_any_ranks_collected_and_posts_separately() -> None:
     assert "| 둘 다 |" in table
 
 
-def test_duplicate_cards_counts_same_content_on_both_platforms() -> None:
+def test_duplicate_docs_counts_slots_of_the_same_content() -> None:
     qs = [q(4, "posts", ["posts/A/"])]
     res = {
         4: {
@@ -80,19 +80,28 @@ def test_duplicate_cards_counts_same_content_on_both_platforms() -> None:
                 hit("posts/A/instagram", 0.82, "posts"),
                 hit("posts/A/threads", 0.82, "posts"),
                 hit("posts/A/threads", 0.81, "posts"),
-                hit("posts/B/instagram", 0.80, "posts"),  # 한 플랫폼만: 중복 아님
-                hit("posts/B/instagram", 0.79, "posts"),
+                hit("posts/B/instagram", 0.80, "posts"),
+                hit("posts/B/instagram", 0.79, "posts"),  # 한 플랫폼 두 조각도 같은 원고: 중복
             ]
         }
     }
     (row,) = m.build_rows(qs, res)
-    assert (row.dup_cards, row.dup_slots) == (1, 3)
-    assert "| 1(3자리) |" in m.render_table([row])
+    assert (row.dup_docs, row.dup_slots) == (2, 5)
+    table = m.render_table([row])
+    assert "| 2(5자리) |" in table and "중복 문서" in table and "중복 카드" not in table
 
 
-def test_duplicate_ignores_collected_and_docs() -> None:
-    hits = [hit("source_items/A", 0.8, "collected"), hit("devlog/x.md", 0.7, "docs")]
-    assert m.duplicate_cards(hits) == (0, 0)
+def test_duplicate_docs_counts_collected_and_docs_too() -> None:
+    """R4d: 출처 무관. 같은 수집 기사 두 조각, 같은 문서 파일 두 절도 중복이다."""
+    hits = [
+        hit("source_items/A", 0.8, "collected"),
+        hit("source_items/A", 0.79, "collected"),
+        hit("devlog/x.md", 0.7, "docs"),
+        hit("devlog/x.md", 0.69, "docs"),
+        hit("source_items/B", 0.6, "collected"),
+    ]
+    assert m.duplicate_docs(hits) == (2, 4)
+    assert m.duplicate_docs([hit("source_items/A", 0.8, "collected")]) == (0, 0)
 
 
 def test_no_answer_and_no_results_show_dash() -> None:
@@ -151,10 +160,8 @@ def test_once_embedder_counts_failed_send_but_not_not_sent() -> None:
     assert unsent.sent == 0
 
 
-def test_cards_path_is_not_counted_as_a_platform() -> None:
-    """R4c: 카드 문서(posts/<cid>/cards)는 원고당 하나라 한 플랫폼 글과 같이 와도 중복이 아니다."""
-    one_platform = [hit("posts/A/cards", 0.82, "posts"), hit("posts/A/threads", 0.81, "posts")]
-    assert m.duplicate_cards(one_platform) == (0, 0)
-    both = [*one_platform, hit("posts/A/instagram", 0.80, "posts")]
-    assert m.duplicate_cards(both) == (1, 3)  # 본문 두 벌은 여전히 중복, 자리 수엔 카드도 넣음
-    assert m.content_id("posts/A/cards") == "A"
+def test_cards_and_platform_documents_are_one_content() -> None:
+    """R4c 카드 문서와 같은 원고의 플랫폼 문서는 한 묶음(검색 group_key와 같은 기준)."""
+    hits = [hit("posts/A/cards", 0.82, "posts"), hit("posts/A/threads", 0.81, "posts")]
+    assert m.duplicate_docs(hits) == (1, 2)
+    assert m.duplicate_docs([*hits, hit("posts/A/instagram", 0.80, "posts")]) == (1, 3)

@@ -142,6 +142,8 @@ class RagSettings(_Model):
     # 검색(R2): 상위 몇 개, 이 점수(코사인 유사도) 아래는 "근거 없음". 값은 실제 질문 20개로 고름(ADR 0057)
     search_k: int = Field(default=5, ge=1, le=20)
     min_score: float = Field(default=0.65, ge=0.0, le=1.0)
+    # 같은 원고·같은 수집 기사·같은 문서 파일이 상위 k에 차지할 최대 자리(R4d, ADR 0067). 값은 측정으로 고름
+    per_doc: int = Field(default=1, ge=1, le=5)
     # 문서 질문(R3): 질문 길이(길면 임베딩이 흐려져 검색이 나빠짐)와 하루 질문 수 상한
     qa_max_chars: int = Field(default=200, ge=20, le=1000)
     qa_daily_limit: int = Field(default=50, ge=1, le=1000)
