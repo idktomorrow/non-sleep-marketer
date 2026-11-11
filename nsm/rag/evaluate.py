@@ -168,6 +168,7 @@ def run_eval(
                 min_score=0.0,
                 source_kind="docs",
                 exclude_ids=leaked.get(q["q"]),
+                per_doc=cfg.settings.rag.per_doc,  # 실제 질문과 같은 묶기(R4d)
             )
         except Exception as e:  # noqa: BLE001  한도 등으로 중간에 멈추면 거기까지
             add_used(repo, now, sent + 1)  # 막힌 시도도 하루 한도에 세어진다

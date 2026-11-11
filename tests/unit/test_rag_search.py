@@ -178,3 +178,181 @@ def test_question_file_runs_deterministically_with_fake_embedder() -> None:
     first = run()
     assert first == run()
     assert all(len(paths) == 3 for _, paths in first)
+
+
+# ------------------------------------------------------------------ 문서 단위 묶기(R4d, ADR 0067)
+
+
+class _AxisEmbedder:
+    """질문 벡터가 늘 [1, 0]인 임베더. 조각 벡터 [s, √(1-s²)]의 점수가 정확히 s라 순위를 손으로 정한다."""
+
+    model = "axis"
+    dim = 2
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def embed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
+        return [1.0, 0.0]
+
+
+def _put(db: Database, kind: str, path: str, seq: int, score: float) -> None:
+    import math
+
+    db.execute(
+        "INSERT INTO doc_chunks VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'axis', ?::FLOAT[], ?)",
+        [
+            f"{kind}:{path}#{seq}",
+            kind,
+            path,
+            f"{path} > {seq}",
+            seq,
+            f"{path} {seq}",
+            1,
+            f"h{path}{seq}",
+            [score, math.sqrt(1 - score * score)],
+            NOW.replace(tzinfo=None),
+        ],
+    )
+
+
+@pytest.fixture
+def mixed() -> Database:
+    """점수 순: 같은 원고(threads·cards·instagram) 셋, 같은 수집 기사 둘, 문서 파일 하나의 두 절, 다른 원고 하나."""
+    db = Database()
+    for kind, path, seq, s in [
+        ("posts", "posts/C1/threads", 0, 0.95),
+        ("posts", "posts/C1/cards", 0, 0.94),
+        ("posts", "posts/C1/instagram", 0, 0.93),
+        ("collected", "source_items/S1", 0, 0.92),
+        ("collected", "source_items/S1", 1, 0.91),
+        ("docs", "adr/0008-guard.md", 0, 0.90),
+        ("docs", "adr/0008-guard.md", 1, 0.89),
+        ("posts", "posts/C2/threads", 0, 0.88),
+        ("collected", "source_items/S2", 0, 0.70),
+    ]:
+        _put(db, kind, path, seq, s)
+    return db
+
+
+def _paths(res) -> list[tuple[str, float]]:
+    return [(h.path, round(h.score, 2)) for h in res.candidates]
+
+
+def test_group_key_per_source() -> None:
+    from nsm.rag.search import group_key
+
+    assert group_key("posts/C1/threads", "posts") == "posts/C1"
+    assert group_key("posts/C1/instagram", "posts") == "posts/C1"
+    assert group_key("posts/C1/cards", "posts") == "posts/C1"  # 카드 문서도 같은 원고
+    assert group_key("source_items/S1", "collected") == "source_items/S1"
+    assert group_key("adr/0008-guard.md", "docs") == "adr/0008-guard.md"
+    assert group_key("posts/odd", "posts") == "posts/odd"  # 모양이 다르면 경로 그대로
+
+
+def test_per_doc_one_fills_k_with_distinct_documents(mixed: Database) -> None:
+    res = search(mixed, _AxisEmbedder(), "q", k=5, min_score=0.0, per_doc=1)
+    assert _paths(res) == [
+        ("posts/C1/threads", 0.95),
+        ("source_items/S1", 0.92),
+        ("adr/0008-guard.md", 0.9),
+        ("posts/C2/threads", 0.88),
+        ("source_items/S2", 0.7),
+    ]
+
+
+def test_per_doc_two_keeps_two_per_group_in_score_order(mixed: Database) -> None:
+    res = search(mixed, _AxisEmbedder(), "q", k=5, min_score=0.0, per_doc=2)
+    assert _paths(res) == [
+        ("posts/C1/threads", 0.95),
+        ("posts/C1/cards", 0.94),  # cards와 threads가 한 원고: 세 번째(instagram)는 빠진다
+        ("source_items/S1", 0.92),
+        ("source_items/S1", 0.91),
+        ("adr/0008-guard.md", 0.9),
+    ]
+    scores = [h.score for h in res.candidates]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_without_per_doc_is_plain_top_k(mixed: Database) -> None:
+    res = search(mixed, _AxisEmbedder(), "q", k=3, min_score=0.0)
+    assert [p for p, _ in _paths(res)] == [
+        "posts/C1/threads",
+        "posts/C1/cards",
+        "posts/C1/instagram",
+    ]
+
+
+def test_too_few_candidates_returns_what_there_is(mixed: Database) -> None:
+    res = search(mixed, _AxisEmbedder(), "q", k=10, min_score=0.0, per_doc=1)
+    assert len(res.candidates) == 5  # 묶음이 다섯뿐
+    one = search(mixed, _AxisEmbedder(), "q", k=5, min_score=0.0, source_kind="docs", per_doc=1)
+    assert [p for p, _ in _paths(one)] == ["adr/0008-guard.md"]
+
+
+def test_threshold_applies_after_grouping_and_top_score_before(mixed: Database) -> None:
+    res = search(mixed, _AxisEmbedder(), "q", k=5, min_score=0.85, per_doc=1)
+    assert [h.path for h in res.hits] == [
+        "posts/C1/threads",
+        "source_items/S1",
+        "adr/0008-guard.md",
+        "posts/C2/threads",
+    ]  # 0.70인 S2는 묶은 뒤 다섯째 자리에 들지만 기준값에서 빠진다
+    assert len(res.candidates) == 5 and res.top_score == pytest.approx(0.95)
+    none = search(mixed, _AxisEmbedder(), "q", k=5, min_score=0.99, per_doc=1)
+    assert not none.grounded and none.top_score == pytest.approx(0.95)
+
+
+def test_exclude_ids_still_works_with_grouping(mixed: Database) -> None:
+    res = search(
+        mixed,
+        _AxisEmbedder(),
+        "q",
+        k=2,
+        min_score=0.0,
+        per_doc=1,
+        exclude_ids={"posts:posts/C1/threads#0"},
+    )
+    assert [p for p, _ in _paths(res)] == ["posts/C1/cards", "source_items/S1"]
+
+
+def test_pool_is_larger_than_k(monkeypatch) -> None:
+    """같은 묶음 조각이 k개를 넘게 앞에 있어도, 후보를 넉넉히(k의 4배, 최소 20개) 가져와 다른 묶음으로 채운다."""
+    db = Database()
+    for i in range(19):
+        _put(db, "docs", "devlog/long.md", i, 0.99 - i * 0.001)
+    _put(db, "docs", "adr/other.md", 0, 0.5)
+    res = search(db, _AxisEmbedder(), "q", k=2, min_score=0.0, per_doc=1)
+    assert [h.path for h in res.candidates] == ["devlog/long.md", "adr/other.md"]
+
+
+def test_per_doc_setting_default_and_range() -> None:
+    from pydantic import ValidationError
+
+    assert RagSettings().per_doc == 1  # R4d 측정으로 고름(ADR 0067)
+    assert RagSettings(per_doc=5).per_doc == 5
+    for bad in (0, 6):
+        with pytest.raises(ValidationError):
+            RagSettings(per_doc=bad)
+
+
+def test_pool_is_four_times_k_when_larger_than_minimum() -> None:
+    """k=6이면 후보 24개: 같은 묶음 23조각 뒤 24번째의 다른 문서가 채워진다(25번째는 후보 밖)."""
+    db = Database()
+    for i in range(23):
+        _put(db, "docs", "devlog/long.md", i, 0.99 - i * 0.001)
+    _put(db, "docs", "adr/in-pool.md", 0, 0.6)
+    _put(db, "docs", "adr/out-of-pool.md", 0, 0.5)
+    res = search(db, _AxisEmbedder(), "q", k=6, min_score=0.0, per_doc=1)
+    assert [h.path for h in res.candidates] == ["devlog/long.md", "adr/in-pool.md"]
+
+
+def test_post_links_ignores_odd_shapes() -> None:
+    from nsm.app.ask_format import post_links
+
+    assert post_links(None) == [] and post_links(["https://x.test"]) == []  # type: ignore[arg-type]
+    assert post_links({"instagram": "https://i.test/p", "threads": "https://t.test/p"}) == [
+        ("스레드 글 보기", "https://t.test/p"),
+        ("인스타그램 글 보기", "https://i.test/p"),
+    ]

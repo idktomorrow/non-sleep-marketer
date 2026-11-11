@@ -85,7 +85,13 @@ def budgeted_search(
         raise SearchUnavailable(plan.note)
     try:
         res = search(
-            repo.db, plan.embedder, question, k=k, min_score=min_score, source_kind=source_kind
+            repo.db,
+            plan.embedder,
+            question,
+            k=k,
+            min_score=min_score,
+            source_kind=source_kind,
+            per_doc=cfg.settings.rag.per_doc,  # 같은 원고·기사·파일은 묶어서(R4d)
         )
     except Exception as e:  # noqa: BLE001  429·연결 오류
         if getattr(e, "code", "") != "not_sent":  # 분당 창이 차서 보내지도 않았으면 세지 않는다

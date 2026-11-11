@@ -67,7 +67,11 @@ def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
     """기록 하나를 화면용으로: 초·원화, 답 HTML(이스케이프 + 백틱 코드 + [n] 링크)."""
     ns = {int(s["n"]) for s in qa.get("sources", [])}
     sources = [
-        {**s, "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서")}
+        {
+            **s,
+            "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서"),
+            "link_items": ask_format.post_links(s.get("links")),  # 우리 글 근거의 글 보기(R4d)
+        }
         for s in qa.get("sources", [])
     ]
     return {
