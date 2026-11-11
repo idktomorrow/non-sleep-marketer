@@ -24,6 +24,11 @@ from nsm.engine.watchdog import check_stalls
 log = logging.getLogger(__name__)
 
 METRICS_LOOKBACK_DAYS = 7
+# C44: 인스타 인사이트를 엉뚱한 칸으로 읽던 버그를 고친 뒤 한 번만, 최근 90일 글 전부를 다시 읽는다(ADR 0069).
+# 값: {"read": [다 읽은 글 id], "done": bool}. 요청 제한으로 중간에 쉬면 다음 실행이 읽은 글은 건너뛰고 이어 간다
+REREAD_KEY = "c44_instagram_reread"
+REREAD_PLATFORM = "instagram"
+REREAD_DAYS = 90
 
 
 def run_health(ctx: JobContext) -> JobResult:
@@ -276,6 +281,23 @@ def run_metrics(ctx: JobContext) -> JobResult:
     return result
 
 
+def _ids(pubs) -> list[str]:
+    """게시 글 id(빈 id 제외, 순서 유지, 중복 제거)."""
+    return list(dict.fromkeys(p.external_id for p in pubs if p.external_id))
+
+
+def _reread_state(ctx: JobContext, platform: str) -> dict | None:
+    """C44 한 번 다시 읽기 상태. 대상 플랫폼이 아니거나 이미 끝났으면 None."""
+    if platform != REREAD_PLATFORM:
+        return None
+    st = ctx.repo.get_setting(REREAD_KEY, None)
+    st = st if isinstance(st, dict) else {}
+    if st.get("done"):
+        return None
+    read = st.get("read")
+    return {"read": [str(x) for x in read] if isinstance(read, list) else [], "done": False}
+
+
 def _platform_metrics(
     ctx: JobContext, platform: str, adapter, result: JobResult, now, tally: dict[str, int]
 ) -> None:
@@ -283,16 +305,44 @@ def _platform_metrics(
     caps = adapter.capabilities()
     if "post_metrics" in caps:
         since = now - timedelta(days=METRICS_LOOKBACK_DAYS)
-        for pub in ctx.repo.published_posts_since(platform, since):
-            if not pub.external_id:
-                continue
-            try:
-                ctx.repo.insert_post_metrics(adapter.read_post_metrics(pub.external_id))
-                tally["posts"] += 1
-            except Exception as e:  # noqa: BLE001
-                if retry_at(e):
-                    raise
-                result.errors.append(f"{platform} 게시물 지표 실패: {e}")
+        recent = _ids(ctx.repo.published_posts_since(platform, since))
+        state = _reread_state(ctx, platform)
+        if state is None:
+            todo, total = recent, []
+        else:
+            total = _ids(
+                ctx.repo.published_posts_since(platform, now - timedelta(days=REREAD_DAYS))
+            )
+            done_ids = set(state["read"])
+            # 최근 글은 늘 읽고, 그 전 글은 지난 다시 읽기에서 못 읽은 것만
+            todo = recent + [x for x in total if x not in done_ids and x not in recent]
+        stopped = False
+        try:
+            for ext in todo:
+                try:
+                    ctx.repo.insert_post_metrics(adapter.read_post_metrics(ext))
+                    tally["posts"] += 1
+                    if state is not None and ext not in state["read"]:
+                        state["read"].append(ext)
+                except Exception as e:  # noqa: BLE001
+                    if retry_at(e):
+                        stopped = True
+                        raise
+                    if is_interrupted(ctx, e):
+                        stopped = (
+                            True  # 끄는 중 끊긴 글은 못 읽은 것: 다시 읽기를 끝냈다고 적지 않는다
+                        )
+                    result.errors.append(f"{platform} 게시물 지표 실패: {e}")
+        finally:
+            if state is not None:
+                # 끝까지 돌았으면 끝(못 읽은 글은 오류로 남았다). 요청 제한으로 멈췄으면 다음 실행에 이어서
+                state["done"] = not stopped
+                ctx.repo.set_setting(REREAD_KEY, state)
+                if total:
+                    n = len(set(state["read"]) & set(total))
+                    result.counts["reread"] = f"인스타그램 지표 다시 읽기 {n}/{len(total)}" + (
+                        "" if state["done"] else "(요청 제한으로 쉼, 다음 실행에 이어서)"
+                    )
     if "account_metrics" in caps:
         try:
             ctx.repo.insert_account_metrics(adapter.read_account_metrics())

@@ -191,10 +191,12 @@ def test_reply_targets_comment_by_id(tmp_path, clock) -> None:
 
 
 def test_metrics_mapping(tmp_path, clock) -> None:
-    data = {"views": 40, "reach": None, "likes": 3, "comments": 2, "saves": 1, "shares": 0}
-    a, _ = _adapter(tmp_path, clock, data=data)
+    # 스크립트는 인사이트 원문을 돌려주고 파이썬이 해석한다(C44). 해석 규칙은 test_instagram_insights_parse.py
+    text = "조회수\n40\n좋아요\n3\n댓글\n2\n저장\n1\n공유\n0"
+    a, _ = _adapter(tmp_path, clock, data={"text": text, "insights": True, "comments": 5})
     m = a.read_post_metrics("P1")
-    assert (m.views, m.likes, m.comments, m.saves, m.shares) == (40, 3, 2, 1, 0)
+    assert (m.views, m.reach, m.likes, m.comments, m.saves, m.shares) == (40, None, 3, 2, 1, 0)
+    assert a.repl.calls[-1][1]["code"] == "P1"
     a.repl.data = {"followers": 12}
     assert a.read_account_metrics().followers == 12
 

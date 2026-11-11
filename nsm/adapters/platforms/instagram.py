@@ -11,7 +11,10 @@
 from __future__ import annotations
 
 import logging
+import math
+import re
 from datetime import datetime, timedelta
+from typing import Any
 
 from nsm.adapters.platforms.aside_common import (
     JS_ASSERT_HANDLE,
@@ -382,7 +385,8 @@ await nsmAssertHandle(pg, readHandle);
 await nsmNeed(pg, async () => (await pg.locator('main time').count()) > 0, 20000, '게시물 본문이 20초 안에 열리지 않음');
 await sleep(1500);
 const comments = await pg.evaluate(() => document.querySelectorAll('main a[href*="/c/"] time').length);
-// 인사이트(프로 계정)는 "숫자 이름" 순서로 보인다: "0 조회수 … 0 좋아요 0 댓글 0 저장 0 공유"
+// 인사이트 화면 글은 원문 그대로 돌려주고 파이썬 parse_insights가 해석한다(C44, ADR 0069).
+// 2026-11 화면은 "이름 숫자" 순서다: "조회수 / 조회수 / 10 / … / 조회한 사람 / 4 / … / 좋아요 / 0 / 댓글 / 0 …"
 const k = 'i' + Math.random().toString(36).slice(2);
 const has = await pg.evaluate((k) => {
   const e = Array.from(document.querySelectorAll('main a, main [role="button"], main div')).find(x => (x.innerText || '').trim() === '인사이트 보기');
@@ -390,28 +394,30 @@ const has = await pg.evaluate((k) => {
   return !!e;
 }, k);
 let t2 = '';
+let page = null;
 if (has) {
   await pg.locator('[data-nsm-mark="' + k + '"]').click();
-  // 인사이트 화면(대화상자면 그 안, 페이지면 main)의 글만 읽는다. 캡션·댓글 문장("저장해 두세요")과 섞이지 않게.
-  t2 = await nsmUntil(async () => {
-    const t = await pg.evaluate(() => {
-      const d = Array.from(document.querySelectorAll('[role="dialog"]')).find(x => /조회수/.test(x.innerText || ''));
-      const el = d || (location.pathname.startsWith('/insights/') ? document.querySelector('main') || document.body : null);
-      return el ? el.innerText.replace(/\s+/g, ' ') : '';
-    });
-    return /[0-9]\s*조회수/.test(t) ? t : '';
-  }, 20000) || '';
+  // 인사이트 화면(대화상자면 그 안, /insights/ 페이지면 main)의 글만 읽는다. 캡션·댓글 문장과 섞이지 않게.
+  const read = () => pg.evaluate(() => {
+    const d = Array.from(document.querySelectorAll('[role="dialog"]')).find(x => /조회수/.test(x.innerText || ''));
+    const el = d || (location.pathname.startsWith('/insights/') ? document.querySelector('main') || document.body : null);
+    return el ? el.innerText : '';
+  });
+  // 조회수 옆(앞 또는 뒤)에 숫자가 보일 때까지
+  const ready = await nsmUntil(async () => { const t = await read(); return /[0-9]\s*조회수|조회수\s*[0-9]/.test(t) ? t : ''; }, 20000) || '';
+  // 여는 중에는 "0"만 먼저 보인다(C44 1번에서 확인): 0.5초 간격 두 번 연속 같을 때까지(최대 10초) 기다린다
+  t2 = ready;
+  const until = Date.now() + 10000;
+  while (ready && Date.now() < until) {
+    await sleep(500);
+    const t = await read();
+    if (t === t2) break;
+    t2 = t;
+  }
+  // 조회수가 이름 바로 뒤에 0이 아닌 숫자로 보이지 않으면 증거(화면)를 함께 보낸다. 파이썬이 실패로 판단하면 남긴다
+  if (!/(^|\n)조회수\s*\n\s*[1-9]/.test(t2)) page = await nsmEvidence();
 }
-const num = (re) => { const m = t2.match(re); return m ? nsmNum(m[1]) : null; };
-return {
-  // 숫자로 시작하고, 이름 바로 뒤가 공백·끝이어야 한다("공유하기", "댓글 달기" 제외)
-  views: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*조회수(?=\s|$)/),
-  reach: num(/조회한 사람\s*([0-9][0-9.,]*\s*(?:천|만)?)(?=\s|$)/),
-  likes: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*좋아요(?=\s|$)/),
-  comments: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*댓글(?=\s|$)/) ?? comments,
-  saves: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*저장(?=\s|$)/),
-  shares: num(/([0-9][0-9.,]*\s*(?:천|만)?)\s*공유(?=\s|$)/),
-};
+return { text: t2, insights: has, comments, page };
 """
 )
 
@@ -428,6 +434,85 @@ const m = (t || '').match(/팔로워\s*([0-9.,]+\s*(?:천|만)?)/);
 return { followers: m ? nsmNum(m[1]) : null };
 """
 )
+
+
+# 인사이트 항목: 결과 키 → 화면 이름(줄 하나가 이 이름과 똑같아야 한다)
+INSIGHT_LABELS = {
+    "views": "조회수",
+    "reach": "조회한 사람",
+    "likes": "좋아요",
+    "comments": "댓글",
+    "saves": "저장",
+    "shares": "공유",
+}
+VIEWS_MISSING = "인사이트 글에서 조회수를 못 찾음"
+_NUM_TOKEN = re.compile(r"[0-9][0-9.,]*\s*(?:천|만|[KkMm](?![A-Za-z]))?%?")
+_NUM_PARTS = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(천|만|K|M)?", re.IGNORECASE)
+_MULT = {"천": 1e3, "만": 1e4, "k": 1e3, "m": 1e6}
+
+
+def ig_number(s: str) -> int | None:
+    """화면 숫자 → 정수. "1,234"·"1.2천"·"3만"·"1.5K". 예전 JS nsmNum 규칙과 같다(반올림은 0.5 올림)."""
+    m = _NUM_PARTS.search(str(s or "").replace(",", "").strip())
+    if not m:
+        return None
+    mult = _MULT.get((m.group(2) or "").lower(), 1)
+    return math.floor(float(m.group(1)) * mult + 0.5)
+
+
+def _tokens(text: str) -> list[tuple[str, Any]]:
+    """줄마다 숫자 조각과 글 조각으로 나눈다. ("num", 값) / ("pct", 글) / ("text", 글). 비율(%)은 숫자가 아니다."""
+    out: list[tuple[str, Any]] = []
+    for line in (text or "").splitlines():
+        pos = 0
+        for m in _NUM_TOKEN.finditer(line):
+            head = line[pos : m.start()].strip()
+            if head:
+                out.append(("text", head))
+            tok = m.group(0).strip()
+            if tok.endswith("%"):
+                out.append(("pct", tok))
+            else:
+                out.append(("num", ig_number(tok)))
+            pos = m.end()
+        tail = line[pos:].strip()
+        if tail:
+            out.append(("text", tail))
+    return out
+
+
+def _assign(toks: list[tuple[str, Any]], first: int, second: int) -> dict[str, int | None]:
+    """항목마다 이름 옆 숫자를 고른다. first 방향(+1 = 이름 뒤, -1 = 이름 앞)을 먼저 모두 보고, 못 찾은
+    항목만 second 방향을 본다. 한 숫자는 한 항목에만 쓴다(앞 항목이 쓴 숫자를 다음 항목이 다시 집지 않게)."""
+    used: set[int] = set()
+    out: dict[str, int | None] = dict.fromkeys(INSIGHT_LABELS)
+    for step in (first, second):
+        for key, label in INSIGHT_LABELS.items():
+            if out[key] is not None:
+                continue
+            for i, (kind, val) in enumerate(toks):
+                if kind != "text" or val != label:
+                    continue
+                j = i + step
+                if 0 <= j < len(toks) and toks[j][0] == "num" and j not in used:
+                    used.add(j)
+                    out[key] = toks[j][1]
+                    break
+    return out
+
+
+def parse_insights(text: str) -> dict[str, int | None]:
+    """인사이트 화면 글 → {views, reach, likes, comments, saves, shares}. 이름을 못 찾은 항목은 None(0이 아님).
+
+    "이름 바로 뒤 숫자"를 먼저 보고, 없으면 "이름 바로 앞 숫자"를 본다(C44, ADR 0069). 다만 화면 전체가 예전처럼
+    "숫자 이름" 순서면 뒤 우선으로는 다음 항목 숫자를 집게 된다. 그래서 앞 우선으로도 풀어 보고, 더 많은 항목을
+    채우는 쪽을 쓴다(같으면 뒤 우선). 이름은 줄 하나와 똑같아야 한다("공유하기"·"댓글 달기"는 다른 이름).
+    """
+    toks = _tokens(text)
+    after = _assign(toks, +1, -1)
+    before = _assign(toks, -1, +1)
+    filled = lambda d: sum(v is not None for v in d.values())  # noqa: E731
+    return before if filled(before) > filled(after) else after
 
 
 def _probe(text: str) -> str:
@@ -568,16 +653,37 @@ class InstagramAdapter(AsideAdapterBase):
     def read_post_metrics(self, post_external_id: str) -> PostMetrics:
         self._need("post_metrics")
         d = self._run(_POST_METRICS, {"code": post_external_id}) or {}
+        got = parse_insights(str(d.get("text") or ""))
+        views, reach = got["views"], got["reach"]
+        # 있을 수 없는 값은 0으로 저장하지 않고 실패로 남긴다(C44: 틀린 0이 한 달 동안 "성공"으로 쌓였다)
+        if views is None or (views == 0 and (reach or 0) >= 1):
+            why = (
+                VIEWS_MISSING
+                if views is None
+                else f"{VIEWS_MISSING}(조회한 사람 {reach}인데 조회수 0)"
+            )
+            err = PlatformError(f"인스타그램: {why}: {post_external_id}", "ui_changed")
+            page = d.get("page")
+            ev = self._save_evidence(
+                "ui_changed", page if isinstance(page, dict) else None, str(err)
+            )
+            if ev is not None:
+                err.evidence_dir = str(ev)
+                err.args = (f"{err.args[0]} (증거: {ev.name})",)
+            raise err
+        comments = got["comments"]
+        if comments is None and isinstance(d.get("comments"), int):
+            comments = d["comments"]  # 인사이트에 댓글 항목이 없으면 화면의 댓글 개수
         return PostMetrics(
             platform="instagram",
             post_external_id=post_external_id,
             captured_at=self._now(),
-            views=d.get("views"),
-            reach=d.get("reach"),
-            likes=d.get("likes"),
-            comments=d.get("comments"),
-            saves=d.get("saves"),
-            shares=d.get("shares"),
+            views=views,
+            reach=reach,
+            likes=got["likes"],
+            comments=comments,
+            saves=got["saves"],
+            shares=got["shares"],
         )
 
     def read_account_metrics(self) -> AccountMetrics:
