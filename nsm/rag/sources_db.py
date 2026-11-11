@@ -123,6 +123,33 @@ def card_lines(deck: dict[str, Any]) -> list[str]:
     return [x for x in out if x]
 
 
+CARDS = "cards"  # 카드 문서 경로의 끝(posts/<content_id>/cards). 플랫폼 이름이 아니다
+
+
+def _parse(generated: str | None) -> dict[str, Any]:
+    try:
+        gen = json.loads(generated or "{}")
+    except ValueError:
+        return {}
+    return gen if isinstance(gen, dict) else {}
+
+
+def _cards_markdown(gen: dict[str, Any]) -> str:
+    """원고의 카드 문구 문서. 제목 줄과 "## 카드 문구" 절만 둔다.
+
+    제목과 카드 절 사이에 메타 줄을 넣으면 제목 절이 따로 조각나 본문 없는 조각이 생긴다(chunker는 절마다 나눔).
+    그래서 조각은 "우리 글 > 제목 > 카드 문구" 하나의 절에서만 나오고, 블로그 제목이나 표지 제목이 있으면 예전 플랫폼
+    문서의 카드 조각과 글이 같다.
+    제목은 본문 없이 구해 플랫폼과 무관하다. 플랫폼·게시·주소는 플랫폼 문서에 있다.
+    """
+    cards = card_lines(gen.get("deck") or {})
+    if not cards:
+        return ""
+    return "\n".join(
+        [f"# {post_title(gen, '')}", "", "## 카드 문구", *(f"- {c}" for c in cards), ""]
+    )
+
+
 def post_title(gen: dict[str, Any], body: str) -> str:
     """글 제목: 블로그 제목, 없으면 카드 표지 제목, 없으면 본문 첫 문장."""
     slides = (gen.get("deck") or {}).get("slides") or []
@@ -133,6 +160,9 @@ def post_title(gen: dict[str, Any], body: str) -> str:
 
 class PostsSource:
     """게시된 글(publications.status='published')과 그 글의 댓글·답글. 경로 "posts/<content_id>/<platform>".
+
+    카드 문구는 플랫폼마다 같아 원고당 한 번만 `posts/<content_id>/cards`로 낸다(R4c, ADR 0065 개정 2). 두 플랫폼 문서에
+    똑같이 넣으면 같은 글이 검색 상위를 두 자리씩 차지했다(R4b 측정).
 
     댓글 작성자 이름·id는 넣지 않는다(검색 결과에 남의 이름이 뜨지 않게, ADR 0065).
     """
@@ -168,11 +198,18 @@ class PostsSource:
                 )
             )
         out = []
+        carded: set[str] = set()
         for cid, platform, published, url, ext, topic, generated in rows:
             # 실계정 어댑터는 글 주소를 못 찾으면 external_id를 ""로 남긴다: 빈 id끼리 잇지 않는다
             mine = comments.get((platform, ext), []) if ext else []
-            md = self._markdown(platform, published, url, topic, generated, mine)
+            gen = _parse(generated)
+            md = self._markdown(platform, published, url, topic, gen, mine)
             out.append(Document(f"posts/{cid}/{platform}", md, label=POSTS_LABEL))
+            if cid not in carded:
+                carded.add(cid)
+                cards = _cards_markdown(gen)
+                if cards:
+                    out.append(Document(f"posts/{cid}/{CARDS}", cards, label=POSTS_LABEL))
         return out
 
     def _markdown(
@@ -181,13 +218,9 @@ class PostsSource:
         published: Any,
         url: str | None,
         topic: str | None,
-        generated: str,
+        gen: dict[str, Any],
         comments: list[tuple[str, str | None]],
     ) -> str:
-        try:
-            gen = json.loads(generated or "{}")
-        except ValueError:
-            gen = {}
         body = str(gen.get(_BODY_KEY.get(platform, "")) or "").strip()
         lines = [
             f"# {post_title(gen, body)}",
@@ -199,9 +232,6 @@ class PostsSource:
         ]
         if body:
             lines += [escape_headings(body), ""]
-        cards = card_lines(gen.get("deck") or {})
-        if cards:
-            lines += ["## 카드 문구", *(f"- {c}" for c in cards), ""]
         if comments:
             lines.append("## 댓글")
             for text, reply in comments:
