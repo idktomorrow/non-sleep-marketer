@@ -63,7 +63,7 @@ MISSING_QA = "그 질문 기록이 없습니다(지웠거나 보관 기간이 �
 EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화면에 함께 보임)
 
 
-def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
+def present(qa: dict[str, Any], krw_per_usd: float, tz: str = "Asia/Seoul") -> dict[str, Any]:
     """기록 하나를 화면용으로: 초·원화, 답 HTML(이스케이프 + 백틱 코드 + [n] 링크)."""
     ns = {int(s["n"]) for s in qa.get("sources", [])}
     sources = [
@@ -71,6 +71,7 @@ def present(qa: dict[str, Any], krw_per_usd: float) -> dict[str, Any]:
             **s,
             "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서"),
             "link_items": ask_format.post_links(s.get("links")),  # 우리 글 근거의 글 보기(R4d)
+            "metric_lines": ask_format.post_metrics(s.get("metrics"), tz),  # 성과 지표(R5)
         }
         for s in qa.get("sources", [])
     ]
@@ -130,7 +131,8 @@ def install_ask_routes(
         if qa:
             rec = get_qa(state.repo.db, qa)
             if rec is not None:
-                result = present(rec, state.get_config().settings.krw_per_usd)
+                cfg = state.get_config()
+                result = present(rec, cfg.settings.krw_per_usd, cfg.settings.timezone)
         return _view(
             request,
             result=result,

@@ -84,3 +84,30 @@ def post_links(links: dict[str, str] | None) -> list[tuple[str, str]]:
         for p, u in items
         if isinstance(u, str) and u.lower().startswith(("https://", "http://"))
     ]
+
+
+def post_metrics(metrics: dict[str, dict] | None, tz: str) -> list[str]:
+    """근거의 `metrics`(R5) → 화면 줄 ["스레드 조회 1,234 · 좋아요 12 · 댓글 3 · 공유 1 (11-11 기준)"].
+
+    천 단위 쉼표, 없는 값은 뺀다(저장은 인스타그램만). 값이 하나도 없는 플랫폼은 줄을 만들지 않는다.
+    프롬프트의 성과 줄(`answer.metrics_note`)과 같은 `metric_parts`를 쓴다(참여율은 화면에 넣지 않음).
+    """
+    from nsm.rag.answer import PLATFORM_KO, _day, metric_parts, ordered_platforms
+
+    if not isinstance(metrics, dict):
+        return []
+    out = []
+    for platform in ordered_platforms(metrics):
+        m = metrics[platform]
+        if not isinstance(m, dict):
+            continue
+        parts = metric_parts(platform, m, with_rate=False)
+        if not parts:
+            continue
+        try:
+            day = _day(m.get("captured_at"), tz)
+        except (TypeError, ValueError):
+            day = ""
+        when = f" ({day} 기준)" if day else ""
+        out.append(f"{PLATFORM_KO.get(platform, platform)} {' · '.join(parts)}{when}")
+    return out

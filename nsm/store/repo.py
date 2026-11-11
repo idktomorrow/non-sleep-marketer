@@ -754,6 +754,40 @@ class Repository:
             out.setdefault(cid, {})[platform] = url
         return out
 
+    def latest_post_metrics(
+        self, content_ids: Collection[str]
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """원고마다 플랫폼별 가장 최근 지표 한 행(R5, ADR 0068): views·likes·comments·saves·shares·captured_at.
+
+        게시됨이고 외부 id가 있는 글만, 지표를 한 번도 못 읽은 글은 빠진다. 질문 한 번에 한 번 부른다.
+        최신 행은 주간 리포트(`queries.posts_between`)와 같은 `LATEST_METRICS_CTE`로 고른다.
+        """
+        from nsm.store.queries import LATEST_METRICS_CTE
+
+        ids = sorted(set(content_ids))
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            LATEST_METRICS_CTE
+            + "SELECT p.content_id, p.platform, m.views, m.likes, m.comments, m.saves, m.shares, m.captured_at "
+            "FROM publications p JOIN latest m ON m.platform = p.platform "
+            "AND m.post_external_id = p.external_id AND m.rn = 1 "
+            "WHERE list_contains(?::VARCHAR[], p.content_id) AND p.status = 'published' "
+            "AND p.external_id IS NOT NULL AND p.external_id <> '' ORDER BY p.content_id, p.platform",
+            [ids],
+        )
+        out: dict[str, dict[str, dict[str, Any]]] = {}
+        for cid, platform, views, likes, comments, saves, shares, at in rows:
+            out.setdefault(cid, {})[platform] = {
+                "views": views,
+                "likes": likes,
+                "comments": comments,
+                "saves": saves,
+                "shares": shares,
+                "captured_at": from_db(at),
+            }
+        return out
+
     def content_for_post(self, platform: Platform, external_id: str) -> Content | None:
         rows = self.db.execute(
             "SELECT content_id FROM publications WHERE platform = ? AND external_id = ?",

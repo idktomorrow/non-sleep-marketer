@@ -119,15 +119,21 @@ def default_since(now: datetime, days: int = 30) -> datetime:
     return now - timedelta(days=days)
 
 
+# 글마다 가장 최근에 읽은 지표 한 행(rn = 1). 주간 리포트와 문서 질문(R5)이 같은 방식으로 읽는다
+LATEST_METRICS_CTE = (
+    "WITH latest AS ("
+    "  SELECT *, row_number() OVER (PARTITION BY platform, post_external_id ORDER BY captured_at DESC) AS rn"
+    "  FROM metrics_posts) "
+)
+
+
 def posts_between(db: Database, start: datetime, end: datetime) -> list[dict[str, Any]]:
-    """기간 [start, end) 에 게시된 글과 최신 지표. 주간 리포트용."""
+    """기간 [start, end) 에 게시된 글과 최신 지표. 주간 리포트용, 문서 질문의 성과 요약(R5)도 쓴다."""
     rows = _rows(
         db,
-        "WITH latest AS ("
-        "  SELECT *, row_number() OVER (PARTITION BY platform, post_external_id ORDER BY captured_at DESC) AS rn"
-        "  FROM metrics_posts) "
-        "SELECT p.platform, p.url, p.published_at, c.topic, c.template, c.is_ad, c.persona_topic, "
-        "  m.views, m.likes, m.comments, m.saves, m.shares "
+        LATEST_METRICS_CTE
+        + "SELECT p.platform, p.url, p.published_at, c.topic, c.template, c.is_ad, c.persona_topic, "
+        "  m.views, m.likes, m.comments, m.saves, m.shares, p.content_id, c.generated, m.captured_at "
         "FROM publications p JOIN contents c ON c.id = p.content_id "
         "LEFT JOIN latest m ON m.platform = p.platform AND m.post_external_id = p.external_id AND m.rn = 1 "
         "WHERE p.status = 'published' AND p.published_at >= ? AND p.published_at < ?",
@@ -135,6 +141,7 @@ def posts_between(db: Database, start: datetime, end: datetime) -> list[dict[str
     )
     for r in rows:
         r["published_at"] = from_db(r["published_at"])
+        r["captured_at"] = from_db(r["captured_at"]) if r["captured_at"] else None
     return rows
 
 

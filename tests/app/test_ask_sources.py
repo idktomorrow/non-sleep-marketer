@@ -221,3 +221,106 @@ def test_question_search_uses_configured_per_doc(senv, monkeypatch) -> None:
     senv["cfg"].settings.rag.per_doc = 3
     _ask(senv, "보호 모드 이야기")
     assert seen_kw == [1, 3]
+
+
+# ------------------------------------------------------------------ 우리 글 근거의 성과 지표·성과 요약(R5, ADR 0068)
+
+
+def _put_qa(db, qid: str, sources: list) -> None:
+    db.execute(
+        "INSERT INTO doc_qa VALUES (?, ?, '질문', '답 [1]', true, ?, '[]', 'm', 0.0, 10, NULL)",
+        [qid, datetime(2026, 11, 12, tzinfo=UTC).replace(tzinfo=None), json.dumps(sources)],
+    )
+
+
+def _src(n: int = 1, **kw) -> dict:
+    return {
+        "n": n,
+        "kind": "posts",
+        "path": "posts/C1/threads",
+        "heading": "우리 글 > 제목",
+        "score": 0.7,
+        "text": "본문",
+        **kw,
+    }
+
+
+def test_post_evidence_shows_metrics_line_from_live_ask(senv) -> None:
+    from tests.unit.test_rag_post_metrics import add_metrics
+
+    db = senv["repo"].db
+    add_metrics(
+        db,
+        "threads",
+        "EXT1",
+        datetime(2026, 11, 11, 18, 0, tzinfo=UTC),
+        views=1234,
+        likes=12,
+        comments=3,
+        shares=1,
+    )
+    r = _ask(senv, "보호 모드 이야기를 우리 글로", "posts")
+    page = senv["client"].get(r.headers["location"]).text
+    assert "스레드 조회 1,234 · 좋아요 12 · 댓글 3 · 공유 1 (11-12 기준)" in page
+    stored = json.loads(db.execute("SELECT sources FROM doc_qa")[0][0])
+    assert stored[0]["metrics"]["threads"]["views"] == 1234
+    prompt = senv["msgs"].calls[-1]["messages"][0]["content"]
+    assert "성과(스레드, 11-12 기준): 조회 1,234" in prompt.split("</docs>")[0]
+    assert "기준 날짜와 함께" in senv["msgs"].calls[-1]["system"]
+
+
+def test_post_without_metrics_and_old_record_show_no_metrics(senv) -> None:
+    db = senv["repo"].db
+    _put_qa(db, "nom", [_src(metrics={}, links={})])
+    _put_qa(db, "old", [_src()])  # R5 전 기록: metrics 키 없음
+    for qid in ("nom", "old"):
+        page = senv["client"].get(f"/ask?qa={qid}").text
+        assert "답 [" in page and "src-metrics" not in page and "기준)" not in page
+
+
+def test_stored_metrics_render_with_saves_on_instagram_and_escape(senv) -> None:
+    db = senv["repo"].db
+    at = "2026-11-11T18:00:00+00:00"
+    metrics = {
+        "instagram": {
+            "views": 80,
+            "likes": 4,
+            "comments": None,
+            "saves": 2,
+            "shares": 0,
+            "rate": 0.075,
+            "captured_at": at,
+        },
+        "threads": {"views": 10, "likes": 1, "saves": None, "captured_at": at},
+    }
+    _put_qa(db, "met", [_src(metrics=metrics, heading="<b>제목</b>")])
+    page = senv["client"].get("/ask?qa=met").text
+    li = page.split('id="src-1"')[1].split("</li>")[0]
+    assert li.index("스레드 조회 10 · 좋아요 1 (11-12 기준)") < li.index(
+        "인스타그램 조회 80 · 좋아요 4 · 저장 2 · 공유 0 (11-12 기준)"
+    )
+    assert "&lt;b&gt;제목&lt;/b&gt;" in li and "참여율" not in li
+
+
+def test_summary_record_shows_summary_badge_without_score(senv) -> None:
+    db = senv["repo"].db
+    summary = _src(
+        2,
+        path="posts/_summary",
+        heading="우리 글 > 성과 요약(최근 90일, 11-12 기준)",
+        score=None,
+        summary=True,
+        links={},
+        metrics={},
+        text="우리 글 > 성과 요약\n- 글 | 스레드 | 11-10 게시 | 조회 5 | 조회 1위",
+    )
+    _put_qa(db, "sum", [_src(), summary])
+    page = senv["client"].get("/ask?qa=sum").text
+    li = page.split('id="src-2"')[1].split("</li>")[0]
+    assert 'class="badge src-summary">요약</span>' in li and "0.000" not in li
+    assert (
+        "성과 요약(최근 90일, 11-12 기준)" in li
+        and 'class="badge gray src-kind">우리 글</span>' in li
+    )
+    first = page.split('id="src-1"')[1].split("</li>")[0]
+    assert '<span class="badge">0.700</span>' in first
