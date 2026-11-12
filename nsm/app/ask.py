@@ -20,6 +20,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from nsm.app import ask_format
 from nsm.rag.answer import (
     HINT,
+    NO_GROUND_ANSWER,
+    SUMMARY_PATH,
     QuestionRejected,
     ask_docs,
     delete_all_qa,
@@ -51,7 +53,8 @@ QA_TEXT = {
     "deleted": "질문 기록을 지웠습니다.",
     "deleted_all": "질문 기록을 모두 지웠습니다.",
 }
-SOURCE_CHOICES = [("", "전체"), *((k, KIND_NAME[k]) for k in KINDS)]
+# 출처 고르기 칩(R6): (값, 칩 글자, 전체 이름). 값은 R4 그대로라 서버 쪽은 바뀌지 않는다
+SOURCE_CHOICES = [("", "전체", "전체"), *((k, KIND_BADGE[k], KIND_NAME[k]) for k in KINDS)]
 
 
 def pick_source(value: str | None) -> str:
@@ -66,15 +69,20 @@ EVAL_ERROR_KEY = "doc_eval_last_error"  # 마지막 측정이 멈춘 이유(화�
 def present(qa: dict[str, Any], krw_per_usd: float, tz: str = "Asia/Seoul") -> dict[str, Any]:
     """기록 하나를 화면용으로: 초·원화, 답 HTML(이스케이프 + 백틱 코드 + [n] 링크)."""
     ns = {int(s["n"]) for s in qa.get("sources", [])}
-    sources = [
-        {
-            **s,
-            "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서"),
-            "link_items": ask_format.post_links(s.get("links")),  # 우리 글 근거의 글 보기(R4d)
-            "metric_lines": ask_format.post_metrics(s.get("metrics"), tz),  # 성과 지표(R5)
-        }
-        for s in qa.get("sources", [])
-    ]
+    sources = []
+    for s in qa.get("sources", []):
+        # 접힌 줄의 짧은 제목·보조 제목(R6). 전체 경로(heading)는 펼쳤을 때 보인다
+        title, subtitle = ask_format.source_title(s.get("heading"), s.get("kind"))
+        sources.append(
+            {
+                **s,
+                "badge": KIND_BADGE.get(s.get("kind") or "docs", "문서"),
+                "title": title,
+                "subtitle": subtitle,
+                "link_items": ask_format.post_links(s.get("links")),  # 우리 글 근거의 글 보기(R4d)
+                "metric_lines": ask_format.post_metrics(s.get("metrics"), tz),  # 성과 지표(R5)
+            }
+        )
     return {
         **qa,
         "sources": sources,
@@ -82,6 +90,22 @@ def present(qa: dict[str, Any], krw_per_usd: float, tz: str = "Asia/Seoul") -> d
         "secs": ask_format.seconds(qa.get("ms")),
         "cost": ask_format.cost(qa.get("usd"), krw_per_usd),
     }
+
+
+def summary_ids(db: Any, ids: list[str]) -> set[str]:
+    """최근 질문 카드의 "요약" 배지(R6): 근거의 path가 성과 요약 조각인 기록 id.
+
+    path 칸만 본다(본문·제목에 같은 글이 있어도 배지가 붙지 않게). 근거 본문은 파이썬으로 읽지 않는다.
+    """
+    if not ids:
+        return set()
+    marks = ", ".join("?" * len(ids))
+    rows = db.execute(
+        f"SELECT id FROM doc_qa WHERE id IN ({marks}) "
+        "AND list_contains(json_extract_string(sources, '$[*].path'), ?)",
+        [*ids, SUMMARY_PATH],
+    )
+    return {r[0] for r in rows}
 
 
 def install_ask_routes(
@@ -100,6 +124,8 @@ def install_ask_routes(
         embedder, answerer = _rag()
         q = request.query_params
         last_error = state.repo.get_setting(EVAL_ERROR_KEY, "") if q.get("eval") else ""
+        recent = recent_qa(state.repo.db, 20)
+        with_summary = summary_ids(state.repo.db, [r["id"] for r in recent])
         return page(
             request,
             "ask.html",
@@ -115,8 +141,10 @@ def install_ask_routes(
             has_answerer=answerer is not None,
             # 목록은 비용 표시만(답 HTML은 상세에서만 만든다)
             recent=[
-                {**r, "cost": ask_format.cost(r["usd"], krw)} for r in recent_qa(state.repo.db, 20)
+                {**r, "cost": ask_format.cost(r["usd"], krw), "summary": r["id"] in with_summary}
+                for r in recent
             ],
+            no_ground=NO_GROUND_ANSWER,
             evals=recent_evals(state.repo.db, 3),
             eval_notice=EVAL_TEXT.get(q.get("eval", "")),
             # 멈춘 이유(몇 번째 질문·오류 종류)는 주소창이 아니라 서버에 둔 마지막 측정 오류에서

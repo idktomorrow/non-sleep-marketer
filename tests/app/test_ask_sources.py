@@ -61,7 +61,7 @@ def test_picked_source_goes_to_search(senv, seen, picked, kind) -> None:
     if kind:
         assert f"&source={kind}#answer" in r.headers["location"]
     page = senv["client"].get(r.headers["location"]).text
-    sel = re.search(r'<option value="([a-z]*)" selected>', page)
+    sel = re.search(r'name="source" value="([a-z]*)" checked>', page)
     assert sel and sel.group(1) == (kind or "")  # 다음 질문도 같은 출처로
 
 
@@ -92,8 +92,12 @@ def test_picker_and_per_source_counts_on_page(senv) -> None:
         ("collected", "수집 자료"),
         ("posts", "우리가 올린 글"),
     ]:
-        assert f'<option value="{value}"' in page and f">{name}</option>" in page
-    assert '<option value="" selected>전체</option>' in page  # 기본은 전체
+        assert f'name="source" value="{value}"' in page and f'title="{name}"' in page
+    assert 'id="ask-source-all" name="source" value="" checked>' in page  # 기본은 전체
+    assert (
+        page.count('name="source"') == 4
+        and "<select" not in page.split('id="ask-form"')[1].split("</form>")[0]
+    )
     st = re.search(r'class="muted small ask-stats">(.*?)</p>', page, re.S).group(1)
     assert "조각 6개" in st  # 문서 2 + 수집 1 + 우리 글 3(본문·카드 문구·댓글)
     assert re.search(r"문서</span> 2개", st) and re.search(r"수집</span> 1개", st)

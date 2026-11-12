@@ -1,4 +1,4 @@
-// 문서 질문 탭(R3c). JS가 없어도 폼은 그대로 동작한다. 있으면 두 가지만 돕는다.
+// 문서 질문 탭(R3c, R6). JS가 없어도 폼은 그대로 동작한다. 있으면 네 가지만 돕는다.
 // 1) 묻기·측정 버튼을 누르면 잠그고 "찾는 중…"을 보여 두 번 눌림을 막는다.
 // 2) 답 안의 [n]을 누르면 해당 근거를 펼치고 그리로 이동한다.
 (function () {
@@ -21,7 +21,8 @@
     if (!li) return false;
     var d = li.querySelector("details");
     if (d) d.open = true;
-    li.scrollIntoView({ block: "center" });
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    li.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
     return true;
   }
   document.addEventListener("click", function (e) {
@@ -30,6 +31,26 @@
     if (openSource(a.dataset.src)) e.preventDefault();
   });
   if (location.hash.indexOf("#src-") === 0) openSource(location.hash.slice(5));
+  // 3) 예시 칩(R6): 누르면 질문 칸에 넣고 포커스만 준다(제출하지 않는다. 칩은 type="button")
+  document.addEventListener("click", function (e) {
+    var chip = e.target.closest && e.target.closest("button.chip[data-example]");
+    if (!chip) return;
+    var q = document.getElementById("ask-q");
+    if (!q) return;
+    q.value = chip.dataset.example;
+    q.focus();
+  });
+  // 4) 검색 측정(개발용)은 기본 접힘. 주소가 #eval이면 펼친다(측정 결과 알림이 있으면 서버가 이미 open)
+  function openEval() {
+    if (location.hash !== "#eval") return;
+    var d = document.getElementById("eval");
+    if (d && !d.open) {
+      d.open = true;
+      d.scrollIntoView({ block: "start" });
+    }
+  }
+  openEval();
+  window.addEventListener("hashchange", openEval);
   // 뒤로 가기로 저장된 페이지가 돌아오면 "찾는 중…" 잠금을 푼다
   window.addEventListener("pageshow", function (e) {
     if (!e.persisted) return;

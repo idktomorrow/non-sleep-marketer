@@ -111,3 +111,30 @@ def post_metrics(metrics: dict[str, dict] | None, tz: str) -> list[str]:
         when = f" ({day} 기준)" if day else ""
         out.append(f"{PLATFORM_KO.get(platform, platform)} {' · '.join(parts)}{when}")
     return out
+
+
+# 근거 제목 경로의 구분자(chunker가 " > "로 잇는다). 수집 자료·우리 글은 첫 칸이 출처 이름("수집 자료"·"우리 글")
+_PATH_SEP = " > "
+
+
+def source_title(heading: str | None, kind: str | None) -> tuple[str, str]:
+    """근거 제목 경로 → (짧은 제목, 보조 제목). 접힌 줄에 보일 글만 고른다(R6, ADR 0070).
+
+    - 문서(kind 없음도 문서): "파일 > 문서 제목 > … > 절" → (마지막 절, 문서 제목). 제목이 하나면 (그 제목, "").
+      제목이 없으면 파일명.
+    - 수집 자료: "수집 자료 > 기사 제목" → (기사 제목, "").
+    - 우리 글: "우리 글 > 글 제목 > 절" → (글 제목, 절: 카드 문구·댓글). 성과 요약처럼 칸이 둘이면 (그 제목, "").
+    글자는 자르지 않는다. 길면 화면(CSS)이 말줄임으로 가린다. 전체 경로는 펼쳤을 때 따로 보인다.
+    """
+    parts = [p.strip() for p in (heading or "").split(_PATH_SEP) if p.strip()]
+    if not parts:
+        return "제목 없음", ""
+    if (kind or "docs") == "docs":
+        titles = parts[1:]
+        if not titles:
+            return parts[0], ""
+        return titles[-1], titles[0] if len(titles) > 1 else ""
+    rest = parts[1:] or parts
+    if kind == "posts" and len(rest) > 1:
+        return rest[0], rest[-1]
+    return rest[0], ""
