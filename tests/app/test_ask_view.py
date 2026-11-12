@@ -108,9 +108,13 @@ def test_grounded_answer_cites_chunk_numbers_and_records(env) -> None:
     assert r.status_code == 200
     html = r.text
     assert "보호 모드는 처음 20건을 사람이 승인하는 장치입니다 [1]." in html
-    assert (
-        "[1]</b> adr/0008-guard.md &gt; 0008. 보호 모드 &gt; 결정" in html
-    )  # 근거 목록(번호·경로·제목)
+    li = html.split('id="src-1"')[1].split("</li>")[
+        0
+    ]  # 근거 목록(번호·짧은 제목·문서 제목·전체 경로)
+    assert '[1]</b> <span class="badge gray src-kind">문서</span>' in li
+    assert 'class="src-title" title="결정">결정</span>' in li
+    assert 'class="src-sub" title="0008. 보호 모드">0008. 보호 모드</span>' in li
+    assert 'class="small muted src-path">adr/0008-guard.md &gt; 0008. 보호 모드 &gt; 결정</p>' in li
     assert len(env["msgs"].calls) == 1
     call = env["msgs"].calls[0]
     assert call["model"] == "claude-haiku-5-5" and "<docs>" in call["messages"][0]["content"]

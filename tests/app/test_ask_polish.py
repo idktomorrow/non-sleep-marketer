@@ -26,7 +26,8 @@ def test_post_redirects_to_saved_record_and_get_shows_it(env) -> None:
     assert loc == f"/ask?qa={qid}#answer"
     html = env["client"].get(loc).text
     assert 'id="answer"' in html and "보호 모드는 처음 20건을" in html
-    assert "[1]</b> adr/0008-guard.md" in html and "원문 없음" not in html  # 근거 본문도 다시 보임
+    assert "[1]</b>" in html and 'src-path">adr/0008-guard.md' in html  # 근거(번호·전체 경로)
+    assert "원문 없음" not in html  # 근거 본문도 다시 보임
     assert "안전장치" in html  # 조각 본문
 
 
