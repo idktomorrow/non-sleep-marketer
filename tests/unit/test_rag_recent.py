@@ -107,6 +107,10 @@ def test_no_time_word_or_other_source_never_triggers() -> None:
     assert not wants_recent("보호 모드가 뭐야", None)
     assert not wants_recent("가장 최근 댓글", "docs")
     assert not wants_recent("어제 올린 글", "collected")
+    # 시간 낱말만 있고 글·댓글 활동을 묻지 않으면 붙이지 않는다(문서 질문에 Claude 비용이 들지 않게, R7 리뷰)
+    assert not wants_recent("오늘 질문 수 상한은 몇 개야", None)
+    assert not wants_recent("최근 며칠 수집 자료까지 찾아", None)
+    assert not wants_recent("마지막 실행 시각은 어디서 봐", None)
     assert "가장" not in TIME_WORDS  # 순위 낱말은 RANK_WORDS에 그대로
     q = "가장 최근 댓글"
     assert wants_recent(q, None) and wants_summary(q, None)  # 둘 다 붙어도 된다
@@ -167,16 +171,29 @@ def test_recent_activity_scrubs_names_and_cuts_long_lines(db: Database) -> None:
     assert len(body) == 120 and body.endswith("…")
 
 
-def test_recent_activity_limits_and_unknown_post(db: Database) -> None:
+def test_recent_activity_limits_and_only_comments_on_published_posts(db: Database) -> None:
+    """지운·실패한 글의 댓글은 10자리를 차지하지 않는다(R7 리뷰)."""
     for i in range(RECENT_TOP + 2):
         post(db, f"P{i:02d}", "threads", f"t{i}", NOW - timedelta(hours=i + 1))
         comment(db, f"c{i}", f"t{i}", NOW - timedelta(minutes=i + 1), f"댓글{i}")
     comment(db, "orphan", "gone", NOW, "지운 글의 댓글")
+    add_post(db, "F", "threads", status="failed", ext="tf", now=NOW)
+    comment(db, "failed", "tf", NOW, "실패한 글의 댓글")
+    db.execute("UPDATE publications SET external_id = '' WHERE id = 'P11-threads'")
+    comment(db, "empty", "", NOW, "글 id가 빈 댓글")
     hit = recent_activity(_repo(db), NOW, TZ)
     posts, comments = _section(hit.text, "최근 게시 글"), _section(hit.text, "최근 댓글")
     assert len(posts) == RECENT_TOP and posts[0].endswith("| 글 P00")
-    assert len(comments) == RECENT_TOP and "| 알 수 없는 글 | 댓글: 지운 글의 댓글" in comments[0]
-    assert "| 글 P00 | 댓글: 댓글0" in comments[1]
+    assert len(comments) == RECENT_TOP and "| 글 P00 | 댓글: 댓글0" in comments[0]
+    for leak in ("지운 글의", "실패한 글의", "글 id가 빈"):
+        assert leak not in hit.text
+
+
+def test_recent_activity_states_base_time_with_year(db: Database) -> None:
+    """줄은 MM-DD HH:MM이라, 안내 줄의 연도 든 기준 시각으로 해 바뀜·"어제"를 가린다(R7 리뷰)."""
+    post(db, "A", "threads", "t1", NOW - timedelta(days=1))
+    text = recent_activity(_repo(db), NOW, TZ).text
+    assert "기준 시각 2026-11-12 12:00(Asia/Seoul)" in text.split("\n")[1]
 
 
 def test_recent_activity_none_without_posts_or_comments(db: Database) -> None:

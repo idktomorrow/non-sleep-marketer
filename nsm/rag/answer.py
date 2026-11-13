@@ -75,6 +75,9 @@ TIME_WORDS = (
     "새로 달린",
     "새 댓글",
 )
+# 시간 낱말만으로는 "오늘 질문 수 상한"·"최근 N일 수집 기준" 같은 문서 질문에도 붙어 근거 없음 질문에 Claude를 부른다(R7
+# 리뷰). 글·댓글 활동을 묻는 낱말이 함께 있을 때만 붙인다("댓글"·"답글"은 "글"에 걸린다)
+ACTIVITY_WORDS = ("글", "게시", "올린", "올렸", "답한", "답했", "반응")
 RECENT_PATH = "posts/_recent"
 RECENT_TOP = 10
 # DB에서 만들어 붙이는 조각(임베딩·doc_chunks 없음). 검색 점수가 없어 기록에 score null, summary true
@@ -454,6 +457,14 @@ def metrics_note(metrics: dict[str, dict[str, Any]], tz: str) -> str:
     return "\n".join(lines)
 
 
+def _post_title(platform: str, generated: Any) -> str:
+    """원고 JSON → 글 제목. 색인(`PostsSource`)과 같은 `post_title` 규칙이라 요약·최근 활동·근거의 제목이 같다."""
+    from nsm.rag.sources_db import _BODY_KEY, _parse, post_title
+
+    gen = _parse(generated)
+    return post_title(gen, str(gen.get(_BODY_KEY.get(platform, "")) or ""))
+
+
 def performance_summary(repo: Any, now: datetime, tz: str) -> Hit | None:
     """최근 90일 게시 글의 성과 요약 조각(R5): 참여율 상위 10개와 조회 상위 10개(겹치면 한 번).
 
@@ -461,7 +472,6 @@ def performance_summary(repo: Any, now: datetime, tz: str) -> Hit | None:
     참여율은 주간 리포트와 같은 `_engagement`, 제목은 색인과 같은 `post_title`. 지표가 있는 글이 없으면 None.
     """
     from nsm.engine.weekly_report import _engagement
-    from nsm.rag.sources_db import _BODY_KEY, _parse, post_title
     from nsm.store import queries
 
     posts = queries.posts_between(repo.db, now - timedelta(days=SUMMARY_DAYS), now)
@@ -490,8 +500,7 @@ def performance_summary(repo: Any, now: datetime, tz: str) -> Hit | None:
         "참여율 = (좋아요+댓글+저장+공유) ÷ 조회. 성과는 게시 뒤 며칠만 읽으므로, 숫자는 줄마다 적힌 날짜에 읽은 값.",
     ]
     for p in picked:
-        gen = _parse(p.get("generated"))
-        title = post_title(gen, str(gen.get(_BODY_KEY.get(p["platform"], "")) or ""))
+        title = _post_title(p["platform"], p.get("generated"))
         seen = _day(p.get("captured_at"), tz)
         when = f" ({seen} 기준)" if seen else ""
         ranks = [
@@ -507,16 +516,24 @@ def performance_summary(repo: Any, now: datetime, tz: str) -> Hit | None:
 
 
 def wants_recent(question: str, source_kind: str | None) -> bool:
-    """시간 낱말(최근·어제 …)이 있고 출처가 전체 또는 우리 글이면 최근 활동 조각을 붙인다(R7). 조건은 `wants_summary`와 같다."""
-    return source_kind in (None, "", "posts") and any(w in question for w in TIME_WORDS)
+    """시간 낱말(최근·어제 …)과 활동 낱말(글·게시·답한 …)이 함께 있고 출처가 전체 또는 우리 글이면 최근 활동 조각을
+    붙인다(R7, ADR 0071)."""
+    return (
+        source_kind in (None, "", "posts")
+        and any(w in question for w in TIME_WORDS)
+        and any(w in question for w in ACTIVITY_WORDS)
+    )
 
 
-def _when(at: Any, tz: str) -> str:
-    """DB 시각(UTC) → 현지 "MM-DD HH:MM". 값이 없으면 ""."""
+def _when(at: Any, tz: str, fmt: str = "%m-%d %H:%M") -> str:
+    """DB 시각(UTC, naive) → 현지 시각 글자. 값이 없거나 이상하면 ""(질문 하나가 깨지지 않게, `_day`와 같은 태도)."""
     from nsm.store.db import from_db
 
-    d = from_db(at)
-    return d.astimezone(ZoneInfo(tz)).strftime("%m-%d %H:%M") if d else ""
+    try:
+        d = from_db(at)
+        return d.astimezone(ZoneInfo(tz)).strftime(fmt) if d else ""
+    except (ValueError, TypeError, OverflowError, OSError):
+        return ""
 
 
 def recent_activity(repo: Any, now: datetime, tz: str, limit: int = RECENT_TOP) -> Hit | None:
@@ -524,11 +541,12 @@ def recent_activity(repo: Any, now: datetime, tz: str, limit: int = RECENT_TOP) 
 
     벡터 검색은 시간순 정렬을 못 해서 "가장 최근 댓글"·"어제 올린 글"을 DB에서 바로 만든다. 성과 요약(R5)처럼 임베딩하지
     않고 doc_chunks에도 넣지 않는다. 날짜·시각은 설정 시간대(DB는 UTC).
-    - 댓글은 숨김·스팸을 빼고(우리 글 문서와 같은 기준), 작성자 이름은 `scrub_people`로 지우는 데만 쓴다.
+    - 댓글은 게시된 글에 달린 것만, 숨김·스팸을 빼고(우리 글 문서와 같은 기준), 작성자 이름은 `scrub_people`로 지우는 데만 쓴다.
+    - 줄의 시각은 짧게 MM-DD HH:MM, 안내 줄에 연도가 든 기준 시각을 둔다(해 바뀜·"어제"를 가릴 수 있게, R7 리뷰).
     - 답글은 실제로 나간 것만(`reply_sent`). 보내지 못한 초안은 "없음".
     - 글도 댓글도 없으면 None.
     """
-    from nsm.rag.sources_db import _BODY_KEY, _parse, one_line, post_title, reply_sent, scrub_people
+    from nsm.rag.sources_db import one_line, reply_sent, scrub_people
 
     db = repo.db
     posts = db.execute(
@@ -538,51 +556,39 @@ def recent_activity(repo: Any, now: datetime, tz: str, limit: int = RECENT_TOP) 
         "ORDER BY p.published_at DESC, p.id DESC LIMIT ?",
         [limit],
     )
+    # 게시된 글에 달린 댓글만(지운·실패한 글의 댓글이 10자리를 차지하지 않게, R7 리뷰). 빈 글 id끼리는 잇지 않고,
+    # 같은 (플랫폼, 글 id) 게시 줄이 둘이어도 댓글은 한 번
     comments = db.execute(
-        "SELECT platform, post_external_id, created_at, text, reply_text, author_name, status, reply_external_id "
-        "FROM comments WHERE status <> 'hidden' AND coalesce(category, '') <> 'spam' "
-        "ORDER BY created_at DESC, id DESC LIMIT ?",
+        "SELECT m.platform, m.created_at, m.text, m.reply_text, m.author_name, m.status, m.reply_external_id, "
+        "c.generated FROM comments m "
+        "JOIN (SELECT platform, external_id, min(content_id) AS content_id FROM publications "
+        "      WHERE status = 'published' AND external_id <> '' GROUP BY platform, external_id) p "
+        "  ON p.platform = m.platform AND p.external_id = m.post_external_id "
+        "JOIN contents c ON c.id = p.content_id "
+        "WHERE m.status <> 'hidden' AND coalesce(m.category, '') <> 'spam' "
+        "ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
         [limit],
     )
     if not posts and not comments:
         return None
 
-    def title(platform: str, generated: Any) -> str:
-        gen = _parse(generated)
-        return post_title(gen, str(gen.get(_BODY_KEY.get(platform, "")) or ""))
-
-    # 댓글이 달린 글의 제목: 최근 게시 10건 밖의 글일 수 있어 따로 찾는다(빈 글 id끼리는 잇지 않는다)
-    keys = {(pl, ext) for pl, ext, *_ in comments if ext}
-    titles: dict[tuple[str, str], str] = {}
-    if keys:
-        exts = sorted({ext for _, ext in keys})
-        for pl, ext, generated in db.execute(
-            "SELECT p.platform, p.external_id, c.generated FROM publications p "
-            "JOIN contents c ON c.id = p.content_id "
-            f"WHERE p.status = 'published' AND p.external_id IN ({', '.join('?' * len(exts))}) "
-            "ORDER BY p.id",
-            exts,
-        ):
-            if (pl, ext) in keys:  # 플랫폼이 다른 같은 id는 다른 글
-                titles.setdefault((pl, ext), title(pl, generated))
-
     heading = f"우리 글 > 최근 활동({_day(now, tz)} 기준)"
     lines = [
         heading,
-        f"최근 게시 글과 최근 댓글 각 {limit}건까지, 최신이 맨 위. 시각은 {tz} 기준. "
+        f"기준 시각 {now.astimezone(ZoneInfo(tz)):%Y-%m-%d %H:%M}({tz}). 최근 게시 글과 최근 댓글 각 {limit}건까지, 최신이 맨 위. "
         "숨긴 댓글·스팸은 빼고, 답글은 실제로 보낸 것만.",
         "",
         "최근 게시 글:",
     ]
     lines += [
-        f"- {_when(at, tz)} 게시 | {PLATFORM_KO.get(pl, pl)} | {title(pl, generated)}"
+        f"- {_when(at, tz)} 게시 | {PLATFORM_KO.get(pl, pl)} | {_post_title(pl, generated)}"
         for pl, at, _ext, generated in posts
     ] or ["- 없음"]
     lines += ["", "최근 댓글:"]
-    for pl, ext, at, text, reply, author, status, reply_ext in comments:
+    for pl, at, text, reply, author, status, reply_ext, generated in comments:
         sent = scrub_people(reply, author) if reply and reply_sent(status, reply_ext) else ""
         lines.append(
-            f"- {_when(at, tz)} | {PLATFORM_KO.get(pl, pl)} | {titles.get((pl, ext), '알 수 없는 글')} | "
+            f"- {_when(at, tz)} | {PLATFORM_KO.get(pl, pl)} | {_post_title(pl, generated)} | "
             f"댓글: {one_line(scrub_people(text, author), 120)} → 답글: {one_line(sent, 120) or '없음'}"
         )
     if not comments:
