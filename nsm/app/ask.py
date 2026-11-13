@@ -19,9 +19,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from nsm.app import ask_format
 from nsm.rag.answer import (
+    DB_PATHS,
     HINT,
     NO_GROUND_ANSWER,
-    SUMMARY_PATH,
     QuestionRejected,
     ask_docs,
     delete_all_qa,
@@ -93,7 +93,7 @@ def present(qa: dict[str, Any], krw_per_usd: float, tz: str = "Asia/Seoul") -> d
 
 
 def summary_ids(db: Any, ids: list[str]) -> set[str]:
-    """최근 질문 카드의 "요약" 배지(R6): 근거의 path가 성과 요약 조각인 기록 id.
+    """최근 질문 카드의 "요약" 배지(R6): 근거의 path가 DB 조각(성과 요약·최근 활동, R7)인 기록 id.
 
     path 칸만 본다(본문·제목에 같은 글이 있어도 배지가 붙지 않게). 근거 본문은 파이썬으로 읽지 않는다.
     """
@@ -102,8 +102,8 @@ def summary_ids(db: Any, ids: list[str]) -> set[str]:
     marks = ", ".join("?" * len(ids))
     rows = db.execute(
         f"SELECT id FROM doc_qa WHERE id IN ({marks}) "
-        "AND list_contains(json_extract_string(sources, '$[*].path'), ?)",
-        [*ids, SUMMARY_PATH],
+        "AND list_has_any(json_extract_string(sources, '$[*].path'), ?::VARCHAR[])",
+        [*ids, list(DB_PATHS)],
     )
     return {r[0] for r in rows}
 
