@@ -21,6 +21,7 @@ from tests.fakes import FakeEmbedder
 
 NOW = datetime(2026, 11, 6, 3, 0, tzinfo=UTC)
 FIX = Path(__file__).resolve().parents[1] / "fixtures"
+D = "2026-11-05 "  # add_comment의 created_at(NOW-1일, UTC 03:00)을 서울 날짜로: 댓글 줄 앞 날짜(R7)
 
 
 def add_item(
@@ -234,9 +235,9 @@ def test_post_comments_without_author_names(db: Database) -> None:
     add_comment(db, "c5", "EXT1", "다른 플랫폼 같은 id", "x", platform="instagram")
     docs = {d.path: d.text for d in PostsSource(db, tz="Asia/Seoul").documents()}
     th = docs["posts/C1/threads"]
-    assert "## 댓글\n- 아직 안봤어요 → 답글: 천천히 보셔도 돼요!\n- 😢\n" in th
+    assert f"## 댓글\n- {D}아직 안봤어요 → 답글: 천천히 보셔도 돼요!\n- {D}😢\n" in th
     assert "광고 링크" not in th and "인스타 댓글" not in th and "다른 플랫폼" not in th
-    assert "- 인스타 댓글 → 답글: 고마워요" in docs["posts/C1/instagram"]
+    assert f"- {D}인스타 댓글 → 답글: 고마워요" in docs["posts/C1/instagram"]
     for text in docs.values():
         assert "누군가의이름" not in text and "author-id-123" not in text
     heads = {
@@ -330,7 +331,7 @@ def test_handles_and_author_name_are_scrubbed_from_comments_and_replies(db: Data
     doc = _platform_doc(db)
     assert "friend_99" not in doc.text and "other.person" not in doc.text
     assert "누군가의이름" not in doc.text
-    assert "- @… 이거 봐 @… → 답글: …님 고마워요! @…님도 반가워요" in doc.text
+    assert f"- {D}@… 이거 봐 @… → 답글: …님 고마워요! @…님도 반가워요" in doc.text
 
 
 def test_unclosed_code_fence_in_source_text_does_not_swallow_later_sections(db: Database) -> None:
@@ -375,7 +376,7 @@ def test_instagram_spam_kept_as_ignored_is_excluded(db: Database) -> None:
     )
     doc = _platform_doc(db)
     assert "광고 링크" not in doc.text
-    assert "- 정상 댓글(하루 한도)" in doc.text
+    assert f"- {D}정상 댓글(하루 한도)" in doc.text
 
 
 def test_only_replies_that_were_sent_are_attached(db: Database) -> None:
@@ -394,12 +395,16 @@ def test_only_replies_that_were_sent_are_attached(db: Database) -> None:
     add_comment(db, "c4", "EXT1", "전송 중 댓글", "전송 중 초안", status="replying")
     add_comment(db, "c5", "EXT1", "자동 답글 댓글", "자동으로 보낸 답글")
     doc = _platform_doc(db)
-    for line in ("- 금칙어 걸린 댓글\n", "- 처리 완료만 누른 댓글\n", "- 전송 중 댓글\n"):
+    for line in (
+        f"- {D}금칙어 걸린 댓글\n",
+        f"- {D}처리 완료만 누른 댓글\n",
+        f"- {D}전송 중 댓글\n",
+    ):
         assert line in doc.text  # 댓글 본문은 싣고 답글만 뺀다
     for draft in ("보내지 않은 초안", "남은 초안", "전송 중 초안"):
         assert draft not in doc.text
-    assert "- 사람이 답한 댓글 → 답글: 사람이 보낸 답글" in doc.text
-    assert "- 자동 답글 댓글 → 답글: 자동으로 보낸 답글" in doc.text
+    assert f"- {D}사람이 답한 댓글 → 답글: 사람이 보낸 답글" in doc.text
+    assert f"- {D}자동 답글 댓글 → 답글: 자동으로 보낸 답글" in doc.text
 
 
 def test_empty_external_id_does_not_match_empty_post_ids(db: Database) -> None:
@@ -494,3 +499,31 @@ def test_publication_links_only_published_with_url(db: Database) -> None:
         "C2": {"threads": "https://www.threads.com/@nonsleepmarketer/post/T2"},
     }
     assert repo.publication_links([]) == {}
+
+
+# ------------------------------------------------------------------ 댓글 줄 날짜(R7, ADR 0071)
+
+
+def test_comment_line_starts_with_local_date(db: Database) -> None:
+    add_post(db, "C1", "threads", ext="EXT1")
+    add_comment(db, "c1", "EXT1", "언제 달렸게요", "어제요")
+    assert f"## 댓글\n- {D}언제 달렸게요 → 답글: 어제요\n" in _platform_doc(db).text
+
+
+def test_comment_date_uses_configured_timezone_not_utc(db: Database) -> None:
+    """UTC 11-05 15:30은 서울 11-06 00:30: 날짜가 하루 넘어간다."""
+    add_post(db, "C1", "threads", ext="EXT1")
+    add_comment(db, "c1", "EXT1", "자정 넘어 단 댓글", None)
+    db.execute(
+        "UPDATE comments SET created_at = ? WHERE id = 'threads:c1'",
+        [to_db(datetime(2026, 11, 5, 15, 30, tzinfo=UTC))],
+    )
+    assert "- 2026-11-06 자정 넘어 단 댓글\n" in _platform_doc(db).text
+    utc = [d for d in PostsSource(db, tz="UTC").documents() if d.path.endswith("/threads")][0]
+    assert "- 2026-11-05 자정 넘어 단 댓글\n" in utc.text
+
+
+def test_comment_without_date_keeps_old_line_format(db: Database) -> None:
+    src = PostsSource(db, tz="Asia/Seoul")
+    md = src._markdown("threads", None, None, None, {}, [("날짜 없는 댓글", "답", "")])
+    assert "## 댓글\n- 날짜 없는 댓글 → 답글: 답\n" in md

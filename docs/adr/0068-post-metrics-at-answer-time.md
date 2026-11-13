@@ -70,3 +70,8 @@
 
 - ADR 0065 "다음 후보": 성과 지표 → 이 ADR로 함. 검토 사유(`contents.review_reason`) 출처 → 보류.
 - ADR 0058: 개정 2로 이 예외와 성과 줄을 적었다.
+
+## 개정 1(2026-11-13, R7): 최근 활동 조각과 경로 판정
+
+- 시간 질문("가장 최근 댓글", "어제 올린 글")에는 같은 방식으로 DB가 만든 "최근 활동" 조각 `posts/_recent`를 붙인다([ADR 0071](0071-recent-activity-for-time-questions.md)). 성과 요약과 함께 붙을 수 있다.
+- DB 조각 판정을 `h is summary`(객체 동일성)에서 `h.path in DB_PATHS`(`posts/_summary`, `posts/_recent`)로 바꿨다. 두 조각이 같이 붙어도 둘 다 `score: null`·`summary: true`다.

@@ -59,6 +59,12 @@ def _day(dt: datetime | None, tz: ZoneInfo) -> str:
     return d.astimezone(tz).date().isoformat() if d else "날짜 없음"
 
 
+def reply_sent(status: str | None, reply_external_id: str | None) -> bool:
+    """답글이 실제로 나갔나. `reply_text`에는 보내지 못한 초안(금칙어·전송 실패·요청 제한 복귀)도 남아서, 자동 답글이거나
+    사람이 처리하며 플랫폼 답글 id를 받은 것만 친다(R4). 우리 글 문서와 최근 활동 조각(R7)이 같이 쓴다."""
+    return status == "auto_replied" or (status == "resolved" and reply_external_id is not None)
+
+
 class CollectedSource:
     """관련성 기준 이상이고 최근 N일 안에 모은, 본문이 있는 수집 자료. 경로 "source_items/<id>"."""
 
@@ -164,7 +170,7 @@ class PostsSource:
     카드 문구는 플랫폼마다 같아 원고당 한 번만 `posts/<content_id>/cards`로 낸다(R4c, ADR 0065 개정 2). 두 플랫폼 문서에
     똑같이 넣으면 같은 글이 검색 상위를 두 자리씩 차지했다(R4b 측정).
 
-    댓글 작성자 이름·id는 넣지 않는다(검색 결과에 남의 이름이 뜨지 않게, ADR 0065).
+    댓글 작성자 이름·id는 넣지 않는다(검색 결과에 남의 이름이 뜨지 않게, ADR 0065). 댓글 줄 앞에는 단 날짜(R7).
     """
 
     kind = "posts"
@@ -180,21 +186,23 @@ class PostsSource:
             "FROM publications p JOIN contents c ON c.id = p.content_id "
             "WHERE p.status = 'published' ORDER BY p.content_id, p.platform"
         )
-        comments: dict[tuple[str, str], list[tuple[str, str | None]]] = {}
+        comments: dict[tuple[str, str], list[tuple[str, str | None, str]]] = {}
         # 숨긴 댓글과 스팸은 싣지 않는다. 인스타는 숨기기가 없어 스팸이 status='ignored'로 남는다(policy.decide_comment).
         # 같은 사람 하루 한도로 ignored된 정상 댓글은 싣는다
-        for platform, post, text, reply, author, status, reply_ext in self.db.execute(
-            "SELECT platform, post_external_id, text, reply_text, author_name, status, reply_external_id "
-            "FROM comments WHERE status <> 'hidden' AND coalesce(category, '') <> 'spam' "
+        for platform, post, text, reply, author, status, reply_ext, created in self.db.execute(
+            "SELECT platform, post_external_id, text, reply_text, author_name, status, reply_external_id, "
+            "created_at FROM comments WHERE status <> 'hidden' AND coalesce(category, '') <> 'spam' "
             "ORDER BY created_at, id"
         ):
-            # reply_text에는 보내지 못한 초안(금칙어·전송 실패·요청 제한 복귀)도 남는다. 실제로 나간 답글만 붙인다
-            sent = status == "auto_replied" or (status == "resolved" and reply_ext is not None)
-            # 작성자 이름은 지우는 데만 쓰고 싣지 않는다
+            # 실제로 나간 답글만 붙인다. 작성자 이름은 지우는 데만 쓰고 싣지 않는다.
+            # 날짜는 설정 시간대의 현지 날짜(DB는 UTC, R7): "그 댓글 언제 달렸어"에 답하려고
             comments.setdefault((platform, post), []).append(
                 (
                     scrub_people(text, author),
-                    scrub_people(reply, author) if reply and sent else None,
+                    scrub_people(reply, author)
+                    if reply and reply_sent(status, reply_ext)
+                    else None,
+                    _day(created, self.tz) if created else "",
                 )
             )
         out = []
@@ -219,7 +227,7 @@ class PostsSource:
         url: str | None,
         topic: str | None,
         gen: dict[str, Any],
-        comments: list[tuple[str, str | None]],
+        comments: list[tuple[str, str | None, str]],
     ) -> str:
         body = str(gen.get(_BODY_KEY.get(platform, "")) or "").strip()
         lines = [
@@ -234,8 +242,9 @@ class PostsSource:
             lines += [escape_headings(body), ""]
         if comments:
             lines.append("## 댓글")
-            for text, reply in comments:
-                item = f"- {one_line(text, 300)}"
+            for text, reply, day in comments:
+                # 날짜는 게시 줄과 같은 YYYY-MM-DD(해가 바뀌어도 헷갈리지 않게, ADR 0071). 없으면 예전 형식
+                item = f"- {day} {one_line(text, 300)}" if day else f"- {one_line(text, 300)}"
                 if reply:
                     item += f" → 답글: {one_line(reply, 300)}"
                 lines.append(item)
