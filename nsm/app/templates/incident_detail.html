@@ -2,7 +2,7 @@
 {% block content %}
 <p class="small"><a href="/incidents">← 장애</a></p>
 <h1>{{ f.platform|ko_platform }} · {{ labels[f.kind] }}</h1>
-<p class="muted small">{{ f.occurred_at|kst }} · {{ f.job|ko_job }} · 단계 {{ f.stage }}</p>
+<p class="muted small">{{ f.occurred_at|kst }} · {{ f.job|ko_job }} · 단계 <span title="{{ f.stage }}">{{ f.stage|ko_stage }}</span></p>
 
 {% if f.diagnosis %}
 <div class="notice info incident-diagnosis"><b>자동 진단(Claude)</b><br>{{ f.diagnosis }}<br><span class="muted small">원인 추정은 화면을 보고 짐작한 것입니다. 확인은 사람이 하고, 고치는 일도 사람이 합니다.</span></div>

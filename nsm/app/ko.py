@@ -5,7 +5,7 @@ DB·라우트·계약의 값은 그대로 두고 화면에서만 바꾼다. 모�
 
 from __future__ import annotations
 
-from nsm.engine.summary import describe, readable
+from nsm.engine.summary import describe, friendly_error, readable
 
 CONTENT_STATUS = {
     "draft": "작성 중",
@@ -40,6 +40,17 @@ COMMENT_STATUS = {
     "replying": "답글 보내는 중",
     "ignored": "넘김",
     "resolved": "처리 완료",
+}
+# 장애 기록의 단계 이름(record_incident의 stage). 원래 값은 화면에서 title로 남긴다(C45)
+STAGE = {
+    "publish": "게시",
+    "render": "카드 그리기",
+    "fetch_comments": "댓글 읽기",
+    "reply": "답글",
+    "health": "로그인 점검",
+    "metrics": "성과 읽기",
+    "login": "로그인",
+    "duration": "처리 시간",
 }
 COST_KIND = {"llm": "글 생성", "image": "배경 이미지", "classifier": "자료 분류·문서 색인"}
 
@@ -109,7 +120,10 @@ FILTERS = {
     "ko_category": lambda v: ko(v, COMMENT_CATEGORY),
     "ko_comment": lambda v: ko(v, COMMENT_STATUS),
     "ko_cost": lambda v: ko(v, COST_KIND),
+    "ko_stage": lambda v: ko(v, STAGE),
     "ko_job": lambda v: ALL_JOBS.get(str(v), (str(v), ""))[0],
     # 실행 기록 요약: {{ r.message|run_text(r.job) }}. 예전 형식(reply: new=0, ...)도 문장으로
     "run_text": lambda message, job: readable(str(job), message),
+    # 오류 한 줄에서 예외 이름·영어 플랫폼 접두어·증거 꼬리를 뗀다(C45)
+    "friendly_error": lambda v: friendly_error(str(v)) if v else "",
 }

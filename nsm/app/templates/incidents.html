@@ -21,7 +21,7 @@
 {% for f in failures %}<tr>
 <td class="small">{{ f.occurred_at|kst }}</td>
 <td>{{ f.platform|ko_platform }}</td>
-<td class="small">{{ f.job|ko_job }} · {{ f.stage }}</td>
+<td class="small">{{ f.job|ko_job }} · <span title="{{ f.stage }}">{{ f.stage|ko_stage }}</span></td>
 <td><span class="badge {{ 'bad' if f.kind == 'ui_changed' else ('warn' if f.kind in ('auth', 'config_or_bug') else 'gray') }}">{{ labels[f.kind] }}</span>{% if f.diagnosis %} <span class="badge gray" title="자동 진단 있음">진단</span>{% endif %}</td>
 <td class="small muted">{{ f.action }}</td>
 <td><a class="btn btn-sm" href="/incidents/{{ f.id }}">자세히</a></td>

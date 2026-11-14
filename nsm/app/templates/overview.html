@@ -40,7 +40,7 @@
       {% if failed_pubs %}
       <li><a class="todo-item bad" href="/review/{{ failed_pubs[0].content_id }}">
         <span class="todo-num">{{ failed_pubs|length }}</span>
-        <span class="todo-text"><b>게시 실패(다시 시도 예정)</b><span>{{ failed_pubs[0].last_error or (failed_pubs[0].platform|ko_platform ~ ': 원인 미상') }}{% if failed_pubs|length > 1 %} 외 {{ failed_pubs|length - 1 }}건{% endif %}</span></span>
+        <span class="todo-text"><b>게시 실패(다시 시도 예정)</b><span>{{ (failed_pubs[0].last_error|friendly_error) if failed_pubs[0].last_error else (failed_pubs[0].platform|ko_platform ~ ': 원인 미상') }}{% if failed_pubs|length > 1 %} 외 {{ failed_pubs|length - 1 }}건{% endif %}</span></span>
         <span class="todo-go btn btn-sm">보기</span></a></li>
       {% endif %}
       {% if paused %}
@@ -64,22 +64,22 @@
     {% if caught_up %}<p class="muted small caught-up" style="margin:8px 0 0">오늘 따라잡은 일: {{ caught_up|join('·') }} <span class="hint">예정 시각에 꺼져 있었거나 절전이어서 켠 뒤 돌렸습니다</span></p>{% endif %}
   </section>
 
-  <section>
-    <div class="stats">
+  <section class="today-side">
+    <div class="stats stats-row">
       <div class="stat"><span class="label">오늘 게시</span><b>{{ ov.published_today.values()|sum }}</b>
         <span class="muted small">{% for p, n in ov.published_today.items() %}{{ p|ko_platform }} {{ n }}{% if not loop.last %} · {% endif %}{% else %}아직 없음{% endfor %}</span></div>
       <div class="stat"><span class="label">게시 대기(승인됨)</span><b>{{ ov.approved_waiting }}</b><span class="muted small next-pubs">{% if next_pubs %}다음 게시 {% for n in next_pubs %}<span>{{ n.platform|ko_platform }} {% if n.at %}{{ n.at.strftime('%m/%d %H:%M') if n.at.date() != now_local.date() else n.at.strftime('%H:%M') }}{% else %}{{ n.reason }}{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}{% else %}활동 시간에 올라갑니다{% endif %}</span></div>
-      <div class="stat" style="grid-column: 1 / -1"><span class="label">오늘 비용</span>
+      <div class="stat"><span class="label">오늘 비용</span>
         <b>${{ '%.2f'|format(ov.cost_today) }} <span class="muted small" style="font-weight:600">/ 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></b>
         <div class="progress {{ 'bad' if cost_ratio >= 0.9 else ('warn' if cost_ratio >= 0.6 else '') }}"><i style="width: {{ (cost_ratio * 100)|round(1) }}%"></i></div>
         <span class="muted small">상한에 닿으면 그날은 원고 생성을 멈춥니다</span></div>
-      {% if not simple %}<div class="stat" style="grid-column: 1 / -1"><span class="label">쓸 수 있는 자료</span><b>{{ ov.sources_unused }}</b><span class="muted small">원고를 만들 때 씁니다</span></div>{% endif %}
+      {% if not simple %}<div class="stat"><span class="label">쓸 수 있는 자료</span><b>{{ ov.sources_unused }}</b><span class="muted small">원고를 만들 때 씁니다</span></div>{% endif %}
     </div>
-    <div class="panel" style="margin-top:12px">
+    <div class="panel switches" style="margin-top:12px">
       <div class="switch-row"><span><b>페르소나</b> <span class="badge {{ 'ok' if cfg.persona.enabled else 'gray' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</span><br><span class="muted small">끄면 수집·생성·게시·답글이 모두 멈춥니다</span></span>
         <form class="inline" method="post" action="/persona/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if cfg.persona.enabled else '켜기' }}</button></form></div>
       <div class="switch-row"><span><b>자동 게시</b> <span class="badge {{ 'ok' if auto_publish else 'gray' }}">{{ '켜짐' if auto_publish else '꺼짐' }}</span><br>
-        <span class="muted small">사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건{% if auto_publish and human_approved < cfg.settings.protect_count %} · 보호 모드(아직 모두 검토로){% endif %}</span></span>
+        <span class="muted small">{% if human_approved >= cfg.settings.protect_count %}보호 모드 끝(사람 승인 {{ human_approved }}건){% else %}보호 모드: 사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건(모두 검토로){% endif %}</span></span>
         <form class="inline" method="post" action="/auto-publish/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if auto_publish else '켜기' }}</button></form></div>
     </div>
   </section>

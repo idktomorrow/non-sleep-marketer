@@ -64,6 +64,23 @@
   function set() { document.documentElement.style.setProperty('--topbar-h', h.offsetHeight + 'px'); }
   set(); window.addEventListener('resize', set);
 })();
+// 옆으로 더 있는 메뉴·표: 오른쪽 끝을 옅게, 끝까지 밀면 뗀다. 휴대폰에서 표가 넘치면 첫 표 위에 한 번만 안내(C45)
+(function () {
+  var els = document.querySelectorAll('nav.menu, .table-wrap'), hinted = false;
+  function check(el) {
+    var more = el.scrollWidth - el.clientWidth - el.scrollLeft > 2;
+    el.classList.toggle('has-more', more);
+    if (more && !hinted && el.classList.contains('table-wrap') && window.matchMedia('(max-width: 720px)').matches) {
+      var p = document.createElement('p');
+      p.className = 'swipe-hint muted small'; p.textContent = '표가 넓어요. 옆으로 밀어 보세요 →';
+      el.parentNode.insertBefore(p, el); hinted = true;
+    }
+  }
+  function all() { els.forEach(check); }
+  els.forEach(function (el) { el.addEventListener('scroll', function () { check(el); }, { passive: true }); });
+  all(); window.addEventListener('resize', all);
+  document.addEventListener('toggle', all, true);  // 접힌 표를 펼쳤을 때
+})();
 </script>
 </body>
 </html>

@@ -54,6 +54,7 @@ from nsm.app.materials import (
     verdict,
 )
 from nsm.app.next_publish import next_publishes
+from nsm.app.perf_summary import summary_cards
 from nsm.app.run_view import RUN_WINDOW, build_rows, job_statuses
 from nsm.app.settings_form import (
     CARD_STYLE_NAMES,
@@ -741,6 +742,7 @@ def create_app(state: AppState) -> FastAPI:
 
     # ------------------------------------------------------------------ 자료 (M18)
 
+    MATERIALS_PAGE = 50  # 자료 화면 한 쪽(ADR 0072)
     MATERIAL_FILTERS = {
         "all": None,
         "naver": "naver",
@@ -750,11 +752,17 @@ def create_app(state: AppState) -> FastAPI:
     }
 
     @app.get("/materials", response_class=HTMLResponse)
-    def materials(request: Request, source: str = "all") -> HTMLResponse:
+    def materials(request: Request, source: str = "all", offset: int = 0) -> HTMLResponse:
         if source not in MATERIAL_FILTERS:
             source = "all"
+        offset = max(0, offset)
         threshold = state.get_config().settings.relevance_threshold
-        items = state.repo.list_source_items_view(MATERIAL_FILTERS[source], limit=150)
+        # 한 쪽에 MATERIALS_PAGE건(C45). 하나 더 읽어 다음 쪽이 있는지 안다
+        items = state.repo.list_source_items_view(
+            MATERIAL_FILTERS[source], limit=MATERIALS_PAGE + 1, offset=offset
+        )
+        has_more = len(items) > MATERIALS_PAGE
+        items = items[:MATERIALS_PAGE]
         for it in items:
             it["verdict"], it["tone"] = verdict(it, threshold)
             it["source_label"] = source_label(it["source"])
@@ -764,13 +772,19 @@ def create_app(state: AppState) -> FastAPI:
             if f["item"]:
                 f["verdict"], f["tone"] = verdict(f["item"], threshold)
         q = request.query_params
+        counts = state.repo.source_counts()
+        filt = MATERIAL_FILTERS[source]
         return page(
             request,
             "materials.html",
             items=items,
             files=files,
             source=source,
-            counts=state.repo.source_counts(),
+            counts=counts,
+            total=sum(counts.values()) if filt is None else counts.get(filt, 0),
+            offset=offset,
+            page_size=MATERIALS_PAGE,
+            has_more=has_more,
             uploads_dir=str(state.uploads_dir or ""),
             max_mb=MAX_FILE_BYTES // (1024 * 1024),
             uploaded=q.get("uploaded"),
@@ -1105,13 +1119,17 @@ def create_app(state: AppState) -> FastAPI:
     def performance(request: Request) -> HTMLResponse:
         now = state.clock.now()
         since = queries.default_since(now)
+        followers = queries.follower_series(state.repo.db, since, tz())
+        comment_stats = queries.comment_stats(state.repo.db, since)
+        costs = queries.costs_by_day(state.repo.db, now - timedelta(days=14), tz())
         return page(
             request,
             "performance.html",
             posts=queries.post_performance(state.repo.db),
-            followers=queries.follower_series(state.repo.db, since, tz()),
-            comment_stats=queries.comment_stats(state.repo.db, since),
-            costs=queries.costs_by_day(state.repo.db, now - timedelta(days=14), tz()),
+            followers=followers,
+            comment_stats=comment_stats,
+            costs=costs,
+            summary=summary_cards(followers, costs, comment_stats),
         )
 
     # ------------------------------------------------------------------ 장애(E2, ADR 0055)

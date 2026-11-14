@@ -103,7 +103,7 @@ def test_failed_publication_is_a_todo(make, clock) -> None:
         next_attempt_at=clock.now() + timedelta(minutes=15),
     )
     html = build()[0].get("/").text
-    assert "게시 실패" in html and "threads: 로그인 필요" in html and 'href="/review/c1"' in html
+    assert "게시 실패" in html and "스레드: 로그인 필요" in html and 'href="/review/c1"' in html
 
 
 def test_nothing_to_do_says_so(make) -> None:
