@@ -44,28 +44,35 @@ STOPPED = {
 
 
 def _shortfall(c: dict[str, Any]) -> str:
-    """목표에 못 미쳐 멈췄으면 "상한 3, 쓸 자료가 없어 멈춤". 예전 기록(target 없음)·목표 달성이면 빈 문자열."""
+    """목표에 못 미쳐 멈췄으면 "상한 3, 쓸 자료가 없어 멈춤". 예전 기록(target 없음)·목표 달성이면 빈 문자열.
+
+    견주는 값은 하루 누계(`made_today`)다. 앞선 실행이 만든 것이 있으면 "오늘 모두 2개/상한 3"처럼 누계를 같이 쓴다
+    (C46 리뷰: 이번 실행 1개만 보고 "3 중 1"로 읽지 않게).
+    """
     target, why = _n(c, "target"), STOPPED.get(str(c.get("stopped")))
-    if not target or not why or _n(c, "created") >= target:
+    if not target or not why:
         return ""
-    return f"상한 {target}, {why}"
+    created = _n(c, "created")
+    made = _n(c, "made_today") if "made_today" in c else created
+    if made >= target:
+        return ""
+    if why == STOPPED["no_material"] and _n(c, "material_skipped"):
+        why = f"생성 실패로 자료 {_n(c, 'material_skipped')}묶음을 건너뛴 뒤 {why}"
+    cap = f"오늘 모두 {made}개/상한 {target}" if made != created else f"상한 {target}"
+    return f"{cap}, {why}"
 
 
 def _generate(c: dict[str, Any]) -> list[str]:
     created, shortfall = _n(c, "created"), _shortfall(c)
-    if not created:
-        parts = ["새 원고 없음"]
-    else:
-        detail = [
-            f"{label} {_n(c, k)}개"
-            for k, label in (("pending_review", "검토 대기"), ("approved", "바로 승인"))
-            if _n(c, k)
-        ]
-        if shortfall:
-            detail = [", ".join(detail), shortfall] if detail else [shortfall]
-            parts = [f"원고 {created}개 만듦({SEP.join(detail)})"]
-        else:
-            parts = [f"원고 {created}개 만듦" + (f"({', '.join(detail)})" if detail else "")]
+    detail = ", ".join(
+        f"{label} {_n(c, k)}개"
+        for k, label in (("pending_review", "검토 대기"), ("approved", "바로 승인"))
+        if _n(c, k)
+    )
+    # 승인 상태 뒤에 상한과 멈춘 이유(C46). 하나도 못 만든 API 장애도 이유를 보인다(건너뜀이 아니라서)
+    inner = SEP.join(x for x in (detail, shortfall) if x)
+    head = f"원고 {created}개 만듦" if created else "새 원고 없음"
+    parts = [head + (f"({inner})" if inner else "")]
     if templates := c.get("templates"):
         parts.append("형식: " + ", ".join(TEMPLATES.get(t, str(t)) for t in templates))
     if _n(c, "regenerated"):

@@ -185,10 +185,14 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
             result.counts["stopped"] = "retry_later"
             break  # 네트워크·API 장애: 자료는 그대로 두고 다음 실행에 다시
         if cid == _SKIP_MATERIAL:
-            continue  # 이 자료 묶음은 버리고 다음 자료로
+            # 이 자료 묶음은 버리고 다음 자료로. 그러다 자료가 떨어지면 생성 실패로 버린 것도 같이 말한다(C46 리뷰)
+            result.counts["material_skipped"] = result.counts.get("material_skipped", 0) + 1
+            continue
         created.append(cid)
 
     result.counts["created"] = len(created)
+    # 하루 누계(C46 리뷰): 같은 날 앞선 실행이 만든 것까지. 목표와 견줄 값은 이번 실행 수가 아니라 이것
+    result.counts["made_today"] = made_today
     pending = [
         c for c in created if (x := ctx.repo.get_content(c)) and x.status == "pending_review"
     ]

@@ -8,6 +8,7 @@ from nsm.domain.models import Classification
 from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext
 from nsm.engine.generate import AUTO_PUBLISH_KEY, run_generate
+from nsm.ports import AdapterError
 from nsm.store.repo import Repository
 from tests.fakes import (
     FakeClassifier,
@@ -323,3 +324,31 @@ def test_api_outage_records_retry_later(ctx: JobContext) -> None:
 
     ctx.text_generator = Boom()
     assert run_generate(ctx).counts["stopped"] == "retry_later"
+
+
+def test_rejected_material_then_out_of_material_says_both(ctx: JobContext) -> None:
+    """둘째 자료 묶음을 Claude가 거절해 버린 뒤 자료가 떨어지면, 이유에 생성 실패로 건너뛴 것도 적는다(C46 리뷰)."""
+    _quotas(ctx, threads=3)
+
+    class SecondFails(FakeTextGenerator):
+        calls = 0
+
+        def generate_content(self, brief, persona, brand):
+            SecondFails.calls += 1
+            if SecondFails.calls == 2:
+                raise AdapterError("거절")
+            return super().generate_content(brief, persona, brand)
+
+    ctx.text_generator = SecondFails()
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1 and r.counts["material_skipped"] == 1
+    assert r.counts["made_today"] == 1
+    assert "생성 실패로 자료 1묶음을 건너뛴 뒤 쓸 자료가 없어 멈춤" in r.summary()
+
+
+def test_made_today_counts_earlier_runs(ctx: JobContext) -> None:
+    _quotas(ctx, threads=3)
+    run_generate(ctx, manual=True)  # 앞선 실행이 1건
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1 and r.counts["made_today"] == 2
+    assert "오늘 모두 2개/상한 3, 쓸 자료가 없어 멈춤" in r.summary()

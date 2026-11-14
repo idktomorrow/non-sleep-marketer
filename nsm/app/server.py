@@ -351,8 +351,9 @@ def create_app(state: AppState) -> FastAPI:
             failed_pubs=failed,
             first_run=not runs and state.repo.count_contents() == 0,
             cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
+            # 간단 모드는 이 카드를 숨기니 계산하지 않는다
             next_collect=next_collect_text(state.get_config(), now, tz())
-            if not ov["sources_unused"]
+            if not ov["sources_unused"] and ui_mode() != "simple"
             else None,
             next_pubs=next_pubs,
             now_local=local(now, tz()),

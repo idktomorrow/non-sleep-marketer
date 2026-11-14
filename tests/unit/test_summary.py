@@ -191,3 +191,20 @@ def test_generate_shortfall_with_review_and_no_status() -> None:
     )
     c = {"created": 1, "target": 3, "stopped": "no_material"}  # 승인 상태 수가 없을 때
     assert describe("generate", counts=c) == "원고 1개 만듦(상한 3, 쓸 자료가 없어 멈춤)"
+
+
+def test_generate_shortfall_uses_day_total_and_zero_made_outage() -> None:
+    """C46 리뷰: 목표와는 하루 누계를 견주고, 하나도 못 만든 API 장애도 이유를 보인다."""
+    c = {"created": 1, "approved": 1, "made_today": 2, "target": 3, "stopped": "no_material"}
+    assert (
+        describe("generate", counts=c)
+        == "원고 1개 만듦(바로 승인 1개 · 오늘 모두 2개/상한 3, 쓸 자료가 없어 멈춤)"
+    )
+    met = {"created": 1, "approved": 1, "made_today": 3, "target": 3, "stopped": "no_material"}
+    assert describe("generate", counts=met) == "원고 1개 만듦(바로 승인 1개)"
+    outage = {"created": 0, "made_today": 0, "target": 3, "stopped": "retry_later"}
+    assert (
+        describe("generate", counts=outage, errors=["생성 실패: Claude API가 바쁩니다"])
+        == "새 원고 없음(상한 3, API 장애로 다음 실행에 계속) · 오류 1건: 생성 실패: Claude API가 바쁩니다"
+    )
+    assert describe("generate", counts={"created": 0}) == "새 원고 없음"  # 예전 기록
