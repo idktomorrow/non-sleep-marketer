@@ -159,10 +159,13 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
     if manual:
         target = ctx.repo.count_contents_between(start, end) + 1
     created: list[str] = []
+    # 그날 목표와 멈춘 이유(C46): 목표에 못 미쳐 끝나도 실행 기록에서 이유를 알 수 있게
+    result.counts["target"] = target
     while True:
         made_today = ctx.repo.count_contents_between(start, end)
         if made_today >= target:
             result.skipped = "" if created else "오늘 생성 목표 달성"
+            result.counts["stopped"] = "target_met"
             break
         spent = ctx.repo.cost_between(start, end)
         if not under_cost_cap(spent, s.daily_cost_cap_usd):
@@ -170,13 +173,16 @@ def run_generate(ctx: JobContext, manual: bool = False) -> JobResult:
             ctx.notifier.notify("비용 상한 도달", msg, "warn")
             result.skipped = "" if created else "비용 상한"
             result.counts["cost_cap_hit"] = True
+            result.counts["stopped"] = "cost_cap"
             break
         material = _pick_material(ctx)
         if material is None:
             result.skipped = "" if created else "쓸 자료 없음(관련 자료 수집 필요)"
+            result.counts["stopped"] = "no_material"
             break
         cid = _make_one(ctx, material, made_today, now, result, manual=manual)
         if cid == _RETRY_LATER:
+            result.counts["stopped"] = "retry_later"
             break  # 네트워크·API 장애: 자료는 그대로 두고 다음 실행에 다시
         if cid == _SKIP_MATERIAL:
             continue  # 이 자료 묶음은 버리고 다음 자료로

@@ -35,8 +35,24 @@ def _collect(c: dict[str, Any]) -> list[str]:
     return parts
 
 
+# generate가 하루 목표 전에 멈춘 이유(C46). "target_met"(목표 달성)은 덧붙이지 않는다
+STOPPED = {
+    "no_material": "쓸 자료가 없어 멈춤",
+    "cost_cap": "비용 상한",
+    "retry_later": "API 장애로 다음 실행에 계속",
+}
+
+
+def _shortfall(c: dict[str, Any]) -> str:
+    """목표에 못 미쳐 멈췄으면 "상한 3, 쓸 자료가 없어 멈춤". 예전 기록(target 없음)·목표 달성이면 빈 문자열."""
+    target, why = _n(c, "target"), STOPPED.get(str(c.get("stopped")))
+    if not target or not why or _n(c, "created") >= target:
+        return ""
+    return f"상한 {target}, {why}"
+
+
 def _generate(c: dict[str, Any]) -> list[str]:
-    created = _n(c, "created")
+    created, shortfall = _n(c, "created"), _shortfall(c)
     if not created:
         parts = ["새 원고 없음"]
     else:
@@ -45,12 +61,16 @@ def _generate(c: dict[str, Any]) -> list[str]:
             for k, label in (("pending_review", "검토 대기"), ("approved", "바로 승인"))
             if _n(c, k)
         ]
-        parts = [f"원고 {created}개 만듦" + (f"({', '.join(detail)})" if detail else "")]
+        if shortfall:
+            detail = [", ".join(detail), shortfall] if detail else [shortfall]
+            parts = [f"원고 {created}개 만듦({SEP.join(detail)})"]
+        else:
+            parts = [f"원고 {created}개 만듦" + (f"({', '.join(detail)})" if detail else "")]
     if templates := c.get("templates"):
         parts.append("형식: " + ", ".join(TEMPLATES.get(t, str(t)) for t in templates))
     if _n(c, "regenerated"):
         parts.append(f"규칙에 걸려 다시 쓴 원고 {_n(c, 'regenerated')}개")
-    if c.get("cost_cap_hit"):
+    if c.get("cost_cap_hit") and not shortfall:  # 괄호 안에 이미 "비용 상한"을 적었으면 한 번만
         parts.append("오늘 비용 상한에 닿아 멈춤")
     return parts
 

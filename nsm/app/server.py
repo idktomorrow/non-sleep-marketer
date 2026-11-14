@@ -72,7 +72,7 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
-from nsm.engine.catch_up import caught_up_today
+from nsm.engine.catch_up import activity_slots, caught_up_today, next_daily
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
 from nsm.engine.publish import PAUSED_KEY, labeled_deck
@@ -173,6 +173,22 @@ def asset_url(name: str) -> str:
         hit = (key, hashlib.sha256(path.read_bytes()).hexdigest()[:10])
         _ASSET_CACHE[name] = hit
     return f"/static/{name}?v={hit[1]}"
+
+
+def next_collect_text(cfg: AppConfig, now: datetime, tz: str) -> str | None:
+    """쓸 수 있는 자료가 0일 때 카드 작은 글씨(C46): "다음 수집 00:20에 다시 모읍니다"(오늘 남은 회차) 또는
+    "다음 수집 내일 00:20에 다시 모읍니다". 페르소나가 꺼져 있거나(수집이 돌지 않음) 활동 시간을 못 읽으면
+    None(원래 문구)."""
+    if not cfg.persona.enabled:
+        return None
+    try:
+        nxt = next_daily(activity_slots(cfg)["collect"], now, tz)
+    except (IndexError, KeyError, AttributeError, ValueError):
+        return None
+    if nxt is None:
+        return None
+    slot, tomorrow = nxt
+    return f"다음 수집 {'내일 ' if tomorrow else ''}{slot.label}에 다시 모읍니다"
 
 
 LOOPBACK = frozenset({"127.0.0.1", "::1"})  # 실패 화면은 내 PC에서 연 대시보드에만(E2)
@@ -335,6 +351,9 @@ def create_app(state: AppState) -> FastAPI:
             failed_pubs=failed,
             first_run=not runs and state.repo.count_contents() == 0,
             cost_ratio=min(1.0, ov["cost_today"] / cap) if cap else 0.0,
+            next_collect=next_collect_text(state.get_config(), now, tz())
+            if not ov["sources_unused"]
+            else None,
             next_pubs=next_pubs,
             now_local=local(now, tz()),
             simple_jobs=[j for j in SIMPLE_JOBS if j in JOB_LABELS],
@@ -753,14 +772,18 @@ def create_app(state: AppState) -> FastAPI:
     }
 
     @app.get("/materials", response_class=HTMLResponse)
-    def materials(request: Request, source: str = "all", offset: int = 0) -> HTMLResponse:
+    def materials(request: Request, source: str = "all", offset: str = "0") -> HTMLResponse:
         if source not in MATERIAL_FILTERS:
             source = "all"
-        offset = min(max(0, offset), MATERIALS_MAX_OFFSET)  # 터무니없는 값이 DB까지 가지 않게
+        # 숫자가 아니면 첫 쪽(C46: 영문 422 JSON 대신), 음수는 0, 터무니없는 값은 DB까지 가지 않게
+        try:
+            at = min(max(0, int(offset)), MATERIALS_MAX_OFFSET)
+        except ValueError:
+            at = 0
         threshold = state.get_config().settings.relevance_threshold
         # 한 쪽에 MATERIALS_PAGE건(C45). 하나 더 읽어 다음 쪽이 있는지 안다
         items = state.repo.list_source_items_view(
-            MATERIAL_FILTERS[source], limit=MATERIALS_PAGE + 1, offset=offset
+            MATERIAL_FILTERS[source], limit=MATERIALS_PAGE + 1, offset=at
         )
         has_more = len(items) > MATERIALS_PAGE
         items = items[:MATERIALS_PAGE]
@@ -788,7 +811,7 @@ def create_app(state: AppState) -> FastAPI:
                 k: sum(counts.values()) if v is None else counts.get(v, 0)
                 for k, v in MATERIAL_FILTERS.items()
             },
-            offset=offset,
+            offset=at,
             page_size=MATERIALS_PAGE,
             has_more=has_more,
             uploads_dir=str(state.uploads_dir or ""),
