@@ -743,6 +743,7 @@ def create_app(state: AppState) -> FastAPI:
     # ------------------------------------------------------------------ 자료 (M18)
 
     MATERIALS_PAGE = 50  # 자료 화면 한 쪽(ADR 0072)
+    MATERIALS_MAX_OFFSET = 1_000_000
     MATERIAL_FILTERS = {
         "all": None,
         "naver": "naver",
@@ -755,7 +756,7 @@ def create_app(state: AppState) -> FastAPI:
     def materials(request: Request, source: str = "all", offset: int = 0) -> HTMLResponse:
         if source not in MATERIAL_FILTERS:
             source = "all"
-        offset = max(0, offset)
+        offset = min(max(0, offset), MATERIALS_MAX_OFFSET)  # 터무니없는 값이 DB까지 가지 않게
         threshold = state.get_config().settings.relevance_threshold
         # 한 쪽에 MATERIALS_PAGE건(C45). 하나 더 읽어 다음 쪽이 있는지 안다
         items = state.repo.list_source_items_view(
@@ -782,6 +783,11 @@ def create_app(state: AppState) -> FastAPI:
             source=source,
             counts=counts,
             total=sum(counts.values()) if filt is None else counts.get(filt, 0),
+            # 거르기 단추의 건수(제목 옆 전체 건수와 같은 MATERIAL_FILTERS로)
+            filter_counts={
+                k: sum(counts.values()) if v is None else counts.get(v, 0)
+                for k, v in MATERIAL_FILTERS.items()
+            },
             offset=offset,
             page_size=MATERIALS_PAGE,
             has_more=has_more,

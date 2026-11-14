@@ -12,6 +12,7 @@ import nsm.app.server as app_module
 from nsm.app.ko import FILTERS
 from nsm.app.perf_summary import followers_card, summary_cards
 from nsm.domain.models import AccountMetrics
+from nsm.engine.generate import AUTO_PUBLISH_KEY
 from nsm.engine.summary import describe, friendly_error, readable
 from tests.app.test_dashboard import env  # noqa: F401  같은 대시보드 픽스처
 from tests.fakes import load_comment_cases
@@ -42,6 +43,9 @@ def test_followers_card_without_old_value_has_no_change() -> None:
     out = followers_card([_f("threads", 3, 10), _f("threads", 0, 12)])
     assert out == [{"name": "스레드", "now": 12, "delta": None}]
     assert followers_card([]) == []
+    # 7~10일 전에 기록이 없고 29일 전만 있으면 "7일 전보다"로 쓰지 않는다
+    assert followers_card([_f("threads", 29, 5), _f("threads", 0, 12)])[0]["delta"] is None
+    assert followers_card([_f("threads", 10, 5), _f("threads", 0, 12)])[0]["delta"] == 7
 
 
 def test_summary_cards_zero_when_nothing() -> None:
@@ -127,6 +131,12 @@ def test_today_layout_and_stat_cards(env, mode) -> None:  # noqa: F811
 def test_protect_mode_text(env, monkeypatch) -> None:  # noqa: F811
     protect = env["holder"]["cfg"].settings.protect_count
     monkeypatch.setattr(env["repo"], "count_human_approved", lambda: 3)
+    html = env["client"].get("/").text  # 자동 게시 꺼짐: 보호 모드라고 하지 않는다
+    assert (
+        f"사람 승인 3/{protect}건(켜도 {protect}건까지는 검토로)" in html
+        and "보호 모드" not in html
+    )
+    env["repo"].set_setting(AUTO_PUBLISH_KEY, True)
     html = env["client"].get("/").text
     assert f"보호 모드: 사람 승인 3/{protect}건(모두 검토로)" in html and "보호 모드 끝" not in html
 
@@ -160,10 +170,21 @@ def test_friendly_error(raw: str, want: str) -> None:
     assert friendly_error(raw) == want
 
 
-def test_describe_and_old_records_use_friendly_error() -> None:
+def test_engine_prefixed_errors_are_cleaned() -> None:
+    """엔진이 실제로 남기는 모양: 앞에 "<플랫폼> … 실패: "가 붙고 안쪽에 예외 이름·플랫폼이 또 있다."""
+    raw = "threads 게시 실패: PlatformError: threads: 게시를 확인하지 못함 (증거: threads-1)"
+    assert friendly_error(raw) == "스레드 게시 실패: 게시를 확인하지 못함"
+    assert friendly_error("instagram 댓글 조회 실패: 끊김") == "인스타그램 댓글 조회 실패: 끊김"
+    assert friendly_error("threadsy: x") == "threadsy: x"  # 낱말 경계
+
+
+def test_stored_text_keeps_raw_error_and_display_cleans() -> None:
     err = "PlatformError: threads: 게시를 확인하지 못함 (증거: threads-1)"
     text = describe("publish", counts={}, errors=[err])
-    assert text.endswith("오류 1건: 스레드: 게시를 확인하지 못함") and "증거" not in text
+    assert (
+        "PlatformError" in text and "증거: threads-1" in text
+    )  # 실행 기록·로그에 남는 글은 그대로
+    assert readable("publish", text).endswith("오류 1건: 스레드: 게시를 확인하지 못함")
     # C45 전에 문장 형식으로 남은 기록
     old = "게시 0건 · 오류 2건: PlatformError: instagram: 이미지 없음 (증거: ig-2)"
     assert readable("publish", old) == "게시 0건 · 오류 2건: 인스타그램: 이미지 없음"

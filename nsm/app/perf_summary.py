@@ -12,6 +12,7 @@ from nsm.engine.summary import PLATFORMS
 
 _ORDER = ("instagram", "threads")
 FOLLOWER_DAYS = 7  # "7일 전보다"
+FOLLOWER_SLACK = 3  # 7일 전 기록이 없으면 그 전 3일 안의 가장 가까운 날까지만(더 오래된 값은 "7일" 변화가 아니다)
 
 
 def _key(platform: str) -> tuple[int, str]:
@@ -19,9 +20,10 @@ def _key(platform: str) -> tuple[int, str]:
 
 
 def followers_card(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """팔로워 날짜별 행 → 플랫폼마다 {name, now, delta}. delta는 7일 전(그날 기록이 없으면 그 전 가장 가까운 날)과의 차.
+    """팔로워 날짜별 행 → 플랫폼마다 {name, now, delta}. delta는 7일 전과의 차.
 
-    7일 전이나 그 전 기록이 없으면 delta는 None(화면에서 변화를 뺀다).
+    7일 전 기록이 없으면 그 전 3일(8~10일 전) 안의 가장 가까운 날과 비교한다. 거기에도 없으면 delta는 None
+    (화면에서 변화를 뺀다).
     """
     by_pl: dict[str, list[tuple[date, int]]] = {}
     for r in rows:
@@ -32,7 +34,8 @@ def followers_card(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for pl in sorted(by_pl, key=_key):
         series = sorted(by_pl[pl])
         last_day, now = series[-1]
-        before = [n for d, n in series if d <= last_day - timedelta(days=FOLLOWER_DAYS)]
+        oldest = last_day - timedelta(days=FOLLOWER_DAYS + FOLLOWER_SLACK)
+        before = [n for d, n in series if oldest <= d <= last_day - timedelta(days=FOLLOWER_DAYS)]
         out.append(
             {
                 "name": PLATFORMS.get(pl, pl),

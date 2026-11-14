@@ -59,6 +59,13 @@ def test_list_then_paragraph_closes_list_and_ol_start_kept() -> None:
     assert out == '<ul><li>하나</li></ul><p>끝 문장</p><ol start="3"><li>셋째부터</li></ol>'
 
 
+def test_indented_continuation_stays_in_item() -> None:
+    out = str(report_html("1. 첫째\n   (이어지는 줄)\n2. 둘째"))
+    assert (
+        out == "<ol><li>첫째<br>(이어지는 줄)</li><li>둘째</li></ol>"
+    )  # 번호가 다시 시작하지 않는다
+
+
 def test_empty_body() -> None:
     assert str(report_html("")) == "" and str(report_html(None)) == ""
     assert str(report_html("\n\n  \n")) == ""

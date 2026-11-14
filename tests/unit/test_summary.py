@@ -94,7 +94,7 @@ def test_skipped_and_errors() -> None:
         (
             "reply",
             "reply: new=0, auto_replied=0, hidden=0, escalated=0, ignored=0 / 오류 1건: instagram 댓글 조회 실패: instagram 로그인 필요: 로그인돼 있지 않음",
-            "새 댓글 없음 · 오류 1건: instagram 댓글 조회 실패: instagram 로그인 필요: 로그인돼 있지 않음",
+            "새 댓글 없음 · 오류 1건: 인스타그램 댓글 조회 실패: instagram 로그인 필요: 로그인돼 있지 않음",
         ),
         ("health", "health: paused=[]", "로그인 정상"),
         ("publish", "publish: 건너뜀 (게시 시간 밖)", "건너뜀: 게시 시간 밖"),

@@ -5,7 +5,7 @@ DB·라우트·계약의 값은 그대로 두고 화면에서만 바꾼다. 모�
 
 from __future__ import annotations
 
-from nsm.engine.summary import describe, friendly_error, readable
+from nsm.engine.summary import describe, friendly_error, readable, readable_error_tail
 
 CONTENT_STATUS = {
     "draft": "작성 중",
@@ -102,7 +102,7 @@ def result_text(result: object) -> str:
         counts,
         getattr(result, "errors", None) or [],
     )
-    return text[:300]
+    return readable_error_tail(text)[:300]
 
 
 def ko(value: object, table: dict[str, str]) -> str:

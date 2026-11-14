@@ -219,26 +219,38 @@ def describe(
             parts.extend(map(str, extra))
     text = SEP.join(p for p in parts if p) or "바뀐 것 없음"
     if errors:
-        text += f"{SEP}오류 {len(errors)}건: {friendly_error(errors[0])}"
+        text += f"{SEP}오류 {len(errors)}건: {errors[0]}"
     return text
 
 
-# 오류 문자열 앞의 예외 클래스("PlatformError: ")·플랫폼 이름("threads: ")과 꼬리의 "(증거: …)"(C45)
-_EXC = re.compile(r"^(?:[A-Z][A-Za-z0-9]*(?:Error|Exception|Timeout|Exceeded)): ")
-_PLATFORM = re.compile(rf"^({'|'.join(PLATFORMS)}): ")
+# 오류 문자열의 예외 클래스("PlatformError: ")·영어 플랫폼 이름("threads")·꼬리의 "(증거: …)"(C45).
+# 엔진은 "threads 게시 실패: PlatformError: threads: …"처럼 앞에 말을 붙이기도 해서, 맨 앞과 ": " 뒤를 모두 본다
+_EXC = re.compile(r"(?:^|(?<=: ))[A-Z][A-Za-z0-9]*(?:Error|Exception|Timeout|Exceeded): ")
+_PL = "|".join(PLATFORMS)
+_PLATFORM = re.compile(rf"^({_PL})\b")
+_INNER_PLATFORM = re.compile(rf"(?<=: )(?:{_PL}): ")
 _EVIDENCE = re.compile(r"\s*\(증거: [^()]*\)")
 _ERR_TAIL = re.compile(rf"({re.escape(SEP)}오류 \d+건: )(.*)$", re.S)
 
 
 def friendly_error(err: str) -> str:
-    """ "PlatformError: threads: 게시를 확인하지 못함(…) (증거: threads-2026…)" → "스레드: 게시를 확인하지 못함(…)".
+    """화면용 오류 한 줄. 저장·로그 글은 그대로 두고 보여 줄 때만 쓴다(증거 id·예외 이름은 기록에 남는다).
 
-    증거 id는 장애 화면 "자세히"에 있으니 실행 기록 줄에서는 뺀다. 모르는 모양은 그대로 둔다.
+    - "PlatformError: threads: 게시를 확인하지 못함(…) (증거: threads-2026…)" → "스레드: 게시를 확인하지 못함(…)"
+    - "threads 게시 실패: PlatformError: threads: 끊김" → "스레드 게시 실패: 끊김"
+    증거 id는 장애 화면 "자세히"에 있다. 모르는 모양은 그대로 둔다.
     """
     text = _EVIDENCE.sub("", _EXC.sub("", str(err).strip()))
     if m := _PLATFORM.match(text):
-        text = f"{PLATFORMS[m.group(1)]}: {text[m.end() :]}"
+        text = PLATFORMS[m.group(1)] + text[m.end() :]
+        # 앞에서 이미 플랫폼을 말했으면 안쪽 "threads: "는 뺀다
+        text = _INNER_PLATFORM.sub("", text)
     return text
+
+
+def readable_error_tail(text: str) -> str:
+    """ "… · 오류 n건: <오류>" 줄의 오류 부분만 friendly_error로(화면용)."""
+    return _ERR_TAIL.sub(lambda e: e.group(1) + friendly_error(e.group(2)), text, count=1)
 
 
 # 예전 형식: "reply: new=0, auto_replied=0, rate_limited=['…'] / 오류 1건: …" 또는 "publish: 건너뜀 (…)"
@@ -249,13 +261,16 @@ _PAIR = re.compile(r"(\w+)=(.*?)(?=, \w+=|$)", re.S)
 
 
 def readable(job: str, message: str | None) -> str:
-    """실행 기록 한 줄을 화면용으로. 예전 형식이면 새 문장으로 바꾸고, 아니면 그대로."""
+    """실행 기록 한 줄을 화면용으로. 예전 형식이면 새 문장으로 바꾸고, 오류 꼬리는 사람 말로(C45)."""
     if not message:
         return ""
+    return readable_error_tail(_readable(job, message))
+
+
+def _readable(job: str, message: str) -> str:
     m = _LEGACY.match(message)
     if not m or m["job"] != job:
-        # 이미 문장 형식으로 남은 줄도 오류 꼬리만 사람 말로(C45 전 기록)
-        return _ERR_TAIL.sub(lambda e: e.group(1) + friendly_error(e.group(2)), message, count=1)
+        return message
     body = m["body"]
     errors = [m["err"]] * int(m["n"]) if m["err"] else []
     if body.startswith("건너뜀 (") and body.endswith(")"):

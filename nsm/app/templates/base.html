@@ -66,17 +66,20 @@
 })();
 // 옆으로 더 있는 메뉴·표: 오른쪽 끝을 옅게, 끝까지 밀면 뗀다. 휴대폰에서 표가 넘치면 첫 표 위에 한 번만 안내(C45)
 (function () {
-  var els = document.querySelectorAll('nav.menu, .table-wrap'), hinted = false;
-  function check(el) {
-    var more = el.scrollWidth - el.clientWidth - el.scrollLeft > 2;
-    el.classList.toggle('has-more', more);
-    if (more && !hinted && el.classList.contains('table-wrap') && window.matchMedia('(max-width: 720px)').matches) {
-      var p = document.createElement('p');
-      p.className = 'swipe-hint muted small'; p.textContent = '표가 넓어요. 옆으로 밀어 보세요 →';
-      el.parentNode.insertBefore(p, el); hinted = true;
+  var els = document.querySelectorAll('nav.menu, .table-wrap'), hint = null;
+  function check(el) { el.classList.toggle('has-more', el.scrollWidth - el.clientWidth - el.scrollLeft > 2); }
+  function all() {
+    els.forEach(check);
+    // 안내는 넘치는 첫 표 위에 하나만. 넘치는 표가 없거나 휴대폰 폭이 아니면 숨긴다(돌리거나 창을 넓힐 때)
+    var first = null;
+    if (window.matchMedia('(max-width: 720px)').matches) {
+      document.querySelectorAll('.table-wrap').forEach(function (w) { if (!first && w.scrollWidth - w.clientWidth > 2) first = w; });
     }
+    if (!first) { if (hint) hint.hidden = true; return; }
+    if (!hint) { hint = document.createElement('p'); hint.className = 'swipe-hint muted small'; hint.textContent = '표가 넓어요. 옆으로 밀어 보세요 →'; }
+    if (hint.nextElementSibling !== first) first.parentNode.insertBefore(hint, first);
+    hint.hidden = false;
   }
-  function all() { els.forEach(check); }
   els.forEach(function (el) { el.addEventListener('scroll', function () { check(el); }, { passive: true }); });
   all(); window.addEventListener('resize', all);
   document.addEventListener('toggle', all, true);  // 접힌 표를 펼쳤을 때

@@ -267,4 +267,6 @@ def test_materials_offset_past_end_and_bad_values(menv) -> None:
     html = menv["client"].get("/materials?offset=5000").text
     assert "이 쪽에는 자료가 없습니다" in html
     assert menv["client"].get("/materials?offset=-3").status_code == 200  # 0으로 본다
+    huge = menv["client"].get("/materials?offset=99999999999999999999")  # DB까지 가지 않게 상한
+    assert huge.status_code == 200 and "이 쪽에는 자료가 없습니다" in huge.text
     assert "더 보기" not in menv["client"].get("/materials?source=trends").text

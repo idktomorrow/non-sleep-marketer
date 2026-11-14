@@ -64,7 +64,7 @@
     {% if caught_up %}<p class="muted small caught-up" style="margin:8px 0 0">오늘 따라잡은 일: {{ caught_up|join('·') }} <span class="hint">예정 시각에 꺼져 있었거나 절전이어서 켠 뒤 돌렸습니다</span></p>{% endif %}
   </section>
 
-  <section class="today-side">
+  <section>
     <div class="stats stats-row">
       <div class="stat"><span class="label">오늘 게시</span><b>{{ ov.published_today.values()|sum }}</b>
         <span class="muted small">{% for p, n in ov.published_today.items() %}{{ p|ko_platform }} {{ n }}{% if not loop.last %} · {% endif %}{% else %}아직 없음{% endfor %}</span></div>
@@ -79,7 +79,7 @@
       <div class="switch-row"><span><b>페르소나</b> <span class="badge {{ 'ok' if cfg.persona.enabled else 'gray' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</span><br><span class="muted small">끄면 수집·생성·게시·답글이 모두 멈춥니다</span></span>
         <form class="inline" method="post" action="/persona/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if cfg.persona.enabled else '켜기' }}</button></form></div>
       <div class="switch-row"><span><b>자동 게시</b> <span class="badge {{ 'ok' if auto_publish else 'gray' }}">{{ '켜짐' if auto_publish else '꺼짐' }}</span><br>
-        <span class="muted small">{% if human_approved >= cfg.settings.protect_count %}보호 모드 끝(사람 승인 {{ human_approved }}건){% else %}보호 모드: 사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건(모두 검토로){% endif %}</span></span>
+        <span class="muted small">{% if human_approved >= cfg.settings.protect_count %}보호 모드 끝(사람 승인 {{ human_approved }}건){% elif auto_publish %}보호 모드: 사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건(모두 검토로){% else %}사람 승인 {{ human_approved }}/{{ cfg.settings.protect_count }}건(켜도 {{ cfg.settings.protect_count }}건까지는 검토로){% endif %}</span></span>
         <form class="inline" method="post" action="/auto-publish/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn-sm">{{ '끄기' if auto_publish else '켜기' }}</button></form></div>
     </div>
   </section>

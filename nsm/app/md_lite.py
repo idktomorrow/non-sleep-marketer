@@ -66,6 +66,9 @@ def report_html(text: str | None) -> Markup:
                 out.append("</li><li>")
             out.append(_inline(m.group(4)))
             continue
+        if stack and line[:1] in " \t":  # 목록 안에서 들여쓴 이어지는 줄은 지금 항목에 붙인다
+            out.append(f"<br>{_inline(line)}")
+            continue
         close_lists()
         para.append(_inline(line))
     close_para()
