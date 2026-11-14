@@ -24,11 +24,11 @@
 
 <h2>최근 댓글</h2>
 {% if recent %}
-<div class="table-wrap"><table><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>처리</th><th>답글</th></tr>
-{% for s in recent %}<tr><td class="small">{{ s.comment.created_at|kst }}</td><td>{{ s.comment.platform|ko_platform }}</td><td>{{ s.comment.author_name }}</td>
-<td style="min-width:220px">{{ s.comment.text }}</td>
-<td><span class="badge {{ 'warn' if s.status == 'escalated' else ('ok' if s.status in ('auto_replied', 'resolved') else 'gray') }}">{{ s.status|ko_comment }}</span></td>
-<td class="small" style="min-width:160px">{% if s.status in ('auto_replied', 'resolved', 'escalated', 'replying') %}{{ s.reply_text or '' }}{% endif %}{% if s.status in ('ignored', 'hidden', 'escalated') and s.reason %}<span class="muted">{{ s.reason }}</span>{% endif %}</td></tr>{% endfor %}
+<div class="table-wrap"><table class="stack"><thead><tr><th>시각</th><th>플랫폼</th><th>작성자</th><th>댓글</th><th>처리</th><th>답글</th></tr></thead>
+<tbody>{% for s in recent %}<tr><td class="small" data-label="시각">{{ s.comment.created_at|kst }}</td><td data-label="플랫폼">{{ s.comment.platform|ko_platform }}</td><td data-label="작성자">{{ s.comment.author_name }}</td>
+<td class="wide" data-label="댓글">{{ s.comment.text }}</td>
+<td data-label="처리"><span class="badge {{ 'warn' if s.status == 'escalated' else ('ok' if s.status in ('auto_replied', 'resolved') else 'gray') }}">{{ s.status|ko_comment }}</span></td>
+<td class="small mid" data-label="답글">{% if s.status in ('auto_replied', 'resolved', 'escalated', 'replying') %}{{ s.reply_text or '' }}{% endif %}{% if s.status in ('ignored', 'hidden', 'escalated') and s.reason %}<span class="muted">{{ s.reason }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p class="muted">아직 댓글이 없습니다.</p>{% endif %}
 {% endblock %}

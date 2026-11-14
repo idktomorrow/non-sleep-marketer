@@ -1278,9 +1278,11 @@ class Repository:
     # ------------------------------------------------------------ 자료 화면 (M18)
 
     def list_source_items_view(
-        self, source: str | None = None, limit: int = 100
+        self, source: str | None = None, limit: int = 100, offset: int = 0
     ) -> list[dict[str, Any]]:
-        """자료 화면용: 자료와 관련성 판정(방법 포함), 주제, 쓰인 원고. source는 'naver'·'upload'·접두어."""
+        """자료 화면용: 자료와 관련성 판정(방법 포함), 주제, 쓰인 원고. source는 'naver'·'upload'·접두어.
+
+        offset은 자료 화면의 "더 보기"(50건씩, C45)가 쓴다."""
         where, params = "", []
         if source:
             where = "WHERE s.source = ? OR s.source LIKE ?"
@@ -1293,8 +1295,8 @@ class Repository:
             "         arg_max(classifier, created_at) AS classifier "
             "  FROM classifications WHERE target_type = 'source_item' AND kind = 'relevance' "
             "  GROUP BY target_id) c ON c.target_id = s.id "
-            f"{where} ORDER BY s.collected_at DESC, s.rowid DESC LIMIT ?",
-            [*params, limit],
+            f"{where} ORDER BY s.collected_at DESC, s.rowid DESC LIMIT ? OFFSET ?",
+            [*params, limit, max(0, offset)],
         )
         return [
             {

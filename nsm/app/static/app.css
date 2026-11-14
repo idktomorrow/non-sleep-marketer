@@ -87,7 +87,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; paddin
 @media (max-width: 640px) { .job-status .col-every { display: none; } }
 
 /* ---------------------------------------------------------------- 개요 */
-.today { display: grid; gap: 12px; grid-template-columns: 1.25fr 1fr; align-items: start; }
+.today { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); align-items: start; }  /* 할 일 칸 가로 전체, 숫자 카드는 그 아래 한 줄(C45) */
 .todo h2 { margin-top: 0; }
 .todo-list { list-style: none; margin: 0; padding: 0; }
 .todo-item { display: flex; align-items: center; gap: 14px; padding: 14px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--fg); }
@@ -229,7 +229,6 @@ label.check .hint { flex-basis: 100%; color: var(--muted); }
 
 /* ---------------------------------------------------------------- 좁은 화면 */
 @media (max-width: 860px) {
-  .today { grid-template-columns: 1fr; }
   .review-grid { grid-template-columns: 1fr; }
   .cards-col { position: static; }
   .cardstack { display: flex; overflow-x: auto; max-height: none; }
@@ -320,4 +319,53 @@ button.chip:hover { border-color: var(--accent); }
 .eval-section[open] > summary { margin-bottom: 8px; }
 @media (prefers-reduced-motion: reduce) {
   .ask-sources *, .recent-card, .chip, .chip-radio span { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* 화면 정리 2차(C45, ADR 0072). 새 색 없이 기존 토큰만 */
+/* 주간 리포트: 변환한 마크다운(md_lite) */
+.report { max-width: 820px; line-height: 1.7; }
+.report h2 { font-size: 20px; margin: 0 0 12px; }
+.report h3 { font-size: 16px; margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.report h4 { font-size: 15px; margin: 16px 0 4px; }
+.report ul, .report ol { margin: 4px 0 8px; padding-left: 22px; }
+.report li { margin: 2px 0; }
+.report li > ul, .report li > ol { margin: 2px 0 4px; color: var(--muted); font-size: 14px; }
+.report strong { font-weight: 700; }
+/* 오늘·성과: 숫자 카드는 한 줄(데스크톱 4칸, 휴대폰 2칸), 오늘의 스위치는 그 다음에 나란히 */
+.stats-row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.switches { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; padding-top: 8px; padding-bottom: 8px; }
+.switches .switch-row { border-bottom: 0; }
+.perf-summary { margin-bottom: 8px; }
+.perf-summary .stat b { font-size: 18px; line-height: 1.35; margin-top: 2px; }
+.nowrap { white-space: nowrap; }
+/* 접어 둔 표(성과: 날짜별 팔로워·비용) */
+details.fold > summary { font-weight: 600; color: var(--muted); width: fit-content; }
+details.fold > summary .hint { font-weight: 400; font-size: 13px; }
+details.fold[open] > summary { margin-bottom: 6px; }
+/* 설정 절 바로가기 */
+.jump { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 4px 0 8px; }
+.jump a { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); text-decoration: none; font-weight: 600; }
+.jump a:hover { border-color: var(--accent); }
+h2[id] { scroll-margin-top: calc(var(--topbar-h, 92px) + 12px); }
+.pager { margin: 10px 0 4px; }
+td.wide { min-width: 220px; } td.mid { min-width: 160px; }
+/* 옆으로 더 있는 메뉴·표: 오른쪽 끝을 옅게(JS가 끝까지 밀면 .has-more를 뗀다) */
+nav.menu.has-more, .table-wrap.has-more { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.swipe-hint { margin: 0 0 4px; }
+@media (max-width: 520px) {
+  .stats-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .stats-row > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .switches { grid-template-columns: minmax(0, 1fr); }
+  .switches .switch-row + .switch-row { border-top: 1px solid var(--line); }
+}
+/* 휴대폰에서 행을 카드처럼 세로로(댓글·실행 기록·게시물별 성과) */
+@media (max-width: 720px) {
+  .table-wrap:has(> table.stack) { overflow: visible; background: none; border: 0; }
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: 100%; }
+  table.stack thead { display: none; }
+  table.stack tr { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px; }
+  table.stack td { border: 0; padding: 3px 0 3px 84px; min-width: 0; position: relative; text-align: left; overflow-wrap: anywhere; }
+  table.stack td::before { content: attr(data-label); position: absolute; left: 0; top: 5px; width: 76px; color: var(--muted); font-size: 12px; font-weight: 600; }
+  table.stack td:empty { display: none; }
+  table.stack td.num { text-align: left; }
 }

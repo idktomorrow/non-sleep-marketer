@@ -32,10 +32,10 @@
 </table></div>
 {% else %}<p class="muted">올린 파일이 없습니다.</p>{% endif %}
 
-<h2>모은 자료</h2>
+<h2 id="items">모은 자료 <span class="hint">{{ total }}건</span></h2>
 <div class="actions small" style="margin-bottom:8px">
 {% for key, label in [("all", "전체"), ("naver", "네이버"), ("gnews", "구글 뉴스"), ("upload", "올린 파일"), ("trends", "구글 트렌드")] %}
-<a class="btn btn-sm {{ 'btn-primary' if source == key else '' }}" href="/materials?source={{ key }}">{{ label }}{% set n = counts.get({"all": "", "naver": "naver", "gnews": "google_news", "upload": "upload", "trends": "google_trends"}[key]) %}{% if key == 'all' %} {{ counts.values()|sum }}{% elif n %} {{ n }}{% endif %}</a>
+<a class="btn btn-sm {{ 'btn-primary' if source == key else '' }}" href="/materials?source={{ key }}">{{ label }}{% set n = filter_counts.get(key, 0) %}{% if key == 'all' or n %} {{ n }}{% endif %}</a>
 {% endfor %}
 </div>
 {% if items %}
@@ -49,6 +49,12 @@
 <td class="small">{% if it.used_in %}<a href="/review/{{ it.used_in }}">쓰인 원고</a>{% endif %}</td>
 </tr>{% endfor %}
 </table></div>
-<p class="muted small">최근 150개까지 보여 줍니다. "관련 있음" 점수가 {{ "%.1f"|format(cfg.settings.relevance_threshold) }} 이상이고 아직 쓰이지 않은 자료가 "오늘" 화면의 "쓸 수 있는 자료"입니다.</p>
+<div class="actions pager small">
+<span class="muted">{{ offset + 1 }}~{{ offset + items|length }}번째 / {{ total }}건</span>
+{% if offset > 0 %}<a class="btn btn-sm" href="/materials?source={{ source }}{% if offset - page_size > 0 %}&amp;offset={{ offset - page_size }}{% endif %}#items">이전 {{ page_size }}건</a>{% endif %}
+{% if has_more %}<a class="btn btn-sm" href="/materials?source={{ source }}&amp;offset={{ offset + page_size }}#items">더 보기(다음 {{ page_size }}건)</a>{% endif %}
+</div>
+<p class="muted small">새로 모은 자료부터 {{ page_size }}건씩 보여 줍니다. "관련 있음" 점수가 {{ "%.1f"|format(cfg.settings.relevance_threshold) }} 이상이고 아직 쓰이지 않은 자료가 "오늘" 화면의 "쓸 수 있는 자료"입니다.</p>
+{% elif offset %}<p class="muted">이 쪽에는 자료가 없습니다. <a href="/materials?source={{ source }}#items">처음으로</a></p>
 {% else %}<p class="muted">모은 자료가 없습니다.</p>{% endif %}
 {% endblock %}

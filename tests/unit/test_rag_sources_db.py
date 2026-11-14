@@ -346,7 +346,7 @@ def test_unclosed_code_fence_in_source_text_does_not_swallow_later_sections(db: 
     assert {c.heading_path for c in cards} == {"우리 글 > 하치와레 이름 뜻 > 카드 문구"}
     add_item(db, "A", text="기사\n~~~\n# 제목처럼 보이는 줄")
     [doc] = _collected(db).documents()
-    assert "\~~~" in doc.text and "\# 제목처럼" in doc.text
+    assert r"\~~~" in doc.text and r"\# 제목처럼" in doc.text
 
 
 # ------------------------------------------------------------------ 댓글·답글 경계: 스팸, 보내지 않은 초안, 빈 글 id

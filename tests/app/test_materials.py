@@ -214,3 +214,59 @@ def test_long_preview_is_cut_with_ellipsis(menv) -> None:
     r = _upload(menv, "줄 많은 공지.png", PNG)
     html = menv["client"].get(r.headers["location"]).text
     assert "짧은 줄 짧은 줄" in html and "…”" not in html
+
+
+# ------------------------------------------------------------------ 50건씩 보기(C45)
+
+
+def _many(repo, clock, n: int) -> None:
+    from datetime import timedelta
+
+    from nsm.domain.models import SourceItem
+
+    base = clock.now()
+    for i in range(n):
+        repo.insert_source_item(
+            SourceItem(
+                id=f"many-{i:03d}",
+                source="naver",
+                url=f"https://example.com/{i}",
+                title=f"예시 자료 {i:03d}",
+                text="본문",
+                collected_at=base + timedelta(minutes=i),  # 큰 번호가 최신
+                url_hash=f"h{i:03d}",
+            )
+        )
+
+
+def test_materials_page_shows_50_and_more_link(menv, clock) -> None:
+    repo = menv["repo"]
+    total = sum(repo.source_counts().values())
+    _many(repo, clock, 60)
+    html = menv["client"].get("/materials").text
+    assert f"{total + 60}건" in html  # 전체 건수는 제목 옆에
+    assert html.count("예시 자료 ") == 50
+    assert "예시 자료 059" in html and "예시 자료 009" not in html  # 최신부터
+    assert (
+        'href="/materials?source=all&amp;offset=50#items"' in html and "더 보기(다음 50건)" in html
+    )
+    assert "이전 50건" not in html
+
+
+def test_materials_offset_shows_next_page_and_back_link(menv, clock) -> None:
+    _many(menv["repo"], clock, 60)
+    html = menv["client"].get("/materials?source=naver&offset=50").text
+    assert "예시 자료 009" in html and "예시 자료 059" not in html
+    assert "이전 50건" in html and 'href="/materials?source=naver#items"' in html
+    naver = menv["repo"].source_counts().get("naver", 0)
+    if naver <= 100:
+        assert "더 보기" not in html  # 마지막 쪽
+
+
+def test_materials_offset_past_end_and_bad_values(menv) -> None:
+    html = menv["client"].get("/materials?offset=5000").text
+    assert "이 쪽에는 자료가 없습니다" in html
+    assert menv["client"].get("/materials?offset=-3").status_code == 200  # 0으로 본다
+    huge = menv["client"].get("/materials?offset=99999999999999999999")  # DB까지 가지 않게 상한
+    assert huge.status_code == 200 and "이 쪽에는 자료가 없습니다" in huge.text
+    assert "더 보기" not in menv["client"].get("/materials?source=trends").text

@@ -1,19 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>성과</h1>
-<h2 style="margin-top:0">게시물별 (최신 지표)</h2>
+<div class="stats stats-row perf-summary">
+  <div class="stat"><span class="label">팔로워</span>
+    {% if summary.followers %}<b>{% for f in summary.followers %}<span class="nowrap">{{ f.name }} {{ '{:,}'.format(f.now) }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</b>
+    {% set moved = summary.followers|selectattr('delta', 'ne', none)|list %}
+    {% if moved %}<span class="muted small">7일 전보다 {% for f in moved %}{{ f.name }} {{ '%+d'|format(f.delta) }}{% if not loop.last %} · {% endif %}{% endfor %}</span>{% endif %}
+    {% else %}<b>-</b><span class="muted small">아직 기록이 없습니다</span>{% endif %}</div>
+  <div class="stat"><span class="label">최근 14일 비용</span><b>${{ '%.2f'|format(summary.cost_usd) }}</b>
+    <span class="muted small">하루 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></div>
+  <div class="stat"><span class="label">댓글 처리 30일</span><b>자동 답글 {{ summary.auto_replied }} · 사람 처리 {{ summary.human }}</b>
+    <span class="muted small">평균 자동 응답 {{ summary.avg_minutes if summary.avg_minutes is not none else '-' }}분</span></div>
+</div>
+
+<h2>게시물별 (최신 지표)</h2>
 {% if posts %}
-<div class="table-wrap"><table><tr><th>게시</th><th>플랫폼</th><th>주제</th><th class="num">조회</th><th class="num">도달</th><th class="num">노출</th><th class="num">좋아요</th><th class="num">댓글</th><th class="num">저장</th><th class="num">공유</th></tr>
-{% for p in posts %}<tr><td class="small">{{ p.published_at|kst }}</td><td>{{ p.platform|ko_platform }}{% if p.is_ad %} <span class="badge warn">광고</span>{% endif %}</td>
-<td style="min-width:180px">{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
-{% for k in ['views','reach','impressions','likes','comments','saves','shares'] %}<td class="num">{{ p[k] if p[k] is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}
+{% set cols = [('views', '조회'), ('reach', '도달'), ('impressions', '노출'), ('likes', '좋아요'), ('comments', '댓글'), ('saves', '저장'), ('shares', '공유')] %}
+<div class="table-wrap"><table class="stack"><thead><tr><th>게시</th><th>플랫폼</th><th>주제</th>{% for k, label in cols %}<th class="num">{{ label }}</th>{% endfor %}</tr></thead>
+<tbody>{% for p in posts %}<tr><td class="small" data-label="게시">{{ p.published_at|kst }}</td><td data-label="플랫폼">{{ p.platform|ko_platform }}{% if p.is_ad %} <span class="badge warn">광고</span>{% endif %}</td>
+<td class="wide" data-label="주제">{% if p.url %}<a href="{{ p.url|safe_url }}" rel="noopener noreferrer">{{ p.topic }}</a>{% else %}{{ p.topic }}{% endif %}</td>
+{% for k, label in cols %}<td class="num" data-label="{{ label }}">{{ p[k] if p[k] is not none else '-' }}</td>{% endfor %}</tr>{% endfor %}</tbody>
 </table></div>
 <p class="muted small">"-"는 그 플랫폼이 알려 주지 않는 지표입니다.</p>
 {% else %}<p class="muted">아직 게시물이 없습니다.</p>{% endif %}
 
 <h2>팔로워</h2>
 {% if followers %}
+<details class="fold"><summary>날짜별 보기 <span class="hint">{{ followers|length }}줄</span></summary>
 <div class="table-wrap"><table><tr><th>날짜</th><th>플랫폼</th><th class="num">팔로워</th></tr>{% for f in followers %}<tr><td>{{ f.day }}</td><td>{{ f.platform|ko_platform }}</td><td class="num">{{ f.followers }}</td></tr>{% endfor %}</table></div>
+</details>
 {% else %}<p class="muted">아직 기록이 없습니다.</p>{% endif %}
 
 <h2>댓글 처리 (최근 30일)</h2>
@@ -25,7 +40,9 @@
 
 <h2>비용 (최근 14일)</h2>
 {% if costs %}
+<p class="small">합계 <b>${{ '%.2f'|format(summary.cost_usd) }}</b> · 하루 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}. 상한에 닿으면 그날은 원고 생성을 멈춥니다.</p>
+<details class="fold"><summary>날짜별 보기 <span class="hint">{{ costs|length }}줄</span></summary>
 <div class="table-wrap"><table><tr><th>날짜</th><th>종류</th><th class="num">비용</th></tr>{% for r in costs %}<tr><td>{{ r.day }}</td><td>{{ r.kind|ko_cost }}</td><td class="num">${{ '%.3f'|format(r.usd) }}</td></tr>{% endfor %}</table></div>
-<p class="muted small">하루 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}. 상한에 닿으면 그날은 원고 생성을 멈춥니다.</p>
+</details>
 {% else %}<p class="muted">아직 비용 기록이 없습니다.</p>{% endif %}
 {% endblock %}
