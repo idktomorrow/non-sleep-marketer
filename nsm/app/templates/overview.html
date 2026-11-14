@@ -73,7 +73,7 @@
         <b>${{ '%.2f'|format(ov.cost_today) }} <span class="muted small" style="font-weight:600">/ 상한 ${{ '%.2f'|format(cfg.settings.daily_cost_cap_usd) }}</span></b>
         <div class="progress {{ 'bad' if cost_ratio >= 0.9 else ('warn' if cost_ratio >= 0.6 else '') }}"><i style="width: {{ (cost_ratio * 100)|round(1) }}%"></i></div>
         <span class="muted small">상한에 닿으면 그날은 원고 생성을 멈춥니다</span></div>
-      {% if not simple %}<div class="stat"><span class="label">쓸 수 있는 자료</span><b>{{ ov.sources_unused }}</b><span class="muted small">원고를 만들 때 씁니다</span></div>{% endif %}
+      {% if not simple %}<div class="stat"><span class="label">쓸 수 있는 자료</span><b>{{ ov.sources_unused }}</b><span class="muted small">{{ next_collect or "원고를 만들 때 씁니다" }}</span></div>{% endif %}
     </div>
     <div class="panel switches" style="margin-top:12px">
       <div class="switch-row"><span><b>페르소나</b> <span class="badge {{ 'ok' if cfg.persona.enabled else 'gray' }}">{{ '켜짐' if cfg.persona.enabled else '꺼짐' }}</span><br><span class="muted small">끄면 수집·생성·게시·답글이 모두 멈춥니다</span></span>

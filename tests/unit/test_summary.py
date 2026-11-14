@@ -146,3 +146,65 @@ def test_every_job_has_a_sentence() -> None:
 
     assert set(JOBS) <= set(_JOBS)  # 새 잡을 더하면 문장도 더한다
     assert describe("new_job", counts={"waits": ["a", "b"], "n": 1}) == "waits a, b · n 1"
+
+
+_MADE = {"created": 2, "approved": 2, "pending_review": 0, "templates": ["info", "info"]}
+
+
+@pytest.mark.parametrize(
+    ("extra", "text"),
+    [
+        (
+            {"target": 3, "stopped": "no_material"},
+            "원고 2개 만듦(바로 승인 2개 · 상한 3, 쓸 자료가 없어 멈춤) · 형식: 정보형, 정보형",
+        ),
+        (
+            {"target": 3, "stopped": "cost_cap", "cost_cap_hit": True},
+            "원고 2개 만듦(바로 승인 2개 · 상한 3, 비용 상한) · 형식: 정보형, 정보형",
+        ),
+        (
+            {"target": 3, "stopped": "retry_later"},
+            "원고 2개 만듦(바로 승인 2개 · 상한 3, API 장애로 다음 실행에 계속) · 형식: 정보형, 정보형",
+        ),
+        # 목표 달성·예전 기록(target 없음)은 지금 문장 그대로
+        (
+            {"target": 2, "stopped": "target_met"},
+            "원고 2개 만듦(바로 승인 2개) · 형식: 정보형, 정보형",
+        ),
+        ({}, "원고 2개 만듦(바로 승인 2개) · 형식: 정보형, 정보형"),
+        (
+            {"cost_cap_hit": True},
+            "원고 2개 만듦(바로 승인 2개) · 형식: 정보형, 정보형 · 오늘 비용 상한에 닿아 멈춤",
+        ),
+    ],
+)
+def test_generate_shortfall_sentence(extra: dict, text: str) -> None:
+    """C46: 목표에 못 미치면 승인 상태 뒤에 상한과 멈춘 이유를 붙인다."""
+    assert describe("generate", counts={**_MADE, **extra}) == text
+
+
+def test_generate_shortfall_with_review_and_no_status() -> None:
+    c = {"created": 1, "pending_review": 1, "target": 3, "stopped": "no_material"}
+    assert (
+        describe("generate", counts=c)
+        == "원고 1개 만듦(검토 대기 1개 · 상한 3, 쓸 자료가 없어 멈춤)"
+    )
+    c = {"created": 1, "target": 3, "stopped": "no_material"}  # 승인 상태 수가 없을 때
+    assert describe("generate", counts=c) == "원고 1개 만듦(상한 3, 쓸 자료가 없어 멈춤)"
+
+
+def test_generate_shortfall_uses_day_total_and_zero_made_outage() -> None:
+    """C46 리뷰: 목표와는 하루 누계를 견주고, 하나도 못 만든 API 장애도 이유를 보인다."""
+    c = {"created": 1, "approved": 1, "made_today": 2, "target": 3, "stopped": "no_material"}
+    assert (
+        describe("generate", counts=c)
+        == "원고 1개 만듦(바로 승인 1개 · 오늘 모두 2개/상한 3, 쓸 자료가 없어 멈춤)"
+    )
+    met = {"created": 1, "approved": 1, "made_today": 3, "target": 3, "stopped": "no_material"}
+    assert describe("generate", counts=met) == "원고 1개 만듦(바로 승인 1개)"
+    outage = {"created": 0, "made_today": 0, "target": 3, "stopped": "retry_later"}
+    assert (
+        describe("generate", counts=outage, errors=["생성 실패: Claude API가 바쁩니다"])
+        == "새 원고 없음(상한 3, API 장애로 다음 실행에 계속) · 오류 1건: 생성 실패: Claude API가 바쁩니다"
+    )
+    assert describe("generate", counts={"created": 0}) == "새 원고 없음"  # 예전 기록

@@ -8,6 +8,7 @@ from nsm.domain.models import Classification
 from nsm.engine.collect import run_collect
 from nsm.engine.context import JobContext
 from nsm.engine.generate import AUTO_PUBLISH_KEY, run_generate
+from nsm.ports import AdapterError
 from nsm.store.repo import Repository
 from tests.fakes import (
     FakeClassifier,
@@ -271,3 +272,83 @@ def test_network_failure_keeps_material_for_next_run(ctx: JobContext) -> None:
     r = run_generate(ctx)
     assert r.counts["created"] == 0 and "연결이 끊겼습니다" in r.errors[0]
     assert len(ctx.repo.unused_relevant_items(0.0)) == before  # 자료는 그대로
+
+
+def _quotas(ctx: JobContext, **quotas: int) -> None:
+    s = ctx.config.settings.model_copy(update={"quotas": {"instagram": 1, **quotas}})
+    ctx.config = ctx.config.model_copy(update={"settings": s})
+
+
+def test_out_of_material_records_target_and_reason(ctx: JobContext) -> None:
+    """자료가 두 묶음뿐인데 목표가 3이면 2건 만들고 "자료가 없어 멈춤"을 남긴다(C46)."""
+    _quotas(ctx, threads=3)
+    r = run_generate(ctx)
+    assert r.counts["created"] == 2 and r.skipped == ""
+    assert r.counts["target"] == 3 and r.counts["stopped"] == "no_material"
+    assert "상한 3, 쓸 자료가 없어 멈춤" in r.summary()
+
+
+def test_target_met_is_recorded(ctx: JobContext) -> None:
+    r = run_generate(ctx)  # 기본 쿼터: 목표 2, 자료 두 묶음
+    assert r.counts["created"] == 2
+    assert r.counts["target"] == 2 and r.counts["stopped"] == "target_met"
+    assert "상한" not in r.summary()
+
+
+def test_cost_cap_mid_run_records_reason(ctx: JobContext) -> None:
+    """첫 원고 뒤에 비용 상한에 닿으면 created 1, stopped cost_cap."""
+    cap = ctx.config.settings.daily_cost_cap_usd
+
+    class Pricey(FakeTextGenerator):
+        def generate_content(self, brief, persona, brand):
+            ctx.repo.record_cost("llm", "anthropic", cap + 1)
+            return super().generate_content(brief, persona, brand)
+
+    ctx.text_generator = Pricey()
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1 and r.counts["target"] == 2
+    assert r.counts["stopped"] == "cost_cap" and r.counts["cost_cap_hit"] is True
+    assert "상한 2, 비용 상한" in r.summary()
+
+
+def test_cost_cap_before_any_content_still_skips(ctx: JobContext) -> None:
+    ctx.repo.record_cost("llm", "anthropic", 5.0)
+    r = run_generate(ctx)
+    assert r.skipped == "비용 상한" and r.counts["stopped"] == "cost_cap"
+
+
+def test_api_outage_records_retry_later(ctx: JobContext) -> None:
+    class Boom(FakeTextGenerator):
+        def generate_content(self, brief, persona, brand):
+            raise RuntimeError("api down")
+
+    ctx.text_generator = Boom()
+    assert run_generate(ctx).counts["stopped"] == "retry_later"
+
+
+def test_rejected_material_then_out_of_material_says_both(ctx: JobContext) -> None:
+    """둘째 자료 묶음을 Claude가 거절해 버린 뒤 자료가 떨어지면, 이유에 생성 실패로 건너뛴 것도 적는다(C46 리뷰)."""
+    _quotas(ctx, threads=3)
+
+    class SecondFails(FakeTextGenerator):
+        calls = 0
+
+        def generate_content(self, brief, persona, brand):
+            SecondFails.calls += 1
+            if SecondFails.calls == 2:
+                raise AdapterError("거절")
+            return super().generate_content(brief, persona, brand)
+
+    ctx.text_generator = SecondFails()
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1 and r.counts["material_skipped"] == 1
+    assert r.counts["made_today"] == 1
+    assert "생성 실패로 자료 1묶음을 건너뛴 뒤 쓸 자료가 없어 멈춤" in r.summary()
+
+
+def test_made_today_counts_earlier_runs(ctx: JobContext) -> None:
+    _quotas(ctx, threads=3)
+    run_generate(ctx, manual=True)  # 앞선 실행이 1건
+    r = run_generate(ctx)
+    assert r.counts["created"] == 1 and r.counts["made_today"] == 2
+    assert "오늘 모두 2개/상한 3, 쓸 자료가 없어 멈춤" in r.summary()

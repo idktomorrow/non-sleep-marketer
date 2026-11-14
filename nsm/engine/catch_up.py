@@ -101,6 +101,16 @@ def scheduled_at(slot: Slot, now: datetime, tz: str) -> datetime:
     return datetime.combine(day, time(slot.hour, slot.minute), tzinfo=ZoneInfo(tz))
 
 
+def next_daily(slots: list[Slot], now: datetime, tz: str) -> tuple[Slot, bool] | None:
+    """매일 도는 회차 중 다음 것과 그게 내일인지(C46: 오늘 화면 "다음 수집 HH:MM"). 오늘 남은 회차가 없으면
+    내일 첫 회차. 회차가 없으면 None."""
+    daily = sorted((s for s in slots if s.weekday is None), key=lambda s: (s.hour, s.minute))
+    if not daily:
+        return None
+    later = [s for s in daily if scheduled_at(s, now, tz) > now]
+    return (later[0], False) if later else (daily[0], True)
+
+
 def missed_slot(slot: Slot, now: datetime, tz: str) -> datetime | None:
     """now 기준으로 판단할 예정 시각: 오늘(이번 주) 것이 기다림(지터+5분)까지 지났으면 그것. 아직이면, 바로 전
     회차의 기다림이 자정을 넘어 오늘로 넘어온 경우(예: 23:50 예정)만 그 회차. 그 밖엔 None(C40 리뷰)."""
