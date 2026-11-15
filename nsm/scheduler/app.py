@@ -33,7 +33,7 @@ from nsm.engine.catch_up import (
     ran_since,
 )
 from nsm.engine.context import JobContext, JobResult
-from nsm.engine.runner import run_job
+from nsm.engine.runner import INTERRUPTED_PREFIX, run_job
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ LONG_GRACE = (
 )  # 하루 1~2회 잡(따라잡기 대상 여섯): 절전에서 3시간 안에 깨면 그날 것을 그대로 돌린다(C40·C41)
 CATCH_UP_FIRST_DELAY = timedelta(seconds=90)  # 켠 뒤 시작 점검(로그인 확인 등)이 먼저 돌게
 CATCH_UP_EVERY = timedelta(minutes=30)
+SKIPPED_ON_SHUTDOWN = f"{INTERRUPTED_PREFIX}시작 전 건너뜀"  # 끄는 중 줄 서 있던 잡(C47)
 
 
 def job_triggers(cfg: AppConfig) -> dict[str, Any]:
@@ -91,7 +92,14 @@ class JobScheduler:
     def _run(
         self, name: str, manual: bool = False, arg: str | None = None, prefix: str = ""
     ) -> JobResult:
-        result = run_job(name, self._ctx(), manual=manual, arg=arg, prefix=prefix)
+        ctx = self._ctx()
+        if ctx.shutting_down():
+            # 끄는 중에 줄 서 있던 잡(C47: 지표 뒤에 기다리던 reply가 끄는 중에 시작해 86초 돌았다). 시작하지 않고
+            # 실행 기록에 "중단"으로 남긴다(배지가 접두어를 알아본다, C33). 따라잡기(_run_catch_up)와 같은 기준
+            log.info("%s: 끄는 중이라 시작하지 않음", name)
+            ctx.repo.finish_run(ctx.repo.start_run(name), False, SKIPPED_ON_SHUTDOWN)
+            return JobResult(name, ok=False, interrupted=True)
+        result = run_job(name, ctx, manual=manual, arg=arg, prefix=prefix)
         log.info("%s: %s%s", name, prefix, result.summary())
         return result
 

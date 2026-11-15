@@ -243,6 +243,14 @@ def _interrupted(result: JobResult, platform: str, e: BaseException | None) -> N
     result.errors.append(f"{platform} 상태 확인 중단(프로그램 종료 중){f': {e}' if e else ''}")
 
 
+def _metrics_stopped(result: JobResult, left: list[str]) -> None:
+    """끄는 중 멈춘 지표 읽기(C47): 오류가 아니라 중단. 실행 기록 접두어 "중단(…)"은 runner가 붙인다."""
+    result.interrupted = True
+    names = [NAMES.get(p, p) for p in left]
+    note = "끄는 중이라 멈춤" + (f"(남은 곳: {', '.join(names)})" if names else "")
+    result.counts.setdefault("stalls", []).append(note)
+
+
 def run_metrics(ctx: JobContext) -> JobResult:
     result = JobResult("metrics")
     now = ctx.clock.now()
@@ -250,7 +258,11 @@ def run_metrics(ctx: JobContext) -> JobResult:
     limited: list[str] = []
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     skipped: list[str] = []
-    for platform, adapter in ctx.adapters.items():
+    platforms = list(ctx.adapters.items())
+    for i, (platform, adapter) in enumerate(platforms):
+        if is_interrupted(ctx):  # 끄는 중(C47): 남은 플랫폼의 브라우저를 열지 않는다
+            _metrics_stopped(result, [p for p, _ in platforms[i:]])
+            break
         if platform in paused:  # 멈춘 계정은 새벽마다 건드리지 않는다(E5, incidents/0010)
             skipped.append(platform)
             continue
@@ -258,8 +270,12 @@ def run_metrics(ctx: JobContext) -> JobResult:
             limited.append(resting(ctx, platform, until))
             continue
         try:
-            _platform_metrics(ctx, platform, adapter, result, now, tally)
+            stopped = _platform_metrics(ctx, platform, adapter, result, now, tally)
         except Exception as e:  # noqa: BLE001
+            if is_interrupted(ctx, e):  # 끄는 순간 끊김: 장애 기록·알림 없이 중단으로(C47)
+                log.info("지표 %s 중단(프로그램 종료 중): %s", platform, e)
+                _metrics_stopped(result, [p for p, _ in platforms[i + 1 :]])
+                break
             until = retry_at(e)
             record_incident(
                 ctx,
@@ -272,13 +288,18 @@ def run_metrics(ctx: JobContext) -> JobResult:
             if until is None:
                 raise
             limited.append(resting(ctx, platform, until))  # 남은 글도 막힌다: 이 플랫폼은 그만
+            continue
+        if stopped:
+            _metrics_stopped(result, [p for p, _ in platforms[i + 1 :]])
+            break
     if limited:
         result.counts["rate_limited"] = limited
     if skipped:
         result.counts["paused_skipped"] = skipped
     posts, accounts = tally["posts"], tally["accounts"]
     result.counts.update(posts=posts, accounts=accounts)
-    result.ok = not result.errors or posts + accounts > 0
+    # 중단이면 ok=False: runner가 "중단(프로그램 종료 중): "을 붙여 배지가 "중단"이 된다(C33·C47)
+    result.ok = not result.interrupted and (not result.errors or posts + accounts > 0)
     return result
 
 
@@ -306,8 +327,10 @@ def _reread_state(ctx: JobContext, platform: str) -> dict | None:
 
 def _platform_metrics(
     ctx: JobContext, platform: str, adapter, result: JobResult, now, tally: dict[str, int]
-) -> None:
-    """한 플랫폼의 지표를 tally에 센다. 요청 제한 예외만 밖으로 던지고 나머지는 오류로 적는다."""
+) -> bool:
+    """한 플랫폼의 지표를 tally에 센다. 요청 제한 예외만 밖으로 던지고 나머지는 오류로 적는다.
+
+    끄는 중이라 멈췄으면 True(C47): 게시물 루프를 그 자리에서 멈추고 계정 지표도 읽지 않는다."""
     caps = adapter.capabilities()
     if "post_metrics" in caps:
         since = now - timedelta(days=METRICS_LOOKBACK_DAYS)
@@ -326,6 +349,10 @@ def _platform_metrics(
         transient = 0  # 일시적 실패(빈 화면 등)로 못 읽은 글 수
         try:
             for ext in todo:
+                if is_interrupted(
+                    ctx
+                ):  # 끄는 중(C47): 글 하나 읽는 데 브라우저로 수십 초라 다음 글로 가지 않는다
+                    return True
                 try:
                     ctx.repo.insert_post_metrics(adapter.read_post_metrics(ext))
                     tally["posts"] += 1
@@ -334,9 +361,11 @@ def _platform_metrics(
                 except Exception as e:  # noqa: BLE001
                     if retry_at(e):
                         raise
-                    result.errors.append(f"{platform} 게시물 지표 실패: {e}")
                     if is_interrupted(ctx, e):
-                        break  # 끄는 중: 남은 글마다 브라우저를 열지 않는다
+                        # 끄는 중 끊긴 글: 실패가 아니라 중단(C47). 남은 글·계정 지표는 다음 실행에
+                        log.info("%s 게시물 지표 중단(프로그램 종료 중): %s", platform, e)
+                        return True
+                    result.errors.append(f"{platform} 게시물 지표 실패: {e}")
                     if kind_of(e) == "transient":
                         transient += 1
             else:
@@ -355,10 +384,16 @@ def _platform_metrics(
                         "" if state["done"] else "(다음 실행에 이어서)"
                     )
     if "account_metrics" in caps:
+        if is_interrupted(ctx):
+            return True
         try:
             ctx.repo.insert_account_metrics(adapter.read_account_metrics())
             tally["accounts"] += 1
         except Exception as e:  # noqa: BLE001
             if retry_at(e):
                 raise
+            if is_interrupted(ctx, e):
+                log.info("%s 계정 지표 중단(프로그램 종료 중): %s", platform, e)
+                return True
             result.errors.append(f"{platform} 계정 지표 실패: {e}")
+    return False

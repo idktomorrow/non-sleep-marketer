@@ -22,6 +22,38 @@ from nsm.store.repo import Repository
 
 log = logging.getLogger(__name__)
 
+# 끌 때 브라우저 닫기를 기다리는 시간(C47). 돌던 잡이 Aside repl 한 번(120초 상한)을 마칠 때까지는 기다린다
+CLOSE_WAIT_S = 150
+
+
+def close_on_worker(scheduler, drivers: ExitStack, wait_s: float = CLOSE_WAIT_S) -> None:
+    """끌 때 브라우저를 작업 스레드에서 닫고 스케줄러를 멈춘다(C47).
+
+    순서가 중요하다: `submit()`은 APScheduler `add_job`이라 스케줄러를 먼저 멈추면 닫기가 돌지 않는다.
+    그래서 닫기를 먼저 넣고 기다린 뒤 멈춘다. 줄 서 있던 잡은 끄는 중이라 시작하지 않고 바로 지나가므로
+    (JobScheduler._run), 기다림은 그 순간 돌던 잡 하나가 끝나는 시간이다. 그 안에 안 끝나도 실패가 아니다:
+    닫기는 이미 작업 스레드 대기열에 있어 `shutdown(wait=True)`가 끝까지 기다려 마무리한다.
+    """
+    from concurrent.futures import TimeoutError as FutureTimeout
+
+    fut = scheduler.submit(drivers.close)
+    late = False
+    try:
+        fut.result(timeout=wait_s)
+    except FutureTimeout:
+        late = True
+        log.warning("브라우저 닫기가 %d초 안에 끝나지 않아 기다리지 않고 종료", wait_s)
+    except Exception:  # noqa: BLE001  닫다가 난 진짜 오류는 그대로 남긴다
+        log.exception("브라우저 종료 실패")
+    scheduler.shutdown()  # 돌던 잡과 대기열의 닫기가 끝날 때까지 기다린다(wait=True)
+    if late:
+        if not fut.done():
+            log.warning("브라우저 닫기가 끝나지 않은 채 종료")
+        elif fut.exception() is not None:
+            log.warning("브라우저 닫기 실패(종료 대기 뒤): %s", fut.exception())
+        else:
+            log.info("브라우저 닫기 끝(돌던 작업이 끝난 뒤)")
+
 
 class LogNotifier:
     def notify(self, title: str, body: str, level: str) -> None:
@@ -423,11 +455,7 @@ def run_forever() -> None:
     finally:
         stopping.set()
         if scheduler is not None:
-            try:
-                scheduler.submit(drivers.close).result(timeout=60)
-            except Exception:  # noqa: BLE001
-                log.exception("브라우저 종료 실패")
-            scheduler.shutdown()
+            close_on_worker(scheduler, drivers)
         else:
             drivers.close()
         stack.close()

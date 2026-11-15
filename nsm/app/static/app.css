@@ -369,3 +369,6 @@ nav.menu.has-more, .table-wrap.has-more { -webkit-mask-image: linear-gradient(to
   table.stack td:empty { display: none; }
   table.stack td.num { text-align: left; }
 }
+
+/* C47: 숫자 카드 설명을 한 줄로(넘치면 …, 전체는 title) */
+.stat .one-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
