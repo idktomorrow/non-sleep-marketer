@@ -18,10 +18,10 @@ def test_hint_example_is_one_of_the_example_chips() -> None:
     assert "보호 모드가 뭐야" not in HINT  # R4 측정 질문 원문은 쓰지 않는다
 
 
-def test_usable_material_card_says_before_same_news_and_judging(env) -> None:  # noqa: F811
+def test_usable_material_card_says_before_same_news_filter(env) -> None:  # noqa: F811
     _post(env, "/ui-mode", mode="advanced")
     html = env["client"].get("/").text
     i = html.index("쓸 수 있는 자료")
     card = html[i : html.index("</div>", i)]
-    assert "같은 소식·판정 전" in card
+    assert "같은 소식 거르기 전" in card
     assert 'class="muted small one-line"' in card and 'title="' in card  # 한 줄, 전체 뜻은 title
