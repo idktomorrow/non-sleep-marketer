@@ -137,11 +137,11 @@ def test_metrics_cut_while_reading_account_is_interrupted(ctx) -> None:
         stop.set()
         raise PlatformError("끊김", "transient", "interrupted")
 
-    ctx.adapters["threads"].read_account_metrics = cut
-    insta = _count_accounts(ctx)
-    ctx.adapters["threads"].read_account_metrics = cut
+    accounts = _count_accounts(ctx)  # 다른 플랫폼의 계정 지표를 읽나 센다
+    ctx.adapters["threads"].read_account_metrics = cut  # 스레드는 읽다 끊긴다
     r = run_metrics(ctx)
-    assert r.interrupted and r.errors == [] and insta == []
+    assert r.interrupted and r.errors == [] and accounts == []
+    assert r.counts["stopped_note"] == "끄는 중이라 멈춤(남은 곳: 인스타그램)"
 
 
 def test_metrics_do_nothing_when_already_shutting_down(ctx) -> None:
@@ -149,7 +149,15 @@ def test_metrics_do_nothing_when_already_shutting_down(ctx) -> None:
     accounts = _count_accounts(ctx)
     r = run_metrics(ctx)
     assert accounts == [] and r.interrupted and not r.ok
-    assert r.counts["stalls"] == ["끄는 중이라 멈춤(남은 곳: 스레드, 인스타그램)"]
+    assert r.counts["stopped_note"] == "끄는 중이라 멈춤(남은 곳: 스레드, 인스타그램)"
+
+
+def test_stopped_note_leaves_out_paused_platforms(ctx) -> None:
+    from nsm.engine.publish import PAUSED_KEY
+
+    ctx.repo.set_setting(PAUSED_KEY, ["instagram"])
+    ctx.shutting_down = lambda: True
+    assert run_metrics(ctx).counts["stopped_note"] == "끄는 중이라 멈춤(남은 곳: 스레드)"
 
 
 def test_metrics_without_shutdown_unchanged(ctx) -> None:
@@ -193,13 +201,13 @@ def test_close_timeout_is_one_warning_and_close_still_finishes(caplog) -> None:
     drivers = ExitStack()
     closed: list[bool] = []
     drivers.callback(lambda: closed.append(True))
-    threading.Timer(1.5, release.set).start()
+    threading.Timer(2.0, release.set).start()  # 기다림(0.3초)보다 넉넉히 늦게
     with caplog.at_level(logging.INFO, logger="nsm.runtime"):
-        close_on_worker(sched, drivers, wait_s=1)
+        close_on_worker(sched, drivers, wait_s=0.3)
     assert closed == [True]
     warns = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert [r.getMessage() for r in warns] == [
-        "브라우저 닫기가 1초 안에 끝나지 않아 기다리지 않고 종료"
+        "브라우저 닫기가 0초 안에 끝나지 않아 기다리지 않고 종료"
     ]
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR or r.exc_info]
     assert any(r.getMessage() == "브라우저 닫기 끝(돌던 작업이 끝난 뒤)" for r in caplog.records)
@@ -219,3 +227,38 @@ def test_close_error_is_still_logged_as_error(caplog) -> None:
         r.levelno == logging.ERROR and "브라우저 종료 실패" in r.getMessage()
         for r in caplog.records
     )
+
+
+def test_close_timeout_error_from_close_itself_is_error(caplog) -> None:
+    """닫기 자체가 TimeoutError를 내면 기다림 초과가 아니라 닫기 실패(3.12에서 둘은 같은 예외 종류)."""
+    sched = _scheduler()
+    drivers = ExitStack()
+
+    def slow_fail() -> None:
+        raise TimeoutError("브라우저가 응답 없음")
+
+    drivers.callback(slow_fail)
+    with caplog.at_level(logging.INFO, logger="nsm.runtime"):
+        close_on_worker(sched, drivers, wait_s=5)
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert not [r for r in caplog.records if "안에 끝나지 않아" in r.getMessage()]
+
+
+def test_close_when_scheduler_never_started() -> None:
+    """켜는 중 실패로 스케줄러가 시작도 안 했으면 기다리지 않고 바로 닫는다."""
+    import time
+
+    sched = JobScheduler(lambda: None, set())  # type: ignore[arg-type,return-value]
+    drivers = ExitStack()
+    closed: list[bool] = []
+    drivers.callback(lambda: closed.append(True))
+    t = time.monotonic()
+    close_on_worker(sched, drivers, wait_s=30)
+    assert closed == [True] and time.monotonic() - t < 5
+
+
+def test_unknown_job_while_shutting_down_still_raises(ctx) -> None:
+    ctx.shutting_down = lambda: True
+    with pytest.raises(KeyError):
+        JobScheduler(lambda: ctx, set())._run("bogus")
+    assert ctx.repo.recent_runs(5) == []

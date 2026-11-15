@@ -34,23 +34,26 @@ def close_on_worker(scheduler, drivers: ExitStack, wait_s: float = CLOSE_WAIT_S)
     (JobScheduler._run), 기다림은 그 순간 돌던 잡 하나가 끝나는 시간이다. 그 안에 안 끝나도 실패가 아니다:
     닫기는 이미 작업 스레드 대기열에 있어 `shutdown(wait=True)`가 끝까지 기다려 마무리한다.
     """
-    from concurrent.futures import TimeoutError as FutureTimeout
-
+    if not scheduler.scheduler.running:
+        # 켜는 중에 실패해 스케줄러가 시작도 안 했다(C47 리뷰): 작업 스레드가 없으니 여기서 닫는다
+        drivers.close()
+        return
     fut = scheduler.submit(drivers.close)
-    late = False
     try:
         fut.result(timeout=wait_s)
-    except FutureTimeout:
-        late = True
-        log.warning("브라우저 닫기가 %d초 안에 끝나지 않아 기다리지 않고 종료", wait_s)
-    except Exception:  # noqa: BLE001  닫다가 난 진짜 오류는 그대로 남긴다
-        log.exception("브라우저 종료 실패")
+    except Exception:  # noqa: BLE001
+        # 3.12에서 Future 시간 초과는 내장 TimeoutError다. 닫기 자체가 낸 TimeoutError와는 끝났는지로 가른다
+        if fut.done():
+            log.exception("브라우저 종료 실패")  # 닫다가 난 진짜 오류는 그대로 남긴다
+        else:
+            log.warning("브라우저 닫기가 %d초 안에 끝나지 않아 기다리지 않고 종료", wait_s)
+    late = not fut.done()
     scheduler.shutdown()  # 돌던 잡과 대기열의 닫기가 끝날 때까지 기다린다(wait=True)
     if late:
         if not fut.done():
             log.warning("브라우저 닫기가 끝나지 않은 채 종료")
-        elif fut.exception() is not None:
-            log.warning("브라우저 닫기 실패(종료 대기 뒤): %s", fut.exception())
+        elif (err := fut.exception()) is not None:
+            log.error("브라우저 종료 실패(종료 대기 뒤)", exc_info=err)
         else:
             log.info("브라우저 닫기 끝(돌던 작업이 끝난 뒤)")
 

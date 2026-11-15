@@ -33,7 +33,7 @@ from nsm.engine.catch_up import (
     ran_since,
 )
 from nsm.engine.context import JobContext, JobResult
-from nsm.engine.runner import INTERRUPTED_PREFIX, run_job
+from nsm.engine.runner import ARG_JOBS, INTERRUPTED_PREFIX, JOBS, run_job
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +93,9 @@ class JobScheduler:
         self, name: str, manual: bool = False, arg: str | None = None, prefix: str = ""
     ) -> JobResult:
         ctx = self._ctx()
-        if ctx.shutting_down():
+        # 모르는 잡·값 없는 키워드는 run_job이 오류로 알린다(끄는 중이라도 가짜 기록을 남기지 않게, C47 리뷰)
+        known = name in JOBS or (name in ARG_JOBS and arg is not None)
+        if known and ctx.shutting_down():
             # 끄는 중에 줄 서 있던 잡(C47: 지표 뒤에 기다리던 reply가 끄는 중에 시작해 86초 돌았다). 시작하지 않고
             # 실행 기록에 "중단"으로 남긴다(배지가 접두어를 알아본다, C33). 따라잡기(_run_catch_up)와 같은 기준
             log.info("%s: 끄는 중이라 시작하지 않음", name)

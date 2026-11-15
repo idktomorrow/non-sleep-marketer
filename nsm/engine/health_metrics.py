@@ -244,11 +244,13 @@ def _interrupted(result: JobResult, platform: str, e: BaseException | None) -> N
 
 
 def _metrics_stopped(result: JobResult, left: list[str]) -> None:
-    """끄는 중 멈춘 지표 읽기(C47): 오류가 아니라 중단. 실행 기록 접두어 "중단(…)"은 runner가 붙인다."""
+    """끄는 중 멈춘 지표 읽기(C47): 오류가 아니라 중단. 실행 기록 접두어 "중단(…)"은 runner가 붙인다.
+    left: 읽으려 했으나 못 읽은 플랫폼(멈춤·쉬는 중이라 원래 건너뛸 곳은 뺀다)."""
     result.interrupted = True
     names = [NAMES.get(p, p) for p in left]
-    note = "끄는 중이라 멈춤" + (f"(남은 곳: {', '.join(names)})" if names else "")
-    result.counts.setdefault("stalls", []).append(note)
+    result.counts["stopped_note"] = "끄는 중이라 멈춤" + (
+        f"(남은 곳: {', '.join(names)})" if names else ""
+    )
 
 
 def run_metrics(ctx: JobContext) -> JobResult:
@@ -259,9 +261,10 @@ def run_metrics(ctx: JobContext) -> JobResult:
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     skipped: list[str] = []
     platforms = list(ctx.adapters.items())
+    stop_from: int | None = None  # 끄는 중 멈췄으면 아직 못 읽은 첫 플랫폼의 순번(C47)
     for i, (platform, adapter) in enumerate(platforms):
         if is_interrupted(ctx):  # 끄는 중(C47): 남은 플랫폼의 브라우저를 열지 않는다
-            _metrics_stopped(result, [p for p, _ in platforms[i:]])
+            stop_from = i
             break
         if platform in paused:  # 멈춘 계정은 새벽마다 건드리지 않는다(E5, incidents/0010)
             skipped.append(platform)
@@ -274,7 +277,7 @@ def run_metrics(ctx: JobContext) -> JobResult:
         except Exception as e:  # noqa: BLE001
             if is_interrupted(ctx, e):  # 끄는 순간 끊김: 장애 기록·알림 없이 중단으로(C47)
                 log.info("지표 %s 중단(프로그램 종료 중): %s", platform, e)
-                _metrics_stopped(result, [p for p, _ in platforms[i + 1 :]])
+                stop_from = i + 1
                 break
             until = retry_at(e)
             record_incident(
@@ -290,8 +293,13 @@ def run_metrics(ctx: JobContext) -> JobResult:
             limited.append(resting(ctx, platform, until))  # 남은 글도 막힌다: 이 플랫폼은 그만
             continue
         if stopped:
-            _metrics_stopped(result, [p for p, _ in platforms[i + 1 :]])
+            stop_from = i + 1
             break
+    if stop_from is not None:
+        _metrics_stopped(
+            result,
+            [p for p, a in platforms[stop_from:] if p not in paused and not blocked_until(a, now)],
+        )
     if limited:
         result.counts["rate_limited"] = limited
     if skipped:
