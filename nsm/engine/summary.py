@@ -154,6 +154,8 @@ def _metrics(c: dict[str, Any]) -> list[str]:
     parts = [f"게시물 지표 {_n(c, 'posts')}개, 계정 지표 {_n(c, 'accounts')}개 읽음"]
     if c.get("reread"):  # C44 한 번 다시 읽기: "인스타그램 지표 다시 읽기 N/63"
         parts.append(str(c["reread"]))
+    if c.get("stopped_note"):  # C47 끄는 중 멈춤: "끄는 중이라 멈춤(남은 곳: 스레드)"
+        parts.append(str(c["stopped_note"]))
     return parts
 
 
