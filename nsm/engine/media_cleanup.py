@@ -34,34 +34,39 @@ def content_media_dirs(media_dir: Path, cid: str) -> tuple[Path, Path, Path]:
     )
 
 
-def _remove_tree(d: Path) -> int:
-    """폴더를 통째로 지우고 지운 바이트 수를 돌려준다. 없으면 0. 링크는 따라가지 않는다."""
-    if d.is_symlink() or not d.is_dir():
-        return 0
-    size = sum(p.stat().st_size for p in d.rglob("*") if p.is_file() and not p.is_symlink())
-    shutil.rmtree(d)
-    return size
+def _purge(dirs: tuple[Path, ...]) -> tuple[int, int, OSError | None]:
+    """폴더들을 통째로 지운다. (지운 폴더 수, 지운 바이트 수, 첫 오류). 없는 폴더·링크는 건너뛴다.
+
+    한 폴더가 실패해도 나머지는 지우고, 그때까지 지운 것은 수에 넣는다.
+    """
+    folders = size = 0
+    error: OSError | None = None
+    for d in dirs:
+        if d.is_symlink() or not d.is_dir():
+            continue
+        try:
+            n = sum(p.stat().st_size for p in d.rglob("*") if p.is_file() and not p.is_symlink())
+            shutil.rmtree(d)
+        except OSError as e:
+            error = error or e
+            continue
+        folders += 1
+        size += n
+    return folders, size, error
 
 
 def remove_content_media(media_dir: Path, cid: str) -> int:
     """원고 하나의 카드·미리보기·올린 배경 폴더를 지운다. 지운 바이트 수(없으면 조용히 0).
 
-    cid가 ULID가 아니면 아무것도 하지 않는다. 지우다 실패하면(권한·파일 잠김) OSError를 그대로 올린다.
+    cid가 ULID가 아니면 아무것도 하지 않는다. 지우다 실패하면(권한·파일 잠김) 나머지 폴더를 지운 뒤
+    첫 OSError를 올린다.
     """
     if not is_content_id(cid):
         return 0
-    return sum(_remove_tree(d) for d in content_media_dirs(media_dir, cid))
-
-
-def remove_previews(media_dir: Path, cid: str) -> int:
-    """미리보기 폴더만 지운다. 지운 바이트 수."""
-    if not is_content_id(cid):
-        return 0
-    return _remove_tree(media_dir / "previews" / cid)
-
-
-def _existing(paths: tuple[Path, ...]) -> list[Path]:
-    return [p for p in paths if p.is_dir() and not p.is_symlink()]
+    _, size, error = _purge(content_media_dirs(media_dir, cid))
+    if error:
+        raise error
+    return size
 
 
 def sweep_media(media_dir: Path, discarded: list[str], published: list[str]) -> tuple[int, int]:
@@ -69,27 +74,17 @@ def sweep_media(media_dir: Path, discarded: list[str], published: list[str]) -> 
 
     (지운 폴더 수, 지운 바이트 수). 한 원고에서 실패해도 나머지는 계속하고 WARNING 한 줄씩 남긴다.
     """
+    jobs = [(cid, content_media_dirs(media_dir, cid)) for cid in discarded if is_content_id(cid)]
+    jobs += [
+        (cid, (media_dir / "previews" / cid,))
+        for cid in published
+        # 카드가 없으면 미리보기가 화면에 쓰이는 유일한 이미지다
+        if is_content_id(cid) and (media_dir / "cards" / cid / "slide-01.png").is_file()
+    ]
     folders = size = 0
-    for cid in discarded:
-        if not is_content_id(cid):
-            continue
-        there = _existing(content_media_dirs(media_dir, cid))
-        if not there:
-            continue
-        try:
-            size += remove_content_media(media_dir, cid)
-        except OSError as e:
-            log.warning("폐기 원고 %s 이미지 정리 실패: %s", cid, e)
-        folders += sum(1 for d in there if not d.exists())
-    for cid in published:
-        prev = media_dir / "previews" / cid
-        if not is_content_id(cid) or not _existing((prev,)):
-            continue
-        if not (media_dir / "cards" / cid / "slide-01.png").is_file():
-            continue  # 카드가 없으면 미리보기가 화면에 쓰이는 유일한 이미지다
-        try:
-            size += remove_previews(media_dir, cid)
-        except OSError as e:
-            log.warning("게시 원고 %s 미리보기 정리 실패: %s", cid, e)
-        folders += 0 if prev.exists() else 1
+    for cid, dirs in jobs:
+        f, n, error = _purge(dirs)
+        folders, size = folders + f, size + n
+        if error:
+            log.warning("원고 %s 이미지 정리 실패: %s", cid, error)
     return folders, size

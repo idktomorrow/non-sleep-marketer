@@ -990,10 +990,15 @@ def create_app(state: AppState) -> FastAPI:
             state.repo.transition_content(cid, "discarded", reason="사람이 폐기")
         except InvalidTransitionError as e:
             raise HTTPException(409, str(e)) from e
-        try:  # 폐기한 원고의 이미지는 다시 쓰지 않는다(C48). 못 지워도 폐기는 그대로, 새벽 정리가 다시 시도
-            remove_content_media(state.media_dir, cid)
-        except OSError as e:
-            log.warning("폐기한 원고 %s 이미지 정리 실패(새벽 정리 때 다시): %s", cid, e)
+        # 폐기한 원고의 이미지는 다시 쓰지 않는다(C48). 위 검사와 전이 사이에 게시 잡이 그 원고를 잡았으면
+        # 올리는 중인 카드를 지우지 않고 새벽 정리에 맡긴다. 못 지워도 폐기는 그대로
+        if any(p.status == "publishing" for p in state.repo.publications_for_content(cid)):
+            log.info("원고 %s는 올리는 중이라 이미지는 새벽 정리 때 지움", cid)
+        else:
+            try:
+                remove_content_media(state.media_dir, cid)
+            except OSError as e:
+                log.warning("폐기한 원고 %s 이미지 정리 실패(새벽 정리 때 다시): %s", cid, e)
         return back("/queue" if was_queued else "/review")
 
     def _save_edit(cid: str, g: GeneratedContent) -> None:
@@ -1074,8 +1079,8 @@ def create_app(state: AppState) -> FastAPI:
             # 실행 시점의 원고를 다시 읽고, 넘침 기록은 PNG와 함께 쓰고, 실패하면 반쯤 그린 것을 지운다.
             clear_rendered(state.media_dir, cid, cards=False)
             c = state.repo.get_content(cid)
-            if c is None:
-                return
+            if c is None or c.status == "discarded":
+                return  # 기다리는 사이 폐기됐으면 지운 미리보기를 다시 만들지 않는다(C48)
             try:
                 renderer.render(labeled_deck(c), out)
                 overflow = list(getattr(renderer, "last_overflow", []) or [])

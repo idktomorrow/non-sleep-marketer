@@ -54,3 +54,41 @@ def test_failed_transition_keeps_media(env) -> None:  # noqa: F811
     dirs = _fill(env, cid)
     assert _post(env, f"/review/{cid}/discard").status_code == 409
     assert all(d.is_dir() for d in dirs)
+
+
+def test_discard_keeps_cards_if_publish_started_meanwhile(env, monkeypatch) -> None:  # noqa: F811
+    """폐기 전 검사와 전이 사이에 게시 잡이 그 원고를 올리기 시작했으면 카드를 지우지 않는다."""
+    cid = _copy(env, status="approved")
+    dirs = _fill(env, cid)
+    repo = env["repo"]
+    real = repo.publications_for_content
+    calls = []
+
+    def pubs(content_id):
+        calls.append(content_id)
+        rows = real(content_id)
+        if len(calls) == 1:
+            return rows
+        return [p.model_copy(update={"status": "publishing"}) for p in rows[:1]] or rows
+
+    repo.create_publications(cid, ["threads"])
+    monkeypatch.setattr(repo, "publications_for_content", pubs)
+    assert _post(env, f"/review/{cid}/discard").status_code == 303
+    assert repo.get_content(cid).status == "discarded"
+    assert all(d.is_dir() for d in dirs)  # 새벽 정리가 지운다
+
+
+def test_preview_after_discard_does_not_recreate_images(env) -> None:  # noqa: F811
+    class Renderer:
+        last_overflow: list = []
+
+        def render(self, deck, out):
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "slide-01.png").write_bytes(b"x")
+            return [out / "slide-01.png"]
+
+    env["state"].renderer = Renderer()
+    cid = _copy(env)
+    assert _post(env, f"/review/{cid}/discard").status_code == 303
+    _post(env, f"/review/{cid}/preview")
+    assert not (env["state"].media_dir / "previews" / cid).exists()

@@ -86,7 +86,7 @@ def test_non_ulid_id_removes_nothing(tmp_path, cid: str) -> None:
     _png(media / "cards")  # media/cards/slide-01.png: ".."·""이 가리킬 수 있는 곳
     assert M.remove_content_media(media / "cards" / "x", cid) == 0
     assert M.remove_content_media(media, cid) == 0
-    assert M.remove_previews(media, cid) == 0
+    assert M.sweep_media(media, [cid], [cid]) == (0, 0)
     assert (media / "cards" / "_contract" / "slide-01.png").is_file()
     assert (media / "previews" / "c1" / "slide-01.png").is_file()
     assert (media / "cards" / "slide-01.png").is_file()
@@ -187,3 +187,22 @@ def test_unexpected_error_in_sweep_keeps_other_cleanup(
     monkeypatch.setattr(M, "sweep_media", boom)
     r = run_maintenance(ctx)
     assert r.ok and "media_removed" not in r.counts and "runs_pruned" in r.counts
+
+
+def test_partial_failure_still_removes_and_counts_other_folders(tmp_path, monkeypatch) -> None:
+    media = tmp_path / "media"
+    cid = new_id()
+    cards, prev, up = _all_three(media, cid)
+    real = M.shutil.rmtree
+
+    def rmtree(path, *a, **kw):
+        if Path(path) == prev:
+            raise PermissionError("브라우저가 미리보기를 열고 있음")
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(M.shutil, "rmtree", rmtree)
+    with pytest.raises(PermissionError):
+        M.remove_content_media(media, cid)  # 라우트는 이 오류를 WARNING으로 받는다
+    assert not cards.exists() and not up.exists() and prev.is_dir()  # 막힌 것 뒤의 폴더도 지움
+    _all_three(media, cid)
+    assert M.sweep_media(media, [cid], []) == (2, 2000 + 500)  # 지운 폴더의 크기는 센다
