@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-11-16 (C47: 끄는 중이면 `JobScheduler._run`이 줄 서 있던 잡을 시작하지 않고 `INTERRUPTED_PREFIX` + "시작 전 건너뜀"으로 기록, `run_metrics`가 끄는 중이면 다음 글·계정 지표·다음 플랫폼을 건너뛰고 `interrupted`로 끝냄(장애 기록·알림 없음), 종료 `runtime.close_on_worker`가 닫기를 먼저 넣고 150초 기다린 뒤 `shutdown(wait=True)`, 시간 초과는 WARNING 한 줄. 이전: C46 generate 목표·멈춘 이유)
+> 갱신: 2026-11-17 (C48: 폐기 라우트가 전이 뒤 `media_cleanup.remove_content_media`로 카드·미리보기·올린 배경 폴더를 지우고(실패해도 폐기는 성공), maintenance가 백업 뒤 `sweep_media`로 폐기 원고 폴더와 카드가 있는 게시 원고의 미리보기를 지움(ADR 0073). 이전: C47 끄는 중 잡 건너뜀·metrics 중단·브라우저 닫기 150초)
 
 ## 1. 한 장 요약
 
@@ -38,7 +38,7 @@ flowchart LR
 | reply | 5분 ±1분(설정) | 새 댓글 → 6분류 → 답글 / 숨김 / 에스컬레이션, `reply_counts`. 답글을 보냈지만 어댑터가 확인 못 하면(빈 ID) 재시도 없이 에스컬레이션(C23). 보내기 전 'replying'으로 적고 켤 때 남은 'replying'은 에스컬레이션(`recover_interrupted_replies`, C24). 인스타그램은 30분마다·최근 3일 글만(ADR 0038). 답글 근거는 게시물 본문 + 그 원고에 쓴 자료 최대 3개(`repo.sources_for_content`, C18, ADR 0047) |
 | metrics | 하루 1회 | 최근 7일 게시물·계정 지표 스냅샷(C44 뒤 첫 실행만 인스타 최근 90일 글 한 번 다시 읽기) |
 | weekly_report | 주 1회 | 성과 요약·추천 주제 → 대시보드 + md |
-| maintenance | 매일 04:30 | 데이터 백업(`backups/data-날짜.duckdb`, 최근 7개, `COPY FROM DATABASE`) + 90일 넘은 실행 기록 정리(C12). C41: 폐기 원고의 대기 게시 줄 정리. C43: 빈 주소 published 줄을 한 번만 abandoned로 |
+| maintenance | 매일 04:30 | 데이터 백업(`backups/data-날짜.duckdb`, 최근 7개, `COPY FROM DATABASE`) + 90일 넘은 실행 기록 정리(C12). C41: 폐기 원고의 대기 게시 줄 정리. C48: 폐기 원고 이미지 폴더·게시 원고의 중복 미리보기 정리. C43: 빈 주소 published 줄을 한 번만 abandoned로 |
 | catch_up | 켠 뒤 90초, 30분 | 오늘 예정 시각(지터+5분)이 지났는데 예정 1시간 전 이후 끝난 실행(종료 중단 제외)이 없는 `settings.catch_up_jobs`(C41부터 collect·generate·maintenance·metrics·index·weekly_report, 이 순서 고정, 모으기는 가장 최근 회차, 페르소나 꺼짐이면 모으기·만들기 제외)를 1분 간격 일회성 예약으로 한 번. 오늘 시도는 `settings_kv.catch_up_tried`(현지 날짜·기동 id). 돌기 직전에 끄는 중·그새 돌았음을 다시 봄. 네 잡의 CronTrigger 유예는 3시간, 나머지는 15분(C40, ADR 0066) |
 
 ## 3. 데이터 흐름
@@ -143,6 +143,7 @@ erDiagram
 | `nsm/app/md_lite.py`, `nsm/app/perf_summary.py`, `summary.friendly_error`, `ko_stage`, 자료 `offset`, `table.stack`(app.css·base.html 스크립트) | 완료 | 단위·라우트(제목·굵게·하위 목록·번호 시작·이스케이프·모르는 줄·빈 본문·실제 리포트, 지난 파일, 50건·offset·끝 넘김·음수, 7일 전 비교·없으면 생략·0, 접힌 표, 바로가기 id, 오늘 카드 수 두 모드, 보호 모드 두 문구, 오류 접두어·증거·예전 기록·옛 형식, 단계 이름, data-label 수 = th 수) | C45 | 화면 정리 2차(ADR 0072). 라우트·DB 스키마·잡 로직은 그대로 |
 | generate `counts.target`·`stopped`, `summary._shortfall`·`STOPPED`, `catch_up.next_daily`, `server.next_collect_text`, 자료 `offset` 문자열로 받기 | 완료 | 단위·잡·라우트(자료 두 묶음·목표 3 → 2건 `no_material`, 목표 달성 `target_met`, 중간 비용 상한 `cost_cap`, API 장애 `retry_later`, 생성 실패로 버린 자료, 하루 누계 `made_today`, 원고 0건 API 장애 문장, 문장 세 이유·목표 달성·예전 기록, 자료 0 카드 오늘 남은 회차·"내일"·자료 있으면 원래 문구·활동 시간 없음, `offset=abc`·빈 값·`--5`·`-5` 첫 쪽 200) | C46 | 목표 계산·자료 고르는 규칙·쿼터·DB 스키마는 그대로. `counts`는 DB에 저장되지 않아 이유는 실행 기록 문장으로 남는다 |
 | `JobScheduler._run` 끄는 중 건너뜀(`SKIPPED_ON_SHUTDOWN`), `run_metrics`·`_platform_metrics` 중단(`_metrics_stopped`), `runtime.close_on_worker`(`CLOSE_WAIT_S` 150) | 완료 | 단위(끄는 중 시작 안 함·기록 접두어·배지 "중단"·평소 그대로, 첫 글 뒤 Ctrl+C면 다음 글·계정 지표·다음 플랫폼 안 읽음·"오류" 없음·알림 없음, 끊김 예외가 장애 기록 아님, 계정 지표 중 끊김, 처음부터 끄는 중, 닫기 빠름·시간 초과 WARNING 한 줄과 닫기 마무리·닫기 오류는 ERROR·닫기 자체의 TimeoutError·스케줄러 시작 전 바로 닫기, 남은 곳에서 멈춘 계정 빼기, 끄는 중 모르는 잡은 오류) | C47 | publish·어댑터는 그대로. 대시보드 `submit`(직접 답글·프리셋 전환)은 잡이 아니라 건너뛰지 않는다 |
+| `nsm/engine/media_cleanup.py`(`remove_content_media`·`sweep_media`·`_purge`), `Repository.content_ids`, 폐기 라우트 정리 | 완료 | 단위·라우트(세 폴더 지움·바이트 수·다른 원고 그대로, media 없으면 0, ULID 아닌 id·`..`·`_contract`는 안 지움, maintenance가 폐기 폴더·중복 미리보기만 지우고 승인·검토 대기·초안·카드 없는 게시의 미리보기·`_contract`·style-previews는 그대로, 실행 기록 문장, 권한 오류에도 폐기·maintenance 성공, 부분 실패도 나머지 지우고 셈, 전이 실패면 안 지움, 전이 사이 게시 시작이면 카드 남김, 폐기 뒤 미리보기 안 그림) | C48 | 게시 카드는 화면에 쓰여 영구(ADR 0073). publish·어댑터는 그대로 |
 | `instagram.parse_insights`·`ig_number`, `_POST_METRICS` 원문·안정 대기, `health_metrics` 한 번 다시 읽기(`REREAD_KEY`) | 완료 | 단위·잡(실제 화면 글, 예전 순서, 한 줄 쌍, 천·만·K·M, 없음 → None, 한 숫자 한 항목, 이름 전체 일치, 비율 제외, 조회 None·조회한 사람 ≥ 1에 조회 0 → `ui_changed`+증거, 90일 한 번·120일 밖·스레드 제외, 429 뒤 이어서, 실패는 0 저장 안 함, 요약 문장) | C44 | 인스타그램 인사이트 이름 기준 해석과 불가능한 0 실패, 옛 글 한 번 다시 읽기(ADR 0069, incidents/0016) |
 | `nsm/rag/search.group_key`·`group_hits`(`rag.per_doc`), `Repository.publication_links`, 근거 글 보기 링크(`ask_format.post_links`) | 완료 | 단위·라우트(세 출처의 묶음 키, per_doc 1·2 자리 채우기, 점수 순서, 후보 부족, 기준값은 묶은 뒤, cards·threads 한 묶음, 넉넉한 후보, 설정 범위, 게시됨·주소 있는 것만, 질문당 조회 한 번, 예전 기록 links 없음, http 아닌 주소 안 보임) | R4d | 같은 원고·기사·파일은 상위 k에 한 자리(ADR 0067) |
 | `nsm/rag/sources_db.py`, `nsm/rag/multi.py`, 출처 고르기(`/ask`), `nsm index --source`, 측정 `scripts/rag_measure_sources.py`(R4b) | 완료 | 단위·잡·라우트(관련성·기간·빈 본문 거르기, 제목 경로·마크다운, 게시된 글만·작성자 없음·숨긴 댓글, 기간 밖 삭제, 세 출처 순서·상한 나눠 쓰기·한 출처 실패·429, CLI, 출처 전달·배지·출처별 수·예전 기록, R4b 측정 표의 정답 순위·kind=any·중복 카드·질문 문장 없음·질문당 한 번 임베딩, R4c 카드 문서 원고당 하나·한 플랫폼만·deck 없음·미게시·제목 경로·댓글 안 섞임·cards는 중복 아님) | R4·R4b·R4c | 수집 자료·우리 글 출처(6-3·6-4절, ADR 0065·개정 1 재측정) |
