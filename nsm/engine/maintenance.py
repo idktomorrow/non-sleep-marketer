@@ -2,6 +2,7 @@
 
 - 백업: `<NSM_HOME>/backups/data-YYYY-MM-DD.duckdb`. 같은 날 다시 돌면 덮어쓴다. 최근 `backup_keep`개만 남긴다.
 - 실행 기록: `run_log_keep_days`일보다 오래된 것만 지운다. 원고·댓글·성과는 건드리지 않는다.
+- 이미지(C48): 백업 뒤 폐기 원고의 카드·미리보기·올린 배경 폴더, 게시 원고의 카드와 겹치는 미리보기를 지운다(ADR 0073).
 - 백업이 실패하면 잡 실패로 기록되고 알림이 간다(runner).
 
 되살리기: `nsm run`을 끄고, 백업 파일을 `<NSM_HOME>/data.duckdb`로 복사한다(사용설명서 7절).
@@ -68,6 +69,18 @@ def run_maintenance(ctx: JobContext) -> JobResult:
     result.counts["sources_pruned"] = ctx.repo.prune_stale_source_records(
         s.relevance_threshold, s.source_keep_days
     )
+    # 이미지 정리(C48)도 백업 뒤에. 폐기 원고는 폴더 통째로, 게시 원고는 카드와 겹치는 미리보기만
+    from nsm.engine.media_cleanup import sweep_media
+
+    try:
+        folders, size = sweep_media(
+            ctx.media_dir, ctx.repo.content_ids("discarded"), ctx.repo.content_ids("published")
+        )
+        result.counts.update(media_removed=folders, media_mb=round(size / 1_000_000, 1))
+        if folders:
+            log.info("이미지 폴더 %d개 정리(%.1fMB)", folders, size / 1_000_000)
+    except Exception as e:  # noqa: BLE001
+        log.warning("이미지 정리 실패: %s", e)
     # 폐기된 원고에 남은 대기·재시도 게시 줄(C41 전에 생긴 것): 포기로 바꿔 게시 감시가 세지 않게
     abandoned = ctx.repo.abandon_discarded_leftovers()
     if abandoned:

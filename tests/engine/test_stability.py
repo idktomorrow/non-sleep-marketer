@@ -177,6 +177,8 @@ def test_old_run_logs_are_pruned_only(db, clock, app_config) -> None:
         "sources_blanked": 0,
         "sources_pruned": 0,
         "evidence_pruned": 0,
+        "media_removed": 0,  # C48: 이미지 정리(정리할 것 없음)
+        "media_mb": 0.0,
     }
     assert len(ctx.repo.recent_runs()) == 1  # 방금 것만 남음(maintenance 자신은 runner가 적는다)
     assert ctx.repo.relevant_since(clock.now() - timedelta(days=365), 0.5) == 3  # 자료는 그대로

@@ -455,6 +455,10 @@ class Repository:
             )
         )
 
+    def content_ids(self, status: ContentStatus) -> list[str]:
+        """그 상태인 원고 ID 전부(개수 제한 없음, 이미지 정리용 C48)."""
+        return [r[0] for r in self.db.execute("SELECT id FROM contents WHERE status = ?", [status])]
+
     def abandon_discarded_leftovers(self) -> int:
         """C41 전에 폐기된 원고에 남은 queued·failed 게시 줄을 abandoned로(유지보수 잡이 부른다). 바꾼 줄 수."""
         return self._count(
