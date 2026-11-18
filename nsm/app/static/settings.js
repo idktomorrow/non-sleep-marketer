@@ -20,6 +20,8 @@
     body.set("initial", input.value);
     fetch("/settings/pick-folder", { method: "POST", body: body, credentials: "same-origin" })
       .then(function (r) {
+        // 403: nsm run을 다시 켜 화면의 보안 토큰이 낡았다. "열 수 없음"이 아니라 새로고침을 안내
+        if (r.status === 403) return { error: "화면이 오래됐습니다. 새로고침한 뒤 다시 누르세요" };
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })

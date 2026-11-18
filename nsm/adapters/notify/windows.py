@@ -46,16 +46,26 @@ def toast_script(title: str, body: str, url: str = "") -> str:
         f"<text>{escape(title)}</text><text>{escape(body)}</text>"
         f"</binding></visual>{actions}</toast>"
     )
-    lit = xml.replace("'", "''")  # PowerShell 작은따옴표 문자열: 변수·$()가 해석되지 않는다
     return (
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, "
         "ContentType = WindowsRuntime] | Out-Null; "
         "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, "
         "ContentType = WindowsRuntime] | Out-Null; "
-        f"$x = New-Object Windows.Data.Xml.Dom.XmlDocument; $x.LoadXml('{lit}'); "
+        f"$x = New-Object Windows.Data.Xml.Dom.XmlDocument; $x.LoadXml({ps_literal(xml)}); "
         f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{APP_ID}')"
         ".Show([Windows.UI.Notifications.ToastNotification]::new($x))"
     )
+
+
+# PowerShell은 작은따옴표 문자열에서 ' 말고도 굽은 따옴표 ‘ ’ ‚ ‛를 같은 따옴표로 본다(C50 리뷰).
+# 뉴스 제목의 ‘먼작귀’ 같은 글자가 리터럴을 끝내지 않게 모두 두 번 써서 글자로 만든다
+_PS_QUOTES = "'‘’‚‛"
+
+
+def ps_literal(value: str) -> str:
+    """PowerShell 작은따옴표 문자열 리터럴. 안에서는 변수·$()가 해석되지 않는다. NUL은 뺀다."""
+    out = "".join(c + c if c in _PS_QUOTES else c for c in value.replace("\x00", ""))
+    return f"'{out}'"
 
 
 def encode_command(script: str) -> str:

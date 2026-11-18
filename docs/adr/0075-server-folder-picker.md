@@ -22,9 +22,12 @@ File System Access API)은 보안상 페이지에 폴더 이름이나 핸들만 
 
 2번. 텍스트 칸은 그대로 두고 버튼은 칸을 채우기만 한다(저장은 사용자가).
 
-- 알림과 같은 방식(PowerShell `-STA -NoProfile -NonInteractive -EncodedCommand`). 제목·처음 폴더는 작은따옴표 리터럴로만 넣고,
-  PowerShell이 따옴표로 보는 `‘’‚‛`도 두 번 써서 코드로 풀리지 않게 한다.
-- `def` 라우트(스레드 풀)에서 돈다. 선택 창을 기다리는 동안 작업 스레드(잡 큐)를 막지 않는다. 300초가 지나면 PowerShell을 끝낸다.
+- 알림처럼 PowerShell을 `-NoProfile -NonInteractive -EncodedCommand`로 부르고, 선택 창에 필요한 `-STA`를 더한다.
+  제목·처음 폴더는 알림과 같은 `ps_literal`(`nsm/adapters/notify/windows.py`)로 작은따옴표 리터럴 안에만 넣는다.
+  PowerShell이 따옴표로 보는 `‘’‚‛`도 두 번 쓴다(이 배치 리뷰에서 알림 쪽에도 같은 빈틈이 있어 함께 고쳤다).
+- 스크립트는 `$ErrorActionPreference='Stop'`과 try/catch로 감싸, 창을 띄우다 실패하면 "취소"가 아니라 오류(종료 코드 1)로 끝난다.
+- `def` 라우트(스레드 풀)에서 돈다. 선택 창을 기다리는 동안 작업 스레드(잡 큐)를 막지 않는다. 300초가 지나면 PowerShell을
+  끝내고 "5분 동안 고르지 않아 닫았습니다"를 보여 준다. `nsm run`을 끌 때(Ctrl+C)는 떠 있는 창을 바로 닫아 종료를 붙잡지 않는다.
 - 한 번에 창 하나(모듈 잠금, 잡혀 있으면 바로 "이미 떠 있음").
 - 결과는 성공·취소·오류 모두 200 JSON으로 돌려준다(화면이 문구를 그대로 보여 줌). 거절은 CSRF 403만.
 

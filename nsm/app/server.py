@@ -40,7 +40,14 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
-from nsm.app.folder_picker import PickerBusy, PickerUnavailable, Runner, pick_folder
+from nsm.app.folder_picker import (
+    PickerBusy,
+    PickerNotFolder,
+    PickerTimeout,
+    PickerUnavailable,
+    Runner,
+    pick_folder,
+)
 from nsm.app.keys import install_keys_routes, key_status
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
 from nsm.app.ko import BACKUP_COPY_PROBLEMS, FOLDER_PICKER, result_text
@@ -675,6 +682,10 @@ def create_app(state: AppState) -> FastAPI:
             )
         except PickerBusy:
             return JSONResponse({"error": FOLDER_PICKER["busy"], "busy": True})
+        except PickerNotFolder:
+            return JSONResponse({"error": FOLDER_PICKER["not_folder"]})
+        except PickerTimeout:  # 창은 떴다: "열 수 없음"이 아니라 "닫았으니 다시"
+            return JSONResponse({"error": FOLDER_PICKER["timeout"]})
         except PickerUnavailable as e:
             log.warning("폴더 선택 창을 열 수 없음: %s", e)
             return JSONResponse({"error": FOLDER_PICKER["unavailable"]})

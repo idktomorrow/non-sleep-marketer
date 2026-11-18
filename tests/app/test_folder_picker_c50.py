@@ -22,6 +22,7 @@ def no_real_powershell(monkeypatch):
         raise AssertionError("진짜 PowerShell을 불렀습니다")
 
     monkeypatch.setattr(F.subprocess, "run", forbidden)
+    monkeypatch.setattr(F.subprocess, "Popen", forbidden)
 
 
 class FakeRunner:
@@ -61,7 +62,11 @@ def test_picked_path_is_returned_trimmed(env) -> None:  # noqa: F811
     s = runner.script()
     assert "FolderBrowserDialog" in s and "$d.ShowNewFolderButton = $true" in s
     assert "TopMost = $true" in s and "ShowDialog($o)" in s
-    assert "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8" in s
+    assert "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false" in s  # BOM 없이
+    # 창을 띄우다 실패하면 "취소"로 보이지 않게 오류로 끝낸다(리뷰 지적)
+    assert s.startswith("$ErrorActionPreference = 'Stop'; try { ")
+    assert s.endswith("catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }")
+    assert "else { exit 3 }" in s  # OK인데 실제 폴더가 아님
     assert "$d.SelectedPath = 'C:\\old'" in s
     assert f"$d.Description = '{FOLDER_PICKER['title']}'" in s
 
@@ -74,7 +79,6 @@ def test_empty_output_means_cancelled(env) -> None:  # noqa: F811
 @pytest.mark.parametrize(
     "exc",
     [
-        subprocess.TimeoutExpired("powershell.exe", 300),
         FileNotFoundError("powershell.exe"),
         F.PickerUnavailable("Windows가 아님"),
         RuntimeError("뜻밖"),
@@ -164,3 +168,112 @@ def test_settings_page_has_button_static_js_and_home_placeholder(env, monkeypatc
     assert f'placeholder="{home / "OneDrive" / "nsm-backups"}"' in html
     assert "이름\\OneDrive" not in html
     assert "홍길동" not in env["holder"]["cfg"].settings.backup_copy_dir  # 화면에만, 저장 안 됨
+
+
+@pytest.mark.parametrize(
+    ("exc", "key"),
+    [
+        (subprocess.TimeoutExpired("powershell.exe", 300), "timeout"),
+        (F.PickerTimeout("시간 초과"), "timeout"),
+        (F.PickerNotFolder(), "not_folder"),
+    ],
+)
+def test_timeout_and_not_folder_have_own_message(env, exc, key) -> None:  # noqa: F811
+    # 시간 초과는 창이 떴던 것: "열 수 없음"이 아니라 "닫았으니 다시"(리뷰 지적)
+    r = _pick(env, FakeRunner(exc=exc))
+    assert r.status_code == 200 and r.json() == {"error": FOLDER_PICKER[key]}
+
+
+def test_bom_is_stripped_from_path(env) -> None:  # noqa: F811
+    r = _pick(env, FakeRunner("\ufeff" + r"C:\Drive\nsm" + "\r\n"))
+    assert r.json() == {"path": r"C:\Drive\nsm"}
+
+
+class FakePopen:
+    """진짜 실행기(powershell_runner) 시험용 가짜 프로세스."""
+
+    def __init__(self, code=0, out=b"", err=b"", hang=False) -> None:
+        self.returncode, self.out, self.err, self.hang = code, out, err, hang
+        self.killed = threading.Event()
+
+    def __call__(self, args, **kw):
+        self.args = args
+        return self
+
+    def communicate(self, timeout=None):
+        if self.hang and not self.killed.is_set():
+            if timeout is not None and not self.killed.wait(timeout):
+                raise subprocess.TimeoutExpired("powershell.exe", timeout)
+            self.returncode = 1
+        return self.out, self.err
+
+    def poll(self):
+        return None if self.hang and not self.killed.is_set() else self.returncode
+
+    def kill(self):
+        self.killed.set()
+
+
+@pytest.fixture
+def fake_windows(monkeypatch):
+    monkeypatch.setattr(F.sys, "platform", "win32")
+
+    def use(p: FakePopen) -> FakePopen:
+        monkeypatch.setattr(F.subprocess, "Popen", p)
+        return p
+
+    return use
+
+
+def test_real_runner_maps_exit_codes(fake_windows) -> None:
+    fake_windows(FakePopen(0, ("\ufeff" + r"D:\내 드라이브\nsm" + "\r\n").encode()))
+    assert F.pick_folder("t") == r"D:\내 드라이브\nsm"  # UTF-8(BOM이 와도 뗌)
+    fake_windows(FakePopen(0, b""))
+    assert F.pick_folder("t") is None
+    fake_windows(FakePopen(3))
+    with pytest.raises(F.PickerNotFolder):
+        F.pick_folder("t")
+    fake_windows(FakePopen(1, err="대화형 세션이 아닙니다".encode()))
+    with pytest.raises(F.PickerUnavailable, match="대화형 세션"):
+        F.pick_folder("t")
+
+
+def test_real_runner_timeout_kills_powershell(fake_windows) -> None:
+    p = fake_windows(FakePopen(hang=True))
+    with pytest.raises(F.PickerTimeout):
+        F.pick_folder("t", timeout_s=0.05)
+    assert p.killed.is_set()
+
+
+def test_cancel_picker_closes_open_dialog_on_shutdown(fake_windows) -> None:
+    """nsm run을 끌 때(Ctrl+C) 떠 있는 창을 닫아, 요청이 5분까지 종료를 붙잡지 않는다(리뷰 지적)."""
+    p = fake_windows(FakePopen(hang=True))
+    got: list = []
+
+    def run():
+        try:
+            F.pick_folder("t")
+        except F.PickerUnavailable as e:
+            got.append(e)
+
+    t = threading.Thread(target=run)
+    t.start()
+    for _ in range(100):
+        if F._proc is not None:
+            break
+        threading.Event().wait(0.01)
+    F.cancel_picker()
+    t.join(5)
+    assert not t.is_alive() and p.killed.is_set() and len(got) == 1
+    assert F._proc is None
+    F.cancel_picker()  # 떠 있는 창이 없으면 아무것도 안 함
+
+
+def test_toast_script_doubles_curly_quotes_too() -> None:
+    """알림도 같은 ps_literal을 쓴다: 뉴스 제목의 ‘먼작귀’ 같은 굽은 따옴표가 리터럴을 끝내지 않게(리뷰 지적)."""
+    from nsm.adapters.notify import windows as W
+
+    s = W.toast_script("‘먼작귀’ 팝콘통", r"’; Remove-Item C:\ -Recurse; ’")
+    lit = s[s.index("LoadXml('") + len("LoadXml(") : s.index("); [Windows")]
+    assert lit == W.ps_literal(lit[1:-1].replace("‘‘", "‘").replace("’’", "’"))
+    assert "‘‘먼작귀’’" in lit and "’’; Remove-Item" in lit
