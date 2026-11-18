@@ -114,6 +114,13 @@ BACKUP_COPY_PROBLEMS = {
     "inside_backups": "기본 백업 폴더와 같은 곳(또는 그 안)이라 복사하지 않습니다. 다른 폴더를 고르세요",
 }
 
+# 폴더 고르기… 버튼(C50)
+FOLDER_PICKER = {
+    "title": "백업을 한 부 더 둘 폴더를 고르세요",
+    "unavailable": "폴더 선택 창을 열 수 없습니다. 경로를 직접 넣으세요",
+    "busy": "폴더 선택 창이 이미 떠 있습니다. 작업 표시줄에서 그 창을 찾아 닫은 뒤 다시 누르세요",
+}
+
 
 def ko(value: object, table: dict[str, str]) -> str:
     if value is None:
