@@ -343,6 +343,7 @@ def run_forever() -> None:
     import uvicorn
 
     from nsm.adapters.notify.windows import DesktopNotifier
+    from nsm.app.folder_picker import cancel_picker
     from nsm.app.server import AppState, create_app
     from nsm.config.store import save_config
     from nsm.engine.publish import recover_interrupted
@@ -452,6 +453,7 @@ def run_forever() -> None:
             sig, frame
         ):  # Ctrl+C를 받는 즉시 "끄는 중"을 켠다(작업 스레드가 바로 알게, C33)
             stopping.set()
+            cancel_picker()  # 폴더 선택 창이 떠 있으면 닫는다(요청이 창을 기다리며 종료를 붙잡지 않게, C50)
             _orig_exit(sig, frame)
 
         server.handle_exit = _handle_exit

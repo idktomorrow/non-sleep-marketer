@@ -372,3 +372,9 @@ nav.menu.has-more, .table-wrap.has-more { -webkit-mask-image: linear-gradient(to
 
 /* C47: 숫자 카드 설명을 한 줄로(넘치면 …, 전체는 title) */
 .stat .one-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* C50: 백업 복사 폴더 칸 옆 "폴더 고르기…" 버튼 */
+.folder-pick { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.folder-pick input[type=text] { flex: 1; min-width: 0; }
+.folder-pick button { flex: none; white-space: nowrap; }
+#pick-folder-msg.bad { color: var(--bad); }

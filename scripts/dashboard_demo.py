@@ -61,6 +61,12 @@ def _demo_keyword(keyword: str) -> Future:
     return _DEMO_POOL.submit(work)
 
 
+def _demo_pick_folder(args: list[str], timeout_s: float) -> str:
+    """폴더 선택 창 흉내(C50): 데모에서는 진짜 Windows 창을 띄우지 않고 예시 경로를 돌려준다."""
+    time.sleep(0.8)
+    return str(Path.home() / "OneDrive" / "nsm-backups") + "\r\n"
+
+
 def _demo_read_image(path: Path) -> str:
     """이미지 읽기 흉내(C16): API 없이 정해진 글."""
     return "CGV 먼작귀 팝콘통 예약판매 오픈\n구매처: 네이버에서 [CGV 스토어] 검색\n디자인 3종"
@@ -305,6 +311,7 @@ def main() -> None:
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),
         renderer=renderer,
+        folder_runner=_demo_pick_folder,  # C50: 진짜 선택 창 대신
     )
     print(f"데모 대시보드: http://127.0.0.1:{args.port}  (데이터: {home})")
     uvicorn.run(create_app(state), host="127.0.0.1", port=args.port, log_level="warning")

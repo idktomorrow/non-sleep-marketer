@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -40,9 +40,17 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
+from nsm.app.folder_picker import (
+    PickerBusy,
+    PickerNotFolder,
+    PickerTimeout,
+    PickerUnavailable,
+    Runner,
+    pick_folder,
+)
 from nsm.app.keys import install_keys_routes, key_status
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
-from nsm.app.ko import BACKUP_COPY_PROBLEMS, result_text
+from nsm.app.ko import BACKUP_COPY_PROBLEMS, FOLDER_PICKER, result_text
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
 from nsm.app.materials import (
@@ -73,7 +81,7 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
-from nsm.engine.backup_copy import check_copy_dir
+from nsm.engine.backup_copy import check_copy_dir, clean_path
 from nsm.engine.catch_up import activity_slots, caught_up_today, next_daily
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
@@ -157,6 +165,9 @@ class AppState:
     secrets: SecretStore | None = None
     on_secrets_changed: Callable[[], None] | None = None
     check_key: Callable[[str, str | None], tuple[str, int | None]] | None = None  # 테스트용 대체
+    folder_runner: Runner | None = (
+        None  # 폴더 선택 창 실행기(C50). 테스트는 가짜, 없으면 PowerShell
+    )
     # 문서 질문(R3): (임베더, 답변기)를 돌려준다. 없으면 탭은 보이되 "키가 없어…" 안내
     get_rag: Callable[[], tuple[Any, Any]] | None = None
 
@@ -440,6 +451,8 @@ def create_app(state: AppState) -> FastAPI:
                 k: bool(getattr(b, k) and Path(getattr(b, k)).is_file()) for k in BRAND_IMAGE_KINDS
             },
             "copy_notice": _copy_notice(q.get("copy_warn")),
+            # 이 PC의 홈 경로로 만든 예시(C50). placeholder라 폼에 실리지 않고 저장되지 않는다
+            "copy_placeholder": str(Path.home() / "OneDrive" / "nsm-backups"),
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
             "keys": key_status(state.secrets),
@@ -654,6 +667,31 @@ def create_app(state: AppState) -> FastAPI:
                 f"/settings?saved=1&copy_warn={problem}#backup", status_code=303
             )
         return RedirectResponse("/settings?saved=1", status_code=303)
+
+    @app.post("/settings/pick-folder", dependencies=[Depends(check_csrf)])
+    def pick_backup_folder(initial: str = Form("")) -> JSONResponse:
+        """같은 PC에 Windows 폴더 선택 창을 띄운다(C50, ADR 0075). 127.0.0.1 전용이라 창을 보는 사람이 곧 사용자.
+
+        async가 아닌 def라 요청 스레드(스레드 풀)에서 돈다: 창을 기다리는 동안 이벤트 루프도 작업 스레드(잡 큐)도
+        막지 않는다. 성공·취소·오류 모두 200 JSON 한 모양으로 돌려준다: 화면 스크립트가 상태 코드로 나누지 않고
+        error 문구를 그대로 보여 주면 되고, 진짜 거절은 403(CSRF)만 남는다.
+        """
+        try:
+            path = pick_folder(
+                FOLDER_PICKER["title"], clean_path(initial[:500]), runner=state.folder_runner
+            )
+        except PickerBusy:
+            return JSONResponse({"error": FOLDER_PICKER["busy"], "busy": True})
+        except PickerNotFolder:
+            return JSONResponse({"error": FOLDER_PICKER["not_folder"]})
+        except PickerTimeout:  # 창은 떴다: "열 수 없음"이 아니라 "닫았으니 다시"
+            return JSONResponse({"error": FOLDER_PICKER["timeout"]})
+        except PickerUnavailable as e:
+            log.warning("폴더 선택 창을 열 수 없음: %s", e)
+            return JSONResponse({"error": FOLDER_PICKER["unavailable"]})
+        if path is None:
+            return JSONResponse({"cancelled": True})
+        return JSONResponse({"path": path})
 
     @app.post("/jobs/{name}/run", dependencies=[Depends(check_csrf)])
     def run_now(name: str, request: Request) -> RedirectResponse:
