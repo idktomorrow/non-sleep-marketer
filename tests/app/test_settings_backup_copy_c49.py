@@ -104,7 +104,7 @@ def test_field_only_in_advanced_mode(env) -> None:  # noqa: F811
     adv = env["client"].get("/settings").text
     assert '<h2 id="backup" class="adv-only" >' in adv
     assert 'name="backup_copy_dir"' in adv
-    assert "구글 드라이브·OneDrive 동기화 폴더 아래를 지정하면 클라우드에도 남습니다" in adv
+    assert "구글 드라이브나 OneDrive 폴더를 고르면 클라우드에도 남습니다" in adv  # C51 쉬운 문구
 
 
 def test_old_form_without_field_keeps_value(env, tmp_path) -> None:  # noqa: F811

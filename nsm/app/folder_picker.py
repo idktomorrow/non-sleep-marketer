@@ -61,21 +61,29 @@ def picker_script(title: str, initial: str = "") -> str:
     """
     selected = f"$d.SelectedPath = {ps_literal(initial)}; " if initial else ""
     return (
-        "$ErrorActionPreference = 'Stop'; "
+        "$ErrorActionPreference = 'Stop'; $code = 0; $o = $null; $d = $null; "
         "try { "
         "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; "  # BOM 없이
-        "Add-Type -AssemblyName System.Windows.Forms; "
+        "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; "
         "[System.Windows.Forms.Application]::EnableVisualStyles(); "
-        # 브라우저 뒤에 숨지 않게: 맨 위에 뜨는(보이지 않는) 폼을 주인으로 넘긴다
-        "$o = New-Object System.Windows.Forms.Form; $o.TopMost = $true; $o.ShowInTaskbar = $false; "
+        # 브라우저 뒤에 숨지 않게(C51, ADR 0075 "포그라운드 잠금 우회"): 주인 폼을 화면 중앙에 실제로 띄운다.
+        # 보이지 않게(투명·1px·테두리 없음) 하되 Show()해야 TopMost가 효과가 있다. 대화 상자는 주인 폼 위치 기준이라 중앙에
+        "$o = New-Object System.Windows.Forms.Form; $o.FormBorderStyle = 'None'; $o.ShowInTaskbar = $false; "
+        "$o.TopMost = $true; $o.Opacity = 0; $o.Size = New-Object System.Drawing.Size(1, 1); "
+        "$o.StartPosition = 'CenterScreen'; $o.Show(); "
+        # 최소화 → 복원은 포그라운드 잠금(SetForegroundWindow 제한)에 걸리지 않고 창을 앞으로 가져온다
+        "$o.WindowState = 'Minimized'; $o.WindowState = 'Normal'; $o.Activate(); "
+        "[System.Windows.Forms.Application]::DoEvents(); "
         "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
         f"$d.Description = {ps_literal(title)}; "
         "$d.ShowNewFolderButton = $true; "
         f"{selected}"
         "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { "
-        f"if ($d.SelectedPath) {{ [Console]::Out.WriteLine($d.SelectedPath) }} else {{ exit {_NOT_FOLDER_EXIT} }} "
+        f"if ($d.SelectedPath) {{ [Console]::Out.WriteLine($d.SelectedPath) }} else {{ $code = {_NOT_FOLDER_EXIT} }} "
         "} "
-        "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"
+        "} catch { [Console]::Error.WriteLine($_.Exception.Message); $code = 1 } "
+        "finally { if ($d) { $d.Dispose() }; if ($o) { $o.Close(); $o.Dispose() } }; "
+        "exit $code"
     )
 
 
