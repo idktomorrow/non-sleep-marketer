@@ -42,9 +42,9 @@ from nsm.app.card_editor import (
 )
 from nsm.app.keys import install_keys_routes, key_status
 from nsm.app.ko import ALL_JOBS as RUN_LABELS
+from nsm.app.ko import BACKUP_COPY_PROBLEMS, result_text
 from nsm.app.ko import FILTERS as KO_FILTERS
 from nsm.app.ko import JOBS as JOB_LABELS
-from nsm.app.ko import result_text
 from nsm.app.materials import (
     MAX_FILE_BYTES,
     MaterialError,
@@ -73,6 +73,7 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
+from nsm.engine.backup_copy import check_copy_dir
 from nsm.engine.catch_up import activity_slots, caught_up_today, next_daily
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
 from nsm.engine.keyword import KeywordError, clean_keyword
@@ -138,6 +139,7 @@ class AppState:
     adapters: dict[Platform, PlatformAdapter]
     media_dir: Path
     reports_dir: Path | None = None
+    backups_dir: Path | None = None  # 기본 백업 폴더(C49). 복사 폴더가 그 안인지 검사
     csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     run_job_now: Callable[[str], Future] | None = None
     job_names: frozenset[str] = frozenset()
@@ -409,6 +411,16 @@ def create_app(state: AppState) -> FastAPI:
             "time": state.get_config().settings.rag.index_time,
         }
 
+    def _copy_notice(code: str | None) -> str:
+        """백업 복사 폴더 칸 아래 안내(C49). 저장 직후는 쓰기까지 본 결과(code), 그 밖에는 가벼운 검사만
+        (화면을 열 때마다 동기화 폴더에 임시 파일을 만들지 않게)."""
+        raw = state.get_config().settings.backup_copy_dir
+        if not raw:
+            return ""
+        if code not in BACKUP_COPY_PROBLEMS:
+            code = check_copy_dir(raw, state.backups_dir, probe=False)
+        return BACKUP_COPY_PROBLEMS.get(code or "", "")
+
     def settings_extra(request: Request) -> dict[str, Any]:
         b = state.get_config().brand
         q = request.query_params
@@ -425,6 +437,7 @@ def create_app(state: AppState) -> FastAPI:
             "has_image": {
                 k: bool(getattr(b, k) and Path(getattr(b, k)).is_file()) for k in BRAND_IMAGE_KINDS
             },
+            "copy_notice": _copy_notice(q.get("copy_warn")),
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
             "keys": key_status(state.secrets),
@@ -626,6 +639,12 @@ def create_app(state: AppState) -> FastAPI:
             resp.status_code = 400
             return resp
         state.set_config(new)
+        folder = new.settings.backup_copy_dir
+        problem = check_copy_dir(folder, state.backups_dir) if folder else None
+        if problem:  # 값은 저장하고 칸 아래에 안내(C49)
+            return RedirectResponse(
+                f"/settings?saved=1&copy_warn={problem}#backup", status_code=303
+            )
         return RedirectResponse("/settings?saved=1", status_code=303)
 
     @app.post("/jobs/{name}/run", dependencies=[Depends(check_csrf)])

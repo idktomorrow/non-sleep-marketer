@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from nsm.config.schema import CATCH_UP_CHOICES, AppConfig
 from nsm.config.store import format_windows, parse_windows
+from nsm.engine.backup_copy import clean_path
 
 MAX_TOPICS = 10
 MAX_LINES = 30
@@ -20,6 +21,7 @@ COST_CAP_MAX = 100.0
 IG_INTERVAL = "instagram_comment_interval_minutes"
 TH_INTERVAL = "threads_comment_interval_minutes"
 LOOKBACK = "comment_lookback_days"
+BACKUP_COPY = "backup_copy_dir"  # 백업 복사 폴더(C49). 비우면 끔
 CATCH_UP_MARK = "catch_up_form"  # 따라잡기 체크 칸이 있는 폼(C40). 없으면(옛 폼) 지금 값을 지킨다
 
 
@@ -184,6 +186,10 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
         catch_up_jobs=[j for j in CATCH_UP_CHOICES if form.get(f"catch_up_{j}") == "on"]
         if CATCH_UP_MARK in form
         else cfg.settings.catch_up_jobs,
+        # 폴더 검사는 저장을 막지 않는다(폴더를 나중에 만들 수 있게). 안내는 화면이 따로 보여 준다
+        backup_copy_dir=clean_path(_text(form, BACKUP_COPY, "백업 복사 폴더", required=False))
+        if BACKUP_COPY in form
+        else cfg.settings.backup_copy_dir,
     )
     try:
         return AppConfig.model_validate(
@@ -236,5 +242,6 @@ def form_values(cfg: AppConfig) -> dict[str, str]:
         "desktop_notifications": "on" if s.desktop_notifications else "",
         "recent_period": s.collect.recent_period,
         "exclude_words": "\n".join(s.collect.exclude_words),
+        BACKUP_COPY: s.backup_copy_dir,
         **{f"catch_up_{j}": "on" if j in s.catch_up_jobs else "" for j in CATCH_UP_CHOICES},
     }

@@ -3,6 +3,7 @@
 - 백업: `<NSM_HOME>/backups/data-YYYY-MM-DD.duckdb`. 같은 날 다시 돌면 덮어쓴다. 최근 `backup_keep`개만 남긴다.
 - 실행 기록: `run_log_keep_days`일보다 오래된 것만 지운다. 원고·댓글·성과는 건드리지 않는다.
 - 이미지(C48): 백업 뒤 폐기 원고의 카드·미리보기·올린 배경 폴더, 게시 원고의 카드와 겹치는 미리보기를 지운다(ADR 0073).
+- 백업 복사(C49): `backup_copy_dir`이 있으면 본 백업 뒤 같은 이름으로 한 부 더(같은 보관 개수). 실패는 WARNING·알림만.
 - 백업이 실패하면 잡 실패로 기록되고 알림이 간다(runner).
 
 되살리기: `nsm run`을 끄고, 백업 파일을 `<NSM_HOME>/data.duckdb`로 복사한다(사용설명서 7절).
@@ -13,6 +14,7 @@ from __future__ import annotations
 import logging
 
 from nsm.domain.policy import local
+from nsm.engine.backup_copy import CopyError, clean_path, copy_backup, prune_copies
 from nsm.engine.context import JobContext, JobResult
 
 log = logging.getLogger(__name__)
@@ -26,6 +28,28 @@ def backup_prefix(preset: str) -> str:
     from nsm.config.presets import DEFAULT_PRESET, same, slugify
 
     return "data" if same(preset, DEFAULT_PRESET) else f"data-{slugify(preset)}"
+
+
+def _copy(ctx: JobContext, result: JobResult, path, prefix: str) -> None:
+    """본 백업을 복사 폴더에 한 부 더(C49, ADR 0074). 실패해도 본 백업은 성공: WARNING과 알림 한 번."""
+    s = ctx.config.settings
+    folder = clean_path(s.backup_copy_dir)
+    result.counts["copy_dir"] = folder
+    try:
+        copied = copy_backup(path, folder, ctx.backups_dir)
+    except CopyError as e:
+        result.counts.update(copy_ok=False, copy_error=str(e), copies_removed=0)
+        log.warning("백업 복사 실패: %s (%s)", e, folder)
+        # 같은 제목은 데스크톱 알림이 짧은 시간 안에 한 번만 띄운다(WindowsNotifier 규칙)
+        ctx.notifier.notify("백업 복사 실패", f"{e}: {folder}. 본 백업은 됐습니다", "warn")
+        return
+    try:
+        removed = prune_copies(copied.parent, prefix, s.backup_keep, copied)
+    except OSError as e:  # 복사는 됐다: 옛 복사본을 못 지운 것만 남긴다
+        log.warning("옛 백업 복사본 정리 실패: %s", e)
+        removed = 0
+    result.counts.update(copy_ok=True, copies_removed=removed)
+    log.info("백업 복사: %s", copied)
 
 
 def run_maintenance(ctx: JobContext) -> JobResult:
@@ -42,18 +66,16 @@ def run_maintenance(ctx: JobContext) -> JobResult:
         day = local(ctx.clock.now(), ctx.tz).date().isoformat()
         prefix = backup_prefix(s.preset)
         path = ctx.repo.db.backup_to(ctx.backups_dir / f"{prefix}-{day}.duckdb")
-        removed = 0
         # 방금 만든 것은 지우지 않는다(날짜가 뒤로 가도 오늘 백업이 남게). 같은 프리셋 것만 센다
-        others = [p for p in ctx.backups_dir.glob(f"{prefix}-????-??-??.duckdb") if p != path]
-        for old in sorted(others, reverse=True)[s.backup_keep - 1 :]:
-            old.unlink(missing_ok=True)
-            removed += 1
+        removed = prune_copies(ctx.backups_dir, prefix, s.backup_keep, path)
         result.counts.update(
             backup=path.name,
             backup_mb=round(path.stat().st_size / 1_000_000, 1),
             backups_removed=removed,
         )
         log.info("데이터 백업: %s", path)
+        if s.backup_copy_dir.strip():
+            _copy(ctx, result, path, prefix)
     result.counts["runs_pruned"] = pruned
     from nsm.adapters.evidence import prune_evidence
 
