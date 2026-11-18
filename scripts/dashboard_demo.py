@@ -3,7 +3,7 @@
 - 스케줄러·잡·외부 API를 부르지 않는다. 사용자의 ~/.nsm은 건드리지 않고 임시 폴더를 쓴다.
 - 예시 데이터는 tests/fixtures(페르소나·자료·댓글·카드 덱)에서 만든다. 저장소 루트에서 실행한다.
 
-    uv run python scripts/dashboard_demo.py [--port 8799] [--home 임시폴더] [--fresh]
+    uv run python scripts/dashboard_demo.py [--port 8799] [--home 임시폴더] [--fresh] [--real-picker]
 
 `--fresh`는 "처음 설치한 사람" 화면(데이터 없음)을 띄운다.
 """
@@ -264,6 +264,9 @@ def main() -> None:
     ap.add_argument("--home", type=Path, default=None)
     ap.add_argument("--fresh", action="store_true", help="데이터 없는 첫 설치 화면")
     ap.add_argument("--no-render", action="store_true", help="카드 PNG를 그리지 않음")
+    ap.add_argument(
+        "--real-picker", action="store_true", help="폴더 고르기에 진짜 Windows 선택 창(C51)"
+    )
     args = ap.parse_args()
     home = args.home or Path(tempfile.mkdtemp(prefix="nsm-demo-"))
     home.mkdir(parents=True, exist_ok=True)
@@ -311,7 +314,8 @@ def main() -> None:
             {"collect", "generate", "publish", "reply", "metrics", "health", "weekly_report"}
         ),
         renderer=renderer,
-        folder_runner=_demo_pick_folder,  # C50: 진짜 선택 창 대신
+        # C50: 진짜 선택 창 대신 예시 경로. --real-picker면 진짜 Windows 창(C51 화면 확인용)
+        folder_runner=None if args.real_picker else _demo_pick_folder,
     )
     print(f"데모 대시보드: http://127.0.0.1:{args.port}  (데이터: {home})")
     uvicorn.run(create_app(state), host="127.0.0.1", port=args.port, log_level="warning")

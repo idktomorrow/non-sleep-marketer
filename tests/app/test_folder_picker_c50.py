@@ -64,9 +64,10 @@ def test_picked_path_is_returned_trimmed(env) -> None:  # noqa: F811
     assert "TopMost = $true" in s and "ShowDialog($o)" in s
     assert "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false" in s  # BOM 없이
     # 창을 띄우다 실패하면 "취소"로 보이지 않게 오류로 끝낸다(리뷰 지적)
-    assert s.startswith("$ErrorActionPreference = 'Stop'; try { ")
-    assert s.endswith("catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }")
-    assert "else { exit 3 }" in s  # OK인데 실제 폴더가 아님
+    # (C51: exit 대신 $code에 담고 finally에서 주인 폼을 닫은 뒤 끝낸다)
+    assert s.startswith("$ErrorActionPreference = 'Stop'; ")
+    assert "catch { [Console]::Error.WriteLine($_.Exception.Message); $code = 1 }" in s
+    assert "else { $code = 3 }" in s and s.endswith("exit $code")  # OK인데 실제 폴더가 아님
     assert "$d.SelectedPath = 'C:\\old'" in s
     assert f"$d.Description = '{FOLDER_PICKER['title']}'" in s
 
