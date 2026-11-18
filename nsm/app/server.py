@@ -417,9 +417,11 @@ def create_app(state: AppState) -> FastAPI:
         raw = state.get_config().settings.backup_copy_dir
         if not raw:
             return ""
-        if code not in BACKUP_COPY_PROBLEMS:
-            code = check_copy_dir(raw, state.backups_dir, probe=False)
-        return BACKUP_COPY_PROBLEMS.get(code or "", "")
+        # 가벼운 검사는 늘 다시 한다(폴더를 만든 뒤 새로고침하면 안내가 사라지게). 쓰기 실패만 저장 때 결과를 쓴다
+        now = check_copy_dir(raw, state.backups_dir, probe=False)
+        if now is None and code == "not_writable":
+            now = code
+        return BACKUP_COPY_PROBLEMS.get(now or "", "")
 
     def settings_extra(request: Request) -> dict[str, Any]:
         b = state.get_config().brand
@@ -638,9 +640,15 @@ def create_app(state: AppState) -> FastAPI:
             )
             resp.status_code = 400
             return resp
+        old_folder = state.get_config().settings.backup_copy_dir
         state.set_config(new)
         folder = new.settings.backup_copy_dir
-        problem = check_copy_dir(folder, state.backups_dir) if folder else None
+        # 쓰기 확인(임시 파일)은 값이 바뀐 때만: 다른 칸을 저장할 때마다 동기화 폴더를 건드리지 않게
+        problem = (
+            check_copy_dir(folder, state.backups_dir, probe=folder != old_folder)
+            if folder
+            else None
+        )
         if problem:  # 값은 저장하고 칸 아래에 안내(C49)
             return RedirectResponse(
                 f"/settings?saved=1&copy_warn={problem}#backup", status_code=303

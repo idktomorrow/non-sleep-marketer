@@ -4,6 +4,7 @@
 <p class="muted small">저장하면 다음 작업부터 바로 반영됩니다(프로그램을 다시 켤 필요 없음). 이미 만든 원고는 그대로입니다.</p>
 {% if simple %}<p class="muted small">자주 바꾸는 항목만 보입니다. 활동 시간, 게시 간격, 댓글 확인 간격 같은 세부 값은 오른쪽 위 <b>고급</b>에서 바꿀 수 있습니다.</p>{% endif %}
 {% if saved %}<div class="notice info">저장했습니다.</div>{% endif %}
+{% if simple and copy_notice %}<div class="notice warn">백업 복사 폴더: {{ copy_notice }} (오른쪽 위 <b>고급</b>에서 고칠 수 있습니다)</div>{% endif %}
 {% if request.query_params.get('notified') == 'off' %}<div class="notice warn">알림이 꺼져 있어 보내지 않았습니다. 아래 "Windows 알림 받기"를 켜고 저장하세요.</div>
 {% elif request.query_params.get('notified') %}<div class="notice info">테스트 알림을 보냈습니다. 화면 오른쪽 아래에 "논슬립 마케터 알림 테스트"가 보이지 않으면 Windows 설정 → 시스템 → 알림에서 알림과 "방해 금지"를 확인하세요.</div>{% endif %}
 {% if error %}<div class="notice bad">저장하지 못했습니다. {{ error }}</div>{% endif %}
@@ -141,7 +142,7 @@
 
 <h2 id="backup" class="adv-only" {% if simple %}hidden{% endif %}>백업</h2>
 <div class="panel adv-only" {% if simple %}hidden{% endif %}>
-  <label>백업 복사 폴더 <span class="hint">매일 새벽 백업을 이 폴더에도 한 부 더 둡니다(같은 보관 개수). 구글 드라이브·OneDrive 동기화 폴더 아래를 지정하면 클라우드에도 남습니다. 비우면 끔</span><input type="text" name="backup_copy_dir" value="{{ v.backup_copy_dir }}" placeholder="C:\Users\이름\OneDrive\nsm-backups" maxlength="500"></label>
+  <label>백업 복사 폴더 <span class="hint">매일 새벽 백업을 이 폴더에도 한 부 더 둡니다(같은 보관 개수). 구글 드라이브·OneDrive 동기화 폴더 아래를 지정하면 클라우드에도 남습니다. 같은 이름의 옛 백업은 개수를 넘으면 지우니 PC마다 다른 폴더를 쓰세요. 비우면 끔</span><input type="text" name="backup_copy_dir" value="{{ v.backup_copy_dir }}" placeholder="C:\Users\이름\OneDrive\nsm-backups" maxlength="500"></label>
   {% if copy_notice %}<p class="notice warn small" id="backup-copy-notice">{{ copy_notice }}</p>{% endif %}
 </div>
 

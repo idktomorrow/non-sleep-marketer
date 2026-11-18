@@ -41,16 +41,23 @@ def clean_path(raw: str) -> str:
 
 
 def _inside(path: Path, root: Path) -> bool:
-    try:
-        p, r = path.resolve(), root.resolve()
-    except OSError:
-        return False
+    p, r = path.resolve(), root.resolve()
     return p == r or r in p.parents
 
 
 def check_copy_dir(raw: str, backups_dir: Path | None, probe: bool = True) -> str | None:
-    """문제가 없으면 None, 있으면 코드. probe면 임시 파일을 하나 만들었다 지워 쓰기를 확인한다."""
-    path = Path(clean_path(raw))
+    """문제가 없으면 None, 있으면 코드. probe면 임시 파일을 하나 만들었다 지워 쓰기를 확인한다.
+
+    들어갈 수 없는 폴더(권한, Python 3.12의 exists()는 PermissionError를 올림)·이상한 경로(NUL)도 예외 대신
+    "쓸 수 없음"으로 돌려준다. 잡과 설정 화면이 이 검사 때문에 멈추면 안 된다.
+    """
+    try:
+        return _check(Path(clean_path(raw)), backups_dir, probe)
+    except (OSError, ValueError):
+        return NOT_WRITABLE
+
+
+def _check(path: Path, backups_dir: Path | None, probe: bool) -> str | None:
     if not path.is_absolute():
         return RELATIVE
     if backups_dir is not None and _inside(path, backups_dir):
@@ -79,7 +86,14 @@ def prune_copies(folder: Path, prefix: str, keep: int, newest: Path) -> int:
     return removed
 
 
-def copy_backup(src: Path, raw_dir: str, backups_dir: Path) -> Path:
+def _drop_stale_tmp(folder: Path, prefix: str) -> None:
+    """전에 끊긴 복사가 남긴 임시 파일(정리 패턴에 안 걸림)을 지운다. 클라우드에 쌓이지 않게."""
+    for p in folder.glob(f".{prefix}-????-??-??.duckdb.*.tmp"):
+        with contextlib.suppress(OSError):
+            p.unlink()
+
+
+def copy_backup(src: Path, raw_dir: str, backups_dir: Path, prefix: str) -> Path:
     """본 백업 src를 복사 폴더에 같은 이름으로 복사한다. 복사한 파일 경로.
 
     복사하지 못하면 CopyError(이유). 쓰기 확인은 실제 복사가 하므로 임시 파일을 따로 만들지 않는다.
@@ -91,6 +105,7 @@ def copy_backup(src: Path, raw_dir: str, backups_dir: Path) -> Path:
     final = folder / src.name
     tmp = folder / f".{src.name}.{secrets.token_hex(4)}.tmp"
     try:
+        _drop_stale_tmp(folder, prefix)
         shutil.copy2(src, tmp)
         os.replace(tmp, final)
     except OSError as e:

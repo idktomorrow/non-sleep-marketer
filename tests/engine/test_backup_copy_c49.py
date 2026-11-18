@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
 from pathlib import Path
 
@@ -95,7 +94,7 @@ def test_missing_folder_keeps_backup_and_notifies_once(file_db, clock, app_confi
 
 
 def test_write_failure_keeps_backup_and_leaves_no_partial_file(
-    file_db, clock, app_config, tmp_path, monkeypatch, caplog
+    file_db, clock, app_config, tmp_path, monkeypatch
 ) -> None:
     dest = tmp_path / "copy"
     dest.mkdir()
@@ -106,13 +105,12 @@ def test_write_failure_keeps_backup_and_leaves_no_partial_file(
 
     monkeypatch.setattr(B.shutil, "copy2", half_copy)
     ctx = _ctx(file_db, clock, app_config, tmp_path, str(dest))
-    with caplog.at_level(logging.WARNING):
-        r = run_maintenance(ctx)
+    r = run_maintenance(ctx)
     assert r.ok and not r.errors and r.counts["backup"]
     assert r.counts["copy_ok"] is False and "Permission denied" in r.counts["copy_error"]
     assert list(dest.iterdir()) == []  # 반쯤 복사된 임시 파일도 지움
     assert len(ctx.notifier.calls) == 1
-    assert any("백업 복사 실패" in m for m in caplog.messages)
+    assert ctx.notifier.calls[0][2] == "warn"  # 알림이 WARNING 한 줄을 남긴다
 
 
 @pytest.mark.parametrize("sub", ["", "inner"])
@@ -158,3 +156,64 @@ def test_run_now_uses_the_same_maintenance_job() -> None:
 
     assert JOBS["maintenance"] is run_maintenance
     assert "maintenance" in LABELS
+
+
+def test_unreadable_folder_does_not_stop_maintenance(
+    file_db, clock, app_config, tmp_path, monkeypatch
+) -> None:
+    """Python 3.12의 exists()는 PermissionError를 올린다. 그래도 잡은 끝까지 간다(리뷰 지적)."""
+    dest = tmp_path / "share"
+    dest.mkdir()
+    real = Path.exists
+
+    def denied(self, *a, **kw):
+        if self == dest:
+            raise PermissionError(13, "Access is denied")
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "exists", denied)
+    ctx = _ctx(file_db, clock, app_config, tmp_path, str(dest))
+    r = run_maintenance(ctx)
+    assert r.ok and r.counts["copy_ok"] is False
+    assert r.counts["copy_error"] == B.REASONS[B.NOT_WRITABLE]
+    assert "runs_pruned" in r.counts and "media_removed" in r.counts  # 뒤 정리도 돌았음
+    assert B.check_copy_dir("C:\\bad\x00name", tmp_path / "backups") == B.NOT_WRITABLE
+
+
+def test_unexpected_error_in_copy_is_only_a_warning(
+    file_db, clock, app_config, tmp_path, monkeypatch
+) -> None:
+    from nsm.engine import maintenance
+
+    dest = tmp_path / "copy"
+    dest.mkdir()
+
+    def boom(*a, **kw):
+        raise RuntimeError("뜻밖")
+
+    monkeypatch.setattr(maintenance, "copy_backup", boom)
+    ctx = _ctx(file_db, clock, app_config, tmp_path, str(dest))
+    r = run_maintenance(ctx)
+    assert r.ok and r.counts["copy_error"] == "복사 실패(RuntimeError)"
+    assert len(ctx.notifier.calls) == 1
+
+
+def test_stale_tmp_from_interrupted_copy_is_removed(file_db, clock, app_config, tmp_path) -> None:
+    dest = tmp_path / "copy"
+    dest.mkdir()
+    stale = dest / ".data-2026-01-01.duckdb.abcd1234.tmp"
+    stale.write_bytes(b"half")
+    other = (
+        dest / ".data-work-2026-01-01.duckdb.abcd1234.tmp"
+    )  # 다른 프리셋 것은 그 프리셋이 지운다
+    other.write_bytes(b"half")
+    r = run_maintenance(_ctx(file_db, clock, app_config, tmp_path, str(dest)))
+    assert r.counts["copy_ok"] is True
+    assert not stale.exists() and other.exists()
+
+
+@pytest.mark.parametrize("raw", ['""', "  ", '" "'])
+def test_quotes_only_counts_as_off(file_db, clock, app_config, tmp_path, raw: str) -> None:
+    ctx = _ctx(file_db, clock, app_config, tmp_path, raw)
+    r = run_maintenance(ctx)
+    assert "copy_ok" not in r.counts and ctx.notifier.calls == []

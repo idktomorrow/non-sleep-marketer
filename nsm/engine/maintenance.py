@@ -36,12 +36,12 @@ def _copy(ctx: JobContext, result: JobResult, path, prefix: str) -> None:
     folder = clean_path(s.backup_copy_dir)
     result.counts["copy_dir"] = folder
     try:
-        copied = copy_backup(path, folder, ctx.backups_dir)
-    except CopyError as e:
-        result.counts.update(copy_ok=False, copy_error=str(e), copies_removed=0)
-        log.warning("백업 복사 실패: %s (%s)", e, folder)
-        # 같은 제목은 데스크톱 알림이 짧은 시간 안에 한 번만 띄운다(WindowsNotifier 규칙)
-        ctx.notifier.notify("백업 복사 실패", f"{e}: {folder}. 본 백업은 됐습니다", "warn")
+        copied = copy_backup(path, folder, ctx.backups_dir, prefix)
+    except Exception as e:  # noqa: BLE001  어떤 이유든 본 백업과 다른 정리는 계속
+        reason = str(e) if isinstance(e, CopyError) else f"복사 실패({type(e).__name__})"
+        result.counts.update(copy_ok=False, copy_error=reason, copies_removed=0)
+        # 알림이 WARNING 한 줄을 남긴다(WindowsNotifier). 같은 제목은 짧은 시간 안에 한 번만 띄운다
+        ctx.notifier.notify("백업 복사 실패", f"{reason}: {folder}. 본 백업은 됐습니다", "warn")
         return
     try:
         removed = prune_copies(copied.parent, prefix, s.backup_keep, copied)
@@ -74,7 +74,7 @@ def run_maintenance(ctx: JobContext) -> JobResult:
             backups_removed=removed,
         )
         log.info("데이터 백업: %s", path)
-        if s.backup_copy_dir.strip():
+        if clean_path(s.backup_copy_dir):
             _copy(ctx, result, path, prefix)
     result.counts["runs_pruned"] = pruned
     from nsm.adapters.evidence import prune_evidence

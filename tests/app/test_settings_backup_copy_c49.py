@@ -113,3 +113,38 @@ def test_old_form_without_field_keeps_value(env, tmp_path) -> None:  # noqa: F81
     del v["backup_copy_dir"]
     _post(env, "/settings", **v)
     assert env["holder"]["cfg"].settings.backup_copy_dir == str(tmp_path)
+
+
+def test_stale_code_in_address_is_rechecked(env, backups, tmp_path) -> None:  # noqa: F811
+    r = _save(env, str(tmp_path / "soon"))
+    (tmp_path / "soon").mkdir()  # 안내를 보고 폴더를 만든 뒤 새로고침
+    _post(env, "/ui-mode", mode="advanced")
+    assert BACKUP_COPY_PROBLEMS["missing"] not in env["client"].get(r.headers["location"]).text
+
+
+def test_write_probe_only_when_value_changes(env, backups, tmp_path, monkeypatch) -> None:  # noqa: F811
+    dest = tmp_path / "Drive"
+    dest.mkdir()
+    _save(env, str(dest))
+    probes: list[Path] = []
+    real = Path.write_bytes
+
+    def spy(self, data):
+        if self.name.startswith(".nsm-write-test"):
+            probes.append(self)
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", spy)
+    _save(env, str(dest))  # 다른 칸만 저장한 것과 같음
+    assert probes == []
+    other = tmp_path / "Drive2"
+    other.mkdir()
+    _save(env, str(other))
+    assert len(probes) == 1
+
+
+def test_simple_mode_shows_notice_at_top(env, backups, tmp_path) -> None:  # noqa: F811
+    _save(env, str(tmp_path / "gone"))
+    _post(env, "/ui-mode", mode="simple")
+    html = env["client"].get("/settings").text
+    assert "백업 복사 폴더: " + BACKUP_COPY_PROBLEMS["missing"] in html
