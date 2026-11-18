@@ -172,6 +172,10 @@ def _maintenance(c: dict[str, Any]) -> list[str]:
         parts.append(f"데이터 백업 {c['backup']}({c.get('backup_mb', 0)}MB)")
         if _n(c, "backups_removed"):
             parts.append(f"오래된 백업 {_n(c, 'backups_removed')}개 지움")
+    if c.get("copy_ok") is True:
+        parts.append(f"복사: {c.get('copy_dir', '')}")
+    elif c.get("copy_ok") is False:
+        parts.append(f"복사 실패: {c.get('copy_error', '')}")
     if _n(c, "runs_pruned"):
         parts.append(f"오래된 실행 기록 {_n(c, 'runs_pruned')}줄 정리")
     if _n(c, "sources_blanked"):

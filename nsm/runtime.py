@@ -409,6 +409,7 @@ def run_forever() -> None:
             if cfg.settings.collect.upload_dir
             else paths.uploads_dir(),
             reports_dir=ctx.reports_dir,
+            backups_dir=ctx.backups_dir,
             run_job_now=scheduler.run_now,
             run_keyword_now=lambda kw: scheduler.run_now("keyword", kw),
             read_image=next((s.read_image for s in ctx.sources if s.name == "upload"), None),

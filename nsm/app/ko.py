@@ -105,6 +105,16 @@ def result_text(result: object) -> str:
     return readable_error_tail(text)[:300]
 
 
+# 백업 복사 폴더 검사(C49). 코드는 nsm/engine/backup_copy.py. 저장은 막지 않고 칸 아래에 보여 준다
+BACKUP_COPY_PROBLEMS = {
+    "relative": "절대 경로가 아닙니다. 드라이브 이름(예: C:)부터 전체 경로를 넣으세요",
+    "missing": "폴더가 없습니다. 만든 뒤 다시 저장하세요",
+    "not_dir": "폴더가 아니라 파일입니다. 폴더 경로를 넣으세요",
+    "not_writable": "이 폴더에 쓸 수 없습니다. 권한이나 동기화 앱 상태를 확인하세요",
+    "inside_backups": "기본 백업 폴더와 같은 곳(또는 그 안)이라 복사하지 않습니다. 다른 폴더를 고르세요",
+}
+
+
 def ko(value: object, table: dict[str, str]) -> str:
     if value is None:
         return ""
