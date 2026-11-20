@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from nsm.config.schema import AppConfig
+from nsm.domain.errors import kind_of
 from nsm.domain.models import Platform
 from nsm.engine.summary import describe
 from nsm.ports import (
@@ -63,6 +64,17 @@ class JobContext:
 def is_interrupted(ctx: Any, e: BaseException | None = None) -> bool:
     """프로그램을 끄는 중이거나, 예외가 Ctrl+C로 끊긴 것(C33). runner·실패 기록·health가 같은 기준을 쓴다."""
     return bool(ctx.shutting_down()) or getattr(e, "code", None) == "interrupted"
+
+
+def is_page_failure(ctx: Any, e: BaseException) -> bool:
+    """글 페이지가 안 열린 실패(어댑터가 붙인 code='page', 일시적)인가. 끄는 중 끊김은 아니다.
+
+    댓글 확인의 연속 실패 쉬기(C37)와 지표 읽기의 한 번 다시 읽기(C52)가 같은 기준을 쓴다."""
+    return (
+        kind_of(e) == "transient"
+        and getattr(e, "code", None) == "page"
+        and not is_interrupted(ctx, e)
+    )
 
 
 @dataclass

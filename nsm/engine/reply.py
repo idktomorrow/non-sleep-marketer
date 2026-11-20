@@ -12,10 +12,10 @@ import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from nsm.domain.errors import KindedError, kind_of
+from nsm.domain.errors import KindedError
 from nsm.domain.models import COMMENT_CATEGORIES, Comment
 from nsm.domain.policy import COMPLAINT_SCOPES, decide_comment, find_banned, local, should_act
-from nsm.engine.context import JobContext, JobResult, is_interrupted
+from nsm.engine.context import JobContext, JobResult, is_interrupted, is_page_failure
 from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import NAMES, blocked_until, rest_until, resting
@@ -232,7 +232,7 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
             _took(slowest, platform, ctx.clock.now() - t0)
             result.note(e)
             rest_line = None
-            if _page_failure(
+            if is_page_failure(
                 ctx, e
             ):  # 글이 안 열림·오류 화면만 센다(Aside 꺼짐 등은 원인이 다르다)
                 rest_line = _fetch_failed(ctx, platform, ctx.clock.now())
@@ -316,15 +316,6 @@ def run_reply(ctx: JobContext, manual: bool = False) -> JobResult:
         )
     result.ok = not result.errors
     return result
-
-
-def _page_failure(ctx: JobContext, e: BaseException) -> bool:
-    """글 페이지가 안 열린 실패(어댑터가 붙인 code='page', 일시적)인가."""
-    return (
-        kind_of(e) == "transient"
-        and getattr(e, "code", None) == "page"
-        and not is_interrupted(ctx, e)
-    )
 
 
 def _took(slowest: list, platform: str, d: timedelta) -> None:
