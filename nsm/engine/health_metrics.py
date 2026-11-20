@@ -38,6 +38,7 @@ REREAD_PASSES = 3  # 일시적 실패로 못 읽은 글이 있으면 끝까지 �
 # (ADR 0076). 테스트는 sleep을 바꿔 기다리지 않는다
 RETRY_WAIT_S = 5.0
 sleep = time.sleep
+_WAIT_SLICES = 10  # 쉬는 동안 끄기를 이만큼 나눠 확인한다(Ctrl+C가 5초를 다 기다리지 않게)
 _STOPPED = object()  # 다시 읽기 전에 쉬는 동안 끄기 시작함
 
 
@@ -351,6 +352,9 @@ def _platform_metrics(
 
     끄는 중이라 멈췄으면 True(C47): 게시물 루프를 그 자리에서 멈추고 계정 지표도 읽지 않는다."""
     caps = adapter.capabilities()
+    retry = {
+        "off": False
+    }  # 다시 읽기도 page로 실패하면 이 플랫폼의 남은 글은 다시 읽지 않는다(장애 중 두 배 요청 방지)
     if "post_metrics" in caps:
         since = now - timedelta(days=METRICS_LOOKBACK_DAYS)
         recent = _ids(ctx.repo.published_posts_since(platform, since))
@@ -373,18 +377,19 @@ def _platform_metrics(
                 ):  # 끄는 중(C47): 글 하나 읽는 데 브라우저로 수십 초라 다음 글로 가지 않는다
                     return True
                 try:
-                    m = _once_more(
+                    m, again = _once_more(
                         ctx,
                         platform,
                         "게시물 지표",
                         ext,
                         partial(adapter.read_post_metrics, ext),
-                        tally,
+                        retry,
                     )
                     if m is _STOPPED:
                         return True
                     ctx.repo.insert_post_metrics(m)
                     tally["posts"] += 1
+                    tally["retried"] = tally.get("retried", 0) + again
                     if state is not None and ext not in state["read"]:
                         state["read"].append(ext)
                 except Exception as e:  # noqa: BLE001
@@ -416,11 +421,14 @@ def _platform_metrics(
         if is_interrupted(ctx):
             return True
         try:
-            m = _once_more(ctx, platform, "계정 지표", "계정", adapter.read_account_metrics, tally)
+            m, again = _once_more(
+                ctx, platform, "계정 지표", "계정", adapter.read_account_metrics, retry
+            )
             if m is _STOPPED:
                 return True
             ctx.repo.insert_account_metrics(m)
             tally["accounts"] += 1
+            tally["retried"] = tally.get("retried", 0) + again
         except Exception as e:  # noqa: BLE001
             if retry_at(e):
                 raise
@@ -432,25 +440,32 @@ def _platform_metrics(
 
 
 def _once_more(
-    ctx: JobContext, platform: str, what: str, key: str, read: Callable[[], Any], tally: dict
-) -> Any:
+    ctx: JobContext, platform: str, what: str, key: str, read: Callable[[], Any], retry: dict
+) -> tuple[Any, int]:
     """read()를 부른다. 글 페이지가 안 열린 일시적 실패(code='page')면 RETRY_WAIT_S 쉬고 딱 한 번 더(C52).
 
-    - 다시 해도 실패하면 그 예외를 그대로 던진다: 부르는 쪽의 기존 분기(오류 기록·요청 제한·중단)가 처리한다.
+    돌려주는 값: (read 결과, 다시 읽었으면 1). 부르는 쪽이 저장에 성공한 뒤에 센다.
+    - 다시 해도 실패하면 그 예외를 던진다(첫 예외를 원인으로 묶음). 부르는 쪽의 기존 분기(오류 기록·요청 제한·
+      중단)가 처리한다. 다시 읽기도 page로 실패하면 retry["off"]: 이 플랫폼의 남은 글은 다시 읽지 않는다.
     - 재시도 시각이 붙은 실패(요청 제한)·로그인·화면 변경·끄는 중 끊김은 다시 하지 않는다.
-    - 쉬는 동안 끄기 시작하면 _STOPPED(다시 읽지 않고 중단, 오류 기록 없음).
-    - 다시 읽어 성공하면 tally["retried"]를 센다."""
+    - 쉬는 동안 끄기 시작하면 (_STOPPED, 0): 다시 읽지 않고 중단, 오류 기록 없음. 0.5초마다 확인한다."""
     try:
-        return read()
+        return read(), 0
     except Exception as e:  # noqa: BLE001
-        if not is_page_failure(ctx, e) or retry_at(e):
+        if retry["off"] or not is_page_failure(ctx, e) or retry_at(e):
             raise
         first = e
-    sleep(RETRY_WAIT_S)
+    for _ in range(_WAIT_SLICES):
+        if is_interrupted(ctx):
+            break
+        sleep(RETRY_WAIT_S / _WAIT_SLICES)
     if is_interrupted(ctx):
         log.info("%s %s 중단(프로그램 종료 중, 다시 읽기 전): %s", platform, what, first)
-        return _STOPPED
+        return _STOPPED, 0
     log.info("%s %s 다시 읽기(%s): %s", platform, what, key, first)
-    m = read()
-    tally["retried"] = tally.get("retried", 0) + 1
-    return m
+    try:
+        return read(), 1
+    except Exception as e:  # noqa: BLE001
+        if is_page_failure(ctx, e):
+            retry["off"] = True
+        raise e from first

@@ -3,7 +3,8 @@
 - 다시 읽어 성공하면 오류가 남지 않고 실행 기록에 "페이지 오류로 다시 읽음 n개"가 보인다.
 - 또 실패하면 지금처럼 오류 1건. 글 하나당 다시 읽기는 1회.
 - 로그인·요청 제한(재시도 시각)·화면 변경·끄는 중 끊김은 다시 읽지 않는다.
-- 쉬는 동안 끄기 시작하면 다시 읽지 않고 중단(오류 기록 없음).
+- 쉬는 동안 끄기 시작하면 다시 읽지 않고 중단(오류 기록 없음). 쉬기는 잘게 나눠 끄기를 확인한다.
+- 다시 읽기도 page로 실패하면 그 플랫폼의 남은 글은 다시 읽지 않는다(장애 중 두 배 요청 방지).
 진짜로 기다리지 않게 sleep을 바꾼다.
 """
 
@@ -66,7 +67,7 @@ def test_page_failure_once_then_success_is_saved(ctx, app_config, waits) -> None
     ext = _published(ctx, app_config, 0, 1)
     calls = _flaky(ctx.adapters["instagram"], "read_post_metrics", [_page()])
     r = run_metrics(ctx)
-    assert len(calls) == 2 and waits == [RETRY_WAIT_S]
+    assert len(calls) == 2 and sum(waits) == pytest.approx(RETRY_WAIT_S)
     assert ext in _read_ids(ctx)
     assert r.errors == [] and r.ok
     assert r.counts["page_retried"] == 1
@@ -77,7 +78,7 @@ def test_page_failure_twice_is_one_error_and_no_third_try(ctx, app_config, waits
     _published(ctx, app_config, 0, 1)
     calls = _flaky(ctx.adapters["instagram"], "read_post_metrics", [_page(), _page(), _page()])
     r = run_metrics(ctx)
-    assert len(calls) == 2 and len(waits) == 1
+    assert len(calls) == 2 and sum(waits) == pytest.approx(RETRY_WAIT_S)
     assert r.errors == [f"instagram 게시물 지표 실패: {HTTP500}"]
     assert "page_retried" not in r.counts
     assert "다시 읽음" not in describe("metrics", counts=r.counts)
@@ -138,9 +139,16 @@ def test_shutdown_during_wait_stops_without_retry_or_error(ctx, app_config, monk
     calls = _flaky(ctx.adapters["instagram"], "read_post_metrics", [_page()])
     stopping = {"on": False}
     ctx.shutting_down = lambda: stopping["on"]
-    monkeypatch.setattr(health_metrics, "sleep", lambda s: stopping.update(on=True))
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+        stopping["on"] = True
+
+    monkeypatch.setattr(health_metrics, "sleep", sleep)
     r = run_metrics(ctx)
     assert len(calls) == 1
+    assert len(slept) == 1 and slept[0] < RETRY_WAIT_S  # 5초를 다 쉬지 않고 바로 멈춘다
     assert r.interrupted and not r.ok
     assert r.errors == [] and not ctx.notifier.calls
     assert "page_retried" not in r.counts
@@ -164,3 +172,40 @@ def test_no_retry_keeps_summary_unchanged(ctx, app_config, waits) -> None:
     assert waits == [] and "page_retried" not in r.counts
     assert describe("metrics", counts=r.counts).startswith("게시물 지표 1개, 계정 지표 2개 읽음")
     assert "다시 읽음" not in describe("metrics", counts=r.counts)
+
+
+def test_retry_stops_for_platform_after_retry_also_fails(ctx, app_config, waits) -> None:
+    for n in range(3):
+        _published(ctx, app_config, n, 1 + n)
+    calls = _flaky(ctx.adapters["instagram"], "read_post_metrics", [_page() for _ in range(9)])
+    r = run_metrics(ctx)
+    assert len(calls) == 4  # 첫 글 2번, 나머지 두 글은 1번씩
+    assert sum(waits) == pytest.approx(RETRY_WAIT_S)
+    assert len([e for e in r.errors if "게시물 지표 실패" in e]) == 3
+
+
+def test_retry_not_counted_when_save_fails(ctx, app_config, waits, monkeypatch) -> None:
+    _published(ctx, app_config, 0, 1)
+    _flaky(ctx.adapters["instagram"], "read_post_metrics", [_page()])
+
+    def broken(m):
+        raise RuntimeError("DB 잠김")
+
+    monkeypatch.setattr(ctx.repo, "insert_post_metrics", broken)
+    r = run_metrics(ctx)
+    assert "page_retried" not in r.counts
+    assert any("DB 잠김" in e for e in r.errors)
+
+
+def test_failed_retry_keeps_first_error_as_cause(ctx, waits) -> None:
+    from nsm.engine.health_metrics import _once_more
+
+    first, second = _page(), PlatformError("빈 화면", "transient")
+    errs = [first, second]
+
+    def read():
+        raise errs.pop(0)
+
+    with pytest.raises(PlatformError) as got:
+        _once_more(ctx, "instagram", "게시물 지표", "i0", read, {"off": False})
+    assert got.value is second and got.value.__cause__ is first
