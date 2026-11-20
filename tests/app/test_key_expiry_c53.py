@@ -171,3 +171,16 @@ def test_overview_banner_in_both_modes(env, mode) -> None:
 def test_overview_banner_hidden_for_far_date(env) -> None:
     kw.set_expiry(env["state"].repo, "gemini_api_key", _today(env) + timedelta(days=8))
     assert "key-banner" not in env["client"].get("/").text
+
+
+def test_replacing_key_with_prefilled_old_date_drops_it(env) -> None:
+    """리뷰: 날짜 칸에 옛 날짜가 미리 채워져 그대로 보내도 새 키에 옛 날짜가 남지 않는다."""
+    old = _today(env) - timedelta(days=1)
+    _post(
+        env, "/settings/keys/anthropic_api_key", value=KEY, with_date="1", expires=old.isoformat()
+    )
+    _post(
+        env, "/settings/keys/anthropic_api_key", value=KEY2, with_date="1", expires=old.isoformat()
+    )
+    assert _memo(env) == {}
+    assert "key-banner" not in env["client"].get("/").text

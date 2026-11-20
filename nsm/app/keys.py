@@ -20,7 +20,7 @@ import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.responses import RedirectResponse
 
-from nsm.config.secrets import KEY_NAMES, KEY_USES, KEYS, SecretStore
+from nsm.config.secrets import CHECK_TEXT, KEY_NAMES, KEY_USES, KEYS, SecretStore
 from nsm.engine import key_watch
 
 log = logging.getLogger(__name__)
@@ -28,16 +28,6 @@ log = logging.getLogger(__name__)
 KEY_LABELS = KEY_NAMES  # 설정 화면에 보이는 이름(마법사와 같은 원본, nsm/config/secrets.py)
 MIN_KEY_LEN = 20
 CHECK_TIMEOUT_S = 10.0
-
-# 키 확인 결과(코드 → 화면 문구). 응답 본문은 싣지 않는다(키·계정 정보가 섞일 수 있음)
-CHECK_TEXT = {
-    "ok": "연결됨",
-    "invalid": "키가 틀렸거나 만료됨",
-    "limit": "키는 맞지만 한도·결제 확인 필요",
-    "network": "연결 실패(네트워크·시간 초과)",
-    "missing": "등록된 키가 없음",
-    "unknown": "확인하지 못함",  # 404 등 예상 밖 응답: 키가 맞다고도 틀리다고도 말하지 않는다
-}
 
 
 def _request(name: str, key: str) -> tuple[str, dict[str, str]]:
@@ -190,8 +180,10 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
         _changed()
         log.info("API 키 저장: %s", name)
         # 새 키: 옛 키의 날짜·알림 단계는 버리고 이번에 적은 날짜만(엉뚱한 알림 방지). 확인 결과도 바로 반영
+        old_date = key_watch.expiry_dates(state.repo).get(name)
         key_watch.forget_key(state.repo, name)
-        if new_date is not None:
+        # 날짜 칸에는 옛 날짜가 미리 채워져 있다: 그대로 보냈으면 옛 키의 날짜라 버린다(리뷰, 새 만료일만 남김)
+        if new_date is not None and new_date != old_date:
             key_watch.set_expiry(state.repo, name, new_date)
         _record(name, found[0])
         return _redirect(

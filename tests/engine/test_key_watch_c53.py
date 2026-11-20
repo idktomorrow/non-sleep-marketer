@@ -154,7 +154,8 @@ def test_limit_warns_once_network_never(ctx) -> None:
     ctx.clock.advance(hours=25)
     kw.check_keys(ctx)
     assert len(ctx.notifier.calls) == 1
-    assert ctx.repo.get_setting(kw.CHECK_KEY)["anthropic_api_key"]["code"] == "network"
+    # 판단 못 한 결과는 적지 않는다(옛 결과 유지, 다음 점검에서 다시)
+    assert ctx.repo.get_setting(kw.CHECK_KEY)["anthropic_api_key"]["code"] == "limit"
 
 
 def test_auto_check_skipped_while_shutting_down(ctx) -> None:
@@ -262,6 +263,11 @@ def test_auth_error_detection() -> None:
         ("Gemini 호출 실패(HTTP 401: UNAUTHENTICATED)", True),
         ("Gemini 호출 실패(HTTP 429: RESOURCE_EXHAUSTED)", False),
         ("Gemini 호출 실패(HTTP 4010)", False),
+        # 어댑터가 응답 앞 200자만 남겨 API_KEY_INVALID가 잘린 경우(리뷰)
+        (
+            'Gemini 호출 실패(HTTP 400: { "error": { "code": 400, "message": "API key not valid. Please pass',
+            True,
+        ),
     ],
 )
 def test_gemini_key_error_text(text, expected) -> None:
@@ -317,3 +323,79 @@ def test_build_context_wires_secrets_and_check_key(db, app_config) -> None:
     with ExitStack() as stack:
         c = build_context(app_config, db, stack, secrets=secrets)
         assert c.secrets is secrets and c.check_key is check_key
+
+
+# ------------------------------------------------------------------ 리뷰 반영
+
+
+def test_network_after_invalid_keeps_banner(ctx) -> None:
+    ctx.check_key = Checker("invalid", 401)
+    kw.check_keys(ctx)
+    ctx.check_key = Checker("network", None)
+    ctx.clock.advance(hours=2)
+    kw.check_keys(ctx)
+    assert ctx.repo.get_setting(kw.CHECK_KEY)["anthropic_api_key"]["code"] == "invalid"
+    assert kw.key_banner(ctx.repo, ctx.clock.now(), ctx.tz)["level"] == "bad"
+
+
+def test_invalid_is_rechecked_hourly_but_alerted_daily(ctx) -> None:
+    ctx.check_key = Checker("invalid", 401)
+    kw.check_keys(ctx)
+    ctx.clock.advance(minutes=30)
+    kw.check_keys(ctx)
+    assert ctx.check_key.calls == ["anthropic_api_key"]
+    ctx.clock.advance(minutes=31)
+    kw.check_keys(ctx)
+    assert (
+        len(ctx.check_key.calls) == 2 and len(ctx.notifier.calls) == 1
+    )  # 다시 확인, 알림은 하루 한 번
+    ctx.check_key = Checker("ok")  # 환경 변수 키를 바꾸고 다시 켬
+    ctx.clock.advance(hours=1)
+    kw.check_keys(ctx)
+    assert kw.key_banner(ctx.repo, ctx.clock.now(), ctx.tz) is None
+
+
+def test_result_for_old_key_is_dropped_when_key_changed_meanwhile(ctx) -> None:
+    secrets = ctx.secrets
+
+    def check(name, value):
+        secrets.set(
+            name, "fake-claude-key-NEWNEWNEWNEWNEWNEWNEW"
+        )  # 확인 중 설정 화면에서 새 키 저장
+        kw.record_check(ctx.repo, name, "ok", ctx.clock.now())
+        return "invalid", 401
+
+    ctx.check_key = check
+    kw.check_keys(ctx)
+    assert ctx.repo.get_setting(kw.CHECK_KEY)["anthropic_api_key"]["code"] == "ok"
+    assert ctx.notifier.calls == []
+
+
+def test_state_of_key_removed_outside_ui_is_cleared(ctx) -> None:
+    kw.set_expiry(ctx.repo, "gemini_api_key", _today(ctx))
+    kw.record_check(ctx.repo, "gemini_api_key", "invalid", ctx.clock.now())
+    kw.check_keys(ctx)  # Gemini 키는 없다(자격 증명 관리자에서 지움 등)
+    assert "gemini_api_key" not in ctx.repo.get_setting(kw.EXPIRY_KEY, {})
+    assert "gemini_api_key" not in ctx.repo.get_setting(kw.CHECK_KEY, {})
+
+
+def test_keyring_error_does_not_clear_state(ctx) -> None:
+    class Locked(MemorySecretStore):
+        def get(self, key):
+            raise RuntimeError("잠김")
+
+    kw.set_expiry(ctx.repo, "anthropic_api_key", _today(ctx) + timedelta(days=3))
+    ctx.secrets = Locked()
+    kw.check_keys(ctx)
+    assert "anthropic_api_key" in ctx.repo.get_setting(kw.EXPIRY_KEY)
+
+
+def test_note_key_error_ignores_other_errors_and_survives_notifier_failure(ctx) -> None:
+    kw.note_key_error(ctx, RuntimeError("api down"))
+    assert ctx.notifier.calls == []
+
+    def boom(*a):
+        raise RuntimeError("알림 실패")
+
+    ctx.notifier.notify = boom
+    kw.note_key_error(ctx, _auth_error())  # 터지지 않는다

@@ -163,13 +163,13 @@ CLASSIFIER_KEYS = {"gemini": "gemini_api_key", "claude": "anthropic_api_key"}
 
 def _on_classifier_switch(ctx: JobContext, a: str, b: str, e: Exception) -> None:
     """분류기가 실패해 다음 것으로 넘어갈 때 알림. 키 거절(401/403·API_KEY_INVALID)이면 키 오류 알림도(C53)."""
-    from nsm.engine.key_watch import key_error, looks_like_key_error
+    from nsm.engine.key_watch import note_key_error
 
     ctx.notifier.notify(
         "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
     )
-    if a in CLASSIFIER_KEYS and looks_like_key_error(e):
-        key_error(ctx, CLASSIFIER_KEYS[a])
+    if a in CLASSIFIER_KEYS:
+        note_key_error(ctx, e, CLASSIFIER_KEYS[a])
 
 
 def _install_secret_parts(ctx: JobContext, parts: dict) -> None:

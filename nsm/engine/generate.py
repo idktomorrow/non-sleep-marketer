@@ -25,6 +25,7 @@ from nsm.domain.policy import (
 )
 from nsm.domain.quality import FUTURE_AS_PAST, fact_count, normalize_bullets, rule_violations
 from nsm.engine.context import JobContext, JobResult
+from nsm.engine.key_watch import note_key_error
 from nsm.engine.material import pick_material
 from nsm.ports import AdapterError
 
@@ -134,6 +135,7 @@ def _check_rules(
         )
     except Exception as e:  # noqa: BLE001  다시 만들기가 실패하면 처음 것을 검토로 보낸다
         result.errors.append(f"규칙 위반 재생성 실패: {e}")
+        note_key_error(ctx, e, title="Claude API 키 오류")
         return gen, violations
     result.counts["regenerated"] = result.counts.get("regenerated", 0) + 1
     v2 = rule_violations(again, persona, today)
@@ -238,16 +240,9 @@ def _make_one(
     except Exception as e:  # noqa: BLE001  네트워크·API 장애
         log.warning("콘텐츠 생성 실패(다음에 재시도): %s", e)
         result.errors.append(f"생성 실패: {network_error_text(e)}")
-        if getattr(e, "status_code", None) in (
-            401,
-            403,
-        ):  # 키 거절: 조용히 실패하지 않게 바로 알림(C53)
-            from nsm.engine.key_watch import key_error
-
-            try:
-                key_error(ctx, "anthropic_api_key", "Claude API 키 오류")
-            except Exception:  # noqa: BLE001  알림 실패가 생성 결과를 가리지 않게
-                log.exception("키 오류 알림 실패")
+        note_key_error(
+            ctx, e, title="Claude API 키 오류"
+        )  # 키 거절: 조용히 실패하지 않게 바로(C53)
         return _RETRY_LATER
     gen, violations = _check_rules(ctx, brief, normalize_bullets(gen), result)
     gen = _add_background(ctx, gen, result)

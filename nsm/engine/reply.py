@@ -17,6 +17,7 @@ from nsm.domain.models import COMMENT_CATEGORIES, Comment
 from nsm.domain.policy import COMPLAINT_SCOPES, decide_comment, find_banned, local, should_act
 from nsm.engine.context import JobContext, JobResult, is_interrupted, is_page_failure
 from nsm.engine.incidents import record_incident, with_diagnosis
+from nsm.engine.key_watch import note_key_error
 from nsm.engine.publish import PAUSED_KEY
 from nsm.engine.rate_limit import NAMES, blocked_until, rest_until, resting
 
@@ -419,7 +420,13 @@ def _handle(ctx: JobContext, adapter, c: Comment) -> str:
         return record("escalated", reason="자동 답글 생성기가 없음(Claude API 키 필요)")
     # 소식 반응 불만의 답글 규칙(공감만, 사과·약속 금지)은 답글 시스템 지시에 있다. 자료(데이터) 쪽에 지시를
     # 섞지 않는다: 여기까지 온 불만은 2차 판정을 통과한 소식 반응뿐이다
-    text = ctx.text_generator.generate_reply(c, ctx.config.persona, _post_context(ctx, c))
+    try:
+        text = ctx.text_generator.generate_reply(c, ctx.config.persona, _post_context(ctx, c))
+    except Exception as e:
+        note_key_error(
+            ctx, e, title="Claude API 키 오류"
+        )  # 키 거절이면 바로 알림(C53), 처리는 예전대로
+        raise
     banned = find_banned([text], ctx.config.persona)
     if banned or not text.strip():
         return record(

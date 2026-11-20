@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from nsm.config.secrets import KEY_NAMES, KEYS
+from nsm.config.secrets import CHECK_TEXT, KEY_NAMES, KEYS
 from nsm.domain.policy import local
 
 log = logging.getLogger(__name__)
@@ -27,18 +27,14 @@ EXPIRY_KEY = "key_expiry"
 NOTIFIED_KEY = "key_expiry_notified"
 CHECK_KEY = "key_check"
 CHECK_EVERY = timedelta(hours=24)
+# 틀린 키(invalid)는 이 간격으로 다시 확인한다(리뷰): 환경 변수 키를 바꾸고 다시 켰거나 일시적 403이었으면 배너가
+# 하루 내내 남지 않게. 알림은 여전히 하루 한 번(alerted)
+RECHECK_INVALID = timedelta(hours=1)
 STAGES = (7, 3, 1, 0)  # 남은 날이 이 값이 되는 날 한 번씩. 지난 뒤(-1)는 하루 한 번
 EXPIRED = -1
 WARN_WITHIN = 7  # 화면 배지·첫 화면 배너를 띄우는 남은 날
 FIX = "설정 → API 키에서 새 키를 저장하세요(재시작 불필요)"
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-CHECK_TEXT = {  # nsm/app/keys.py CHECK_TEXT와 같은 말(엔진이 app을 import하지 않게 여기 둠)
-    "ok": "연결됨",
-    "invalid": "키가 틀렸거나 만료됨",
-    "limit": "키는 맞지만 한도·결제 확인 필요",
-    "network": "연결 실패",
-    "unknown": "확인하지 못함",
-}
 
 
 def label(name: str) -> str:
@@ -158,7 +154,25 @@ def looks_like_key_error(e: BaseException) -> bool:
     if getattr(e, "status_code", None) in (401, 403):
         return True
     text = str(e)
-    return "API_KEY_INVALID" in text or bool(re.search(r"HTTP 40[13]\b", text))
+    # Gemini는 틀린 키에 400을 주고, 어댑터가 응답 앞 200자만 남겨 "API_KEY_INVALID"가 잘릴 수 있다(리뷰).
+    # 그래서 앞쪽 message("API key not valid")로도 알아본다
+    return (
+        "API_KEY_INVALID" in text
+        or "API key not valid" in text
+        or bool(re.search(r"HTTP 40[13]\b", text))
+    )
+
+
+def note_key_error(
+    ctx, e: BaseException, name: str = "anthropic_api_key", title: str | None = None
+) -> None:
+    """예외가 키 거절이면 key_error(하루 한 번 알림). 알림이 실패해도 부른 쪽 흐름을 막지 않는다."""
+    if not looks_like_key_error(e):
+        return
+    try:
+        key_error(ctx, name, title)
+    except Exception:  # noqa: BLE001
+        log.exception("키 오류 알림 실패")
 
 
 # ------------------------------------------------------------------ 만료일 알림
@@ -237,7 +251,12 @@ def auto_check(ctx, present: dict[str, str], check: Callable) -> list[str]:
             break
         entry = _get(ctx.repo, CHECK_KEY).get(name)
         at = _parse_at(entry.get("at")) if isinstance(entry, dict) else None
-        if at is not None and now - at < CHECK_EVERY:
+        every = (
+            RECHECK_INVALID
+            if isinstance(entry, dict) and entry.get("code") == "invalid"
+            else CHECK_EVERY
+        )
+        if at is not None and now - at < every:
             continue
         try:
             code, status = check(name, value)
@@ -245,6 +264,11 @@ def auto_check(ctx, present: dict[str, str], check: Callable) -> list[str]:
             log.warning("키 자동 확인 실패(%s): %s", name, type(e).__name__)
             code, status = "unknown", None
         log.info("키 자동 확인(%s): %s%s", name, code, f"(HTTP {status})" if status else "")
+        if code not in ("ok", "invalid", "limit"):
+            # 판단할 수 없는 결과(연결 실패 등)는 적지 않는다: 옛 invalid를 덮어 배너가 사라지지 않게, 다음 점검에서 다시(리뷰)
+            continue
+        if _current(ctx.secrets, name) != value:
+            continue  # 확인하는 사이 설정 화면에서 키를 바꿨다: 옛 키의 결과로 새 키 상태를 덮지 않는다(리뷰)
         entry = record_check(ctx.repo, name, code, now)
         if not _alert_due(entry, code, day):
             continue
@@ -271,6 +295,13 @@ def _parse_at(v: Any) -> datetime | None:
         return None
 
 
+def _current(secrets, name: str) -> str | None:
+    try:
+        return secrets.get(name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def present_keys(secrets) -> dict[str, str]:
     out = {}
     for name in KEYS:
@@ -283,11 +314,25 @@ def present_keys(secrets) -> dict[str, str]:
     return out
 
 
+def _forget_absent(ctx) -> None:
+    """설정 화면 밖에서 없어진 키(환경 변수를 지우고 다시 켬, 자격 증명 관리자에서 지움)의 메모·상태를 정리(리뷰).
+
+    keyring을 읽다 오류가 나면 "없음"으로 보지 않는다(잠긴 저장소 때문에 메모를 지우지 않게)."""
+    for name in KEYS:
+        try:
+            v = ctx.secrets.get(name)
+        except Exception:  # noqa: BLE001
+            continue
+        if not v:
+            forget_key(ctx.repo, name)
+
+
 def check_keys(ctx) -> list[str]:
     """health 잡 끝 단계(C53): 만료일 미리 알림 + 24시간에 한 번 자동 확인. 보낸 알림 제목들."""
     if ctx.secrets is None:
         return []
     present = present_keys(ctx.secrets)
+    _forget_absent(ctx)
     sent = notify_expiry(ctx, list(present))
     if ctx.check_key is not None:
         sent += auto_check(ctx, present, ctx.check_key)
