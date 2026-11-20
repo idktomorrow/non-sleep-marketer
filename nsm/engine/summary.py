@@ -152,6 +152,8 @@ def _health(c: dict[str, Any]) -> list[str]:
 
 def _metrics(c: dict[str, Any]) -> list[str]:
     parts = [f"게시물 지표 {_n(c, 'posts')}개, 계정 지표 {_n(c, 'accounts')}개 읽음"]
+    if _n(c, "page_retried"):  # C52: 글 페이지가 안 열려 한 번 더 읽어 성공한 수
+        parts.append(f"페이지 오류로 다시 읽음 {_n(c, 'page_retried')}개")
     if c.get("reread"):  # C44 한 번 다시 읽기: "인스타그램 지표 다시 읽기 N/63"
         parts.append(str(c["reread"]))
     if c.get("stopped_note"):  # C47 끄는 중 멈춤: "끄는 중이라 멈춤(남은 곳: 스레드)"

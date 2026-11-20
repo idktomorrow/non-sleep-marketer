@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 from datetime import timedelta
+from functools import partial
+from typing import Any
 
 from nsm.domain.errors import KindedError, kind_of, policy_for
-from nsm.engine.context import JobContext, JobResult, is_interrupted
+from nsm.engine.context import JobContext, JobResult, is_interrupted, is_page_failure
 from nsm.engine.incidents import record_incident, with_diagnosis
 from nsm.engine.pause import (
     HEALTH_STREAK_KEY,
@@ -30,6 +34,12 @@ REREAD_KEY = "c44_instagram_reread"
 REREAD_PLATFORM = "instagram"
 REREAD_DAYS = 90
 REREAD_PASSES = 3  # 일시적 실패로 못 읽은 글이 있으면 끝까지 돈 횟수가 이만큼 될 때까지 다시
+# C52: 글 페이지가 안 열린 일시적 실패(code='page', 예: 인스타 HTTP 500)는 이만큼 쉬고 같은 글을 한 번만 다시 읽는다
+# (ADR 0076). 테스트는 sleep을 바꿔 기다리지 않는다
+RETRY_WAIT_S = 5.0
+sleep = time.sleep
+_WAIT_SLICES = 10  # 쉬는 동안 끄기를 이만큼 나눠 확인한다(Ctrl+C가 5초를 다 기다리지 않게)
+_STOPPED = object()  # 다시 읽기 전에 쉬는 동안 끄기 시작함
 
 
 def run_health(ctx: JobContext) -> JobResult:
@@ -306,6 +316,8 @@ def run_metrics(ctx: JobContext) -> JobResult:
         result.counts["paused_skipped"] = skipped
     posts, accounts = tally["posts"], tally["accounts"]
     result.counts.update(posts=posts, accounts=accounts)
+    if tally.get("retried"):
+        result.counts["page_retried"] = tally["retried"]
     # 중단이면 ok=False: runner가 "중단(프로그램 종료 중): "을 붙여 배지가 "중단"이 된다(C33·C47)
     result.ok = not result.interrupted and (not result.errors or posts + accounts > 0)
     return result
@@ -340,6 +352,9 @@ def _platform_metrics(
 
     끄는 중이라 멈췄으면 True(C47): 게시물 루프를 그 자리에서 멈추고 계정 지표도 읽지 않는다."""
     caps = adapter.capabilities()
+    retry = {
+        "off": False
+    }  # 다시 읽기도 page로 실패하면 이 플랫폼의 남은 글은 다시 읽지 않는다(장애 중 두 배 요청 방지)
     if "post_metrics" in caps:
         since = now - timedelta(days=METRICS_LOOKBACK_DAYS)
         recent = _ids(ctx.repo.published_posts_since(platform, since))
@@ -362,8 +377,19 @@ def _platform_metrics(
                 ):  # 끄는 중(C47): 글 하나 읽는 데 브라우저로 수십 초라 다음 글로 가지 않는다
                     return True
                 try:
-                    ctx.repo.insert_post_metrics(adapter.read_post_metrics(ext))
+                    m, again = _once_more(
+                        ctx,
+                        platform,
+                        "게시물 지표",
+                        ext,
+                        partial(adapter.read_post_metrics, ext),
+                        retry,
+                    )
+                    if m is _STOPPED:
+                        return True
+                    ctx.repo.insert_post_metrics(m)
                     tally["posts"] += 1
+                    tally["retried"] = tally.get("retried", 0) + again
                     if state is not None and ext not in state["read"]:
                         state["read"].append(ext)
                 except Exception as e:  # noqa: BLE001
@@ -395,8 +421,14 @@ def _platform_metrics(
         if is_interrupted(ctx):
             return True
         try:
-            ctx.repo.insert_account_metrics(adapter.read_account_metrics())
+            m, again = _once_more(
+                ctx, platform, "계정 지표", "계정", adapter.read_account_metrics, retry
+            )
+            if m is _STOPPED:
+                return True
+            ctx.repo.insert_account_metrics(m)
             tally["accounts"] += 1
+            tally["retried"] = tally.get("retried", 0) + again
         except Exception as e:  # noqa: BLE001
             if retry_at(e):
                 raise
@@ -405,3 +437,35 @@ def _platform_metrics(
                 return True
             result.errors.append(f"{platform} 계정 지표 실패: {e}")
     return False
+
+
+def _once_more(
+    ctx: JobContext, platform: str, what: str, key: str, read: Callable[[], Any], retry: dict
+) -> tuple[Any, int]:
+    """read()를 부른다. 글 페이지가 안 열린 일시적 실패(code='page')면 RETRY_WAIT_S 쉬고 딱 한 번 더(C52).
+
+    돌려주는 값: (read 결과, 다시 읽었으면 1). 부르는 쪽이 저장에 성공한 뒤에 센다.
+    - 다시 해도 실패하면 그 예외를 던진다(첫 예외를 원인으로 묶음). 부르는 쪽의 기존 분기(오류 기록·요청 제한·
+      중단)가 처리한다. 다시 읽기도 page로 실패하면 retry["off"]: 이 플랫폼의 남은 글은 다시 읽지 않는다.
+    - 재시도 시각이 붙은 실패(요청 제한)·로그인·화면 변경·끄는 중 끊김은 다시 하지 않는다.
+    - 쉬는 동안 끄기 시작하면 (_STOPPED, 0): 다시 읽지 않고 중단, 오류 기록 없음. 0.5초마다 확인한다."""
+    try:
+        return read(), 0
+    except Exception as e:  # noqa: BLE001
+        if retry["off"] or not is_page_failure(ctx, e) or retry_at(e):
+            raise
+        first = e
+    for _ in range(_WAIT_SLICES):
+        if is_interrupted(ctx):
+            break
+        sleep(RETRY_WAIT_S / _WAIT_SLICES)
+    if is_interrupted(ctx):
+        log.info("%s %s 중단(프로그램 종료 중, 다시 읽기 전): %s", platform, what, first)
+        return _STOPPED, 0
+    log.info("%s %s 다시 읽기(%s): %s", platform, what, key, first)
+    try:
+        return read(), 1
+    except Exception as e:  # noqa: BLE001
+        if is_page_failure(ctx, e):
+            retry["off"] = True
+        raise e from first
