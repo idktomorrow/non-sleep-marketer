@@ -4,6 +4,9 @@
 - 화면에는 키마다 "등록됨/없음"(과 환경 변수 여부)만 보인다.
 - "확인"은 공급자의 모델 목록 조회로 키를 검증한다(생성 없음, 비용 0). 응답 본문은 화면에 싣지 않는다.
 - 저장·삭제 뒤 `on_secrets_changed()`로 키를 쓰는 부품을 새로 만들어 재시작 없이 다음 작업부터 쓴다.
+- 만료일 메모(C53, ADR 0077): 키 칸 옆 날짜 칸. 키 칸을 비우고 저장하면 날짜만 바꾸고, 둘 다 비우면 메모를 지운다.
+  새 키를 저장하면 옛 날짜는 지우고 이번 날짜만 남긴다. 키를 지우면 날짜·알림·자동 확인 상태도 지운다.
+  저장·"확인" 결과는 `key_check`에 바로 적어 첫 화면의 옛 오류 배너가 바로 사라지게 한다.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException
 from fastapi.responses import RedirectResponse
 
 from nsm.config.secrets import KEY_NAMES, KEY_USES, KEYS, SecretStore
+from nsm.engine import key_watch
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +129,13 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
     def _verify(name: str, value: str | None) -> tuple[str, int | None]:
         return (state.check_key or check_key)(name, value)
 
+    def _record(name: str, result: str) -> None:
+        """확인 결과를 자동 확인 상태에 반영(C53). 판단 못 한 결과(연결 실패 등)는 옛 결과만 지운다."""
+        if result in ("ok", "invalid", "limit"):
+            key_watch.record_check(state.repo, name, result, state.clock.now())
+        else:
+            key_watch.clear_check(state.repo, name)
+
     def _check(name: str, found: tuple[str, int | None] | None = None) -> dict[str, str]:
         result, status = found or _verify(name, state.secrets.get(name))
         return {
@@ -134,10 +145,29 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
         }
 
     @app.post("/settings/keys/{name}", dependencies=[Depends(check_csrf)])
-    def register_key(name: str, value: str = Form("")) -> RedirectResponse:
+    def register_key(
+        name: str, value: str = Form(""), expires: str = Form(""), with_date: str = Form("")
+    ) -> RedirectResponse:
+        # with_date: 날짜 칸이 있는 폼(C53). 빈 칸은 FastAPI가 기본값으로 읽어 "날짜 칸을 비움"과 구별하려고 둔다
         _known(name)
         value = value.strip()
         label = KEY_LABELS.get(name, name)
+        new_date = None
+        if expires.strip():
+            new_date = key_watch.parse_date(expires)
+            if new_date is None:  # 형식이 틀리면 키도 날짜도 저장하지 않는다
+                return _redirect(key_error="만료일 형식이 아닙니다(예: 2026-12-12)")
+        if not value and with_date:  # 키 칸을 비우고 저장: 만료일 메모만 바꾼다
+            if new_date is not None and not state.secrets.get(name):
+                return _redirect(
+                    key_error=f"{label} 키가 없어 만료일만 적을 수 없습니다(키와 함께 저장하세요)"
+                )
+            key_watch.set_expiry(state.repo, name, new_date)
+            return _redirect(
+                key_msg=f"{label} 키 만료일을 {new_date:%m-%d}로 적었습니다"
+                if new_date
+                else f"{label} 키 만료일 메모를 지웠습니다"
+            )
         if len(value) < MIN_KEY_LEN or any(ch.isspace() for ch in value):
             return _redirect(key_error="키 형식이 아닙니다(공백 없이 20자 이상)")
         if state.secrets.is_env(name):
@@ -159,6 +189,11 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
             return _redirect(key_error=f"키를 저장하지 못했습니다({type(e).__name__})")
         _changed()
         log.info("API 키 저장: %s", name)
+        # 새 키: 옛 키의 날짜·알림 단계는 버리고 이번에 적은 날짜만(엉뚱한 알림 방지). 확인 결과도 바로 반영
+        key_watch.forget_key(state.repo, name)
+        if new_date is not None:
+            key_watch.set_expiry(state.repo, name, new_date)
+        _record(name, found[0])
         return _redirect(
             key_msg=f"{label} 키를 저장했습니다. 다음 작업부터 씁니다", **_check(name, found)
         )
@@ -166,7 +201,9 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
     @app.post("/settings/keys/{name}/check", dependencies=[Depends(check_csrf)])
     def verify_key(name: str) -> RedirectResponse:
         _known(name)
-        return _redirect(**_check(name))
+        q = _check(name)
+        _record(name, q["key_check_code"])
+        return _redirect(**q)
 
     @app.post("/settings/keys/{name}/delete", dependencies=[Depends(check_csrf)])
     def delete_key(name: str) -> RedirectResponse:
@@ -186,5 +223,6 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
                 key_error=f"{label} 키를 지우지 못했습니다(자격 증명 관리자를 확인하세요)"
             )
         _changed()
+        key_watch.forget_key(state.repo, name)  # 날짜 메모·알림·자동 확인 상태도 같이(C53)
         log.info("API 키 삭제: %s", name)
         return _redirect(key_msg=f"{label} 키를 지웠습니다")

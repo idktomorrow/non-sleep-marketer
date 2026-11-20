@@ -81,6 +81,7 @@ from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import GeneratedContent, Platform
 from nsm.domain.policy import find_banned, local, local_day_bounds
+from nsm.engine import key_watch
 from nsm.engine.backup_copy import check_copy_dir, clean_path
 from nsm.engine.catch_up import activity_slots, caught_up_today, next_daily
 from nsm.engine.generate import AUTO_PUBLISH_KEY, all_texts
@@ -356,6 +357,8 @@ def create_app(state: AppState) -> FastAPI:
             "overview.html",
             # 진행 중인 장애만 한 줄씩(E2): "스레드: 요청 제한으로 14:00까지 쉬는 중"
             incidents_now=ongoing_incidents(state, now, lambda t: local(t, tz()).strftime("%H:%M")),
+            # API 키 만료 7일 이하·만료됨·자동 확인 거절(C53). 간단 모드에서도 보인다
+            key_banner=key_watch.key_banner(state.repo, now, tz()) if state.secrets else None,
             ov=ov,
             human_approved=state.repo.count_human_approved(),
             runs=runs[:10],  # 변화가 있던 실행만, 같은 결과는 묶어서(C11)
@@ -456,6 +459,8 @@ def create_app(state: AppState) -> FastAPI:
             "image_saved": q.get("image_saved"),
             "image_error": q.get("image_error"),
             "keys": key_status(state.secrets),
+            # 만료일 메모·마지막 자동 확인(C53)
+            "key_view": key_watch.key_view(state.repo, state.clock.now(), tz()),
             "doc_index": doc_index_line(),
             "can_keys": state.secrets is not None,
             "key_msg": q.get("key_msg"),

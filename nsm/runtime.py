@@ -158,15 +158,25 @@ def make_secret_parts(cfg: AppConfig, secrets: SecretStore, repo: Repository) ->
     }
 
 
+CLASSIFIER_KEYS = {"gemini": "gemini_api_key", "claude": "anthropic_api_key"}
+
+
+def _on_classifier_switch(ctx: JobContext, a: str, b: str, e: Exception) -> None:
+    """분류기가 실패해 다음 것으로 넘어갈 때 알림. 키 거절(401/403·API_KEY_INVALID)이면 키 오류 알림도(C53)."""
+    from nsm.engine.key_watch import key_error, looks_like_key_error
+
+    ctx.notifier.notify(
+        "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
+    )
+    if a in CLASSIFIER_KEYS and looks_like_key_error(e):
+        key_error(ctx, CLASSIFIER_KEYS[a])
+
+
 def _install_secret_parts(ctx: JobContext, parts: dict) -> None:
     """만든 부품을 ctx에 끼운다. 다 만든 뒤에 한꺼번에(반쯤 바뀐 상태가 남지 않게)."""
     classifiers = parts["classifiers"]
     # 고른 분류기가 실패해 다음 것으로 넘어가면 알린다(2026-10-20 MotherDuck 체험 종료 같은 조용한 실패 방지, C27)
-    classifiers.set_on_switch(
-        lambda a, b, e: ctx.notifier.notify(
-            "분류기 대체", f"{a} 분류기가 실패해 {b}로 분류합니다: {str(e)[:120]}", "warn"
-        )
-    )
+    classifiers.set_on_switch(lambda a, b, e: _on_classifier_switch(ctx, a, b, e))
     ctx.relevance_classifier = classifiers.relevance
     ctx.topic_classifier = classifiers.topic
     ctx.comment_classifier = classifiers.comment
@@ -229,6 +239,9 @@ def build_context(
         reports_dir=paths.reports_dir(),
         backups_dir=paths.backups_dir(),
     )
+    from nsm.app.keys import check_key
+
+    ctx.secrets, ctx.check_key = secrets, check_key  # health의 하루 한 번 자동 키 확인(C53)
     _install_secret_parts(ctx, make_secret_parts(cfg, secrets, repo))
     # 카드 스타일은 렌더할 때마다 현재 설정에서 읽는다: 대시보드 설정 저장이 재시작 없이 반영(S8)
     from nsm.render.character import character_art

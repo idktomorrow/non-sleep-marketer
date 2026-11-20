@@ -55,6 +55,9 @@ class JobContext:
     docs_root: Path | None = None  # 색인할 문서 폴더(없으면 저장소 docs). 테스트가 바꾼다
     # 프로그램을 끄는 중인가(C33). 끄는 순간 돌던 잡의 오류는 "실패"가 아니라 "중단"으로 적는다
     shutting_down: Callable[[], bool] = field(default_factory=lambda: lambda: False)
+    # API 키 저장소와 키 확인 함수(C53): health가 하루 한 번 자동 확인한다. 없으면 건너뜀(테스트·드라이 실행)
+    secrets: Any | None = None
+    check_key: Callable[[str, str | None], tuple[str, int | None]] | None = None
 
     @property
     def tz(self) -> str:

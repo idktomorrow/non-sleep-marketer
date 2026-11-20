@@ -238,6 +238,16 @@ def _make_one(
     except Exception as e:  # noqa: BLE001  네트워크·API 장애
         log.warning("콘텐츠 생성 실패(다음에 재시도): %s", e)
         result.errors.append(f"생성 실패: {network_error_text(e)}")
+        if getattr(e, "status_code", None) in (
+            401,
+            403,
+        ):  # 키 거절: 조용히 실패하지 않게 바로 알림(C53)
+            from nsm.engine.key_watch import key_error
+
+            try:
+                key_error(ctx, "anthropic_api_key", "Claude API 키 오류")
+            except Exception:  # noqa: BLE001  알림 실패가 생성 결과를 가리지 않게
+                log.exception("키 오류 알림 실패")
         return _RETRY_LATER
     gen, violations = _check_rules(ctx, brief, normalize_bullets(gen), result)
     gen = _add_background(ctx, gen, result)

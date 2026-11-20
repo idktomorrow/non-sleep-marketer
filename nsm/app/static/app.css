@@ -378,3 +378,7 @@ nav.menu.has-more, .table-wrap.has-more { -webkit-mask-image: linear-gradient(to
 .folder-pick input[type=text] { flex: 1; min-width: 0; }
 .folder-pick button { flex: none; white-space: nowrap; }
 #pick-folder-msg.bad { color: var(--bad); }
+/* C53: API 키 만료일 칸·자동 확인 */
+.api-keys .key-expires { display: inline-flex; gap: 4px; align-items: center; font-size: .85em; color: var(--muted); }
+.api-keys .key-expires input { width: auto; }
+.bad-text { color: var(--bad); }

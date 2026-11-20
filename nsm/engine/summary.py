@@ -147,6 +147,8 @@ def _health(c: dict[str, Any]) -> list[str]:
         parts.append(
             f"상태 확인 실패(일시적), 다음 점검에서 다시 확인: {', '.join(c['health_retry'])}"
         )
+    if c.get("key_alerts"):  # C53: API 키 만료·자동 확인 알림
+        parts.append(f"API 키 알림: {', '.join(map(str, c['key_alerts']))}")
     return parts
 
 
