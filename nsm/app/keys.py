@@ -7,12 +7,14 @@
 - 만료일 메모(C53, ADR 0077): 키 칸 옆 날짜 칸. 키 칸을 비우고 저장하면 날짜만 바꾸고, 둘 다 비우면 메모를 지운다.
   새 키를 저장하면 옛 날짜는 지우고 이번 날짜만 남긴다. 키를 지우면 날짜·알림·자동 확인 상태도 지운다.
   저장·"확인" 결과는 `key_check`에 바로 적어 첫 화면의 옛 오류 배너가 바로 사라지게 한다.
+- 새 키 저장 문구는 만료일을 적었는지·안 적었는지·옛 날짜를 지웠는지 나눠 보여 준다(C54).
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
@@ -77,6 +79,24 @@ def check_text(result: str, status: int | None) -> str:
     text = CHECK_TEXT.get(result, "알 수 없음")
     return (
         f"{text}(HTTP {status})" if status and result in ("limit", "network", "unknown") else text
+    )
+
+
+def _saved_msg(label: str, new_date: date | None, old_date: date | None) -> str:
+    """새 키 저장 결과 문구(C54). 만료일을 어떻게 처리했는지 세 갈래로 보여 준다."""
+    if new_date is not None and new_date == old_date:
+        # 미리 채워진 옛 날짜가 그대로 왔다: 옛 키의 날짜라 버렸다고 알린다
+        return (
+            f"{label} 키를 저장했습니다. 옛 만료일({old_date:%m-%d})은 지웠습니다. "
+            "새 키에 만료일이 있으면 날짜만 따로 저장하세요. 다음 작업부터 씁니다"
+        )
+    if new_date is not None:
+        return (
+            f"{label} 키를 저장했습니다. 만료일 {new_date:%m-%d}를 적었습니다. 다음 작업부터 씁니다"
+        )
+    return (
+        f"{label} 키를 저장했습니다. 만료일은 적지 않았습니다"
+        "(만료가 있는 키면 날짜만 따로 저장하세요). 다음 작업부터 씁니다"
     )
 
 
@@ -186,9 +206,7 @@ def install_keys_routes(app: FastAPI, state: Any, check_csrf: Callable[..., Any]
         if new_date is not None and new_date != old_date:
             key_watch.set_expiry(state.repo, name, new_date)
         _record(name, found[0])
-        return _redirect(
-            key_msg=f"{label} 키를 저장했습니다. 다음 작업부터 씁니다", **_check(name, found)
-        )
+        return _redirect(key_msg=_saved_msg(label, new_date, old_date), **_check(name, found))
 
     @app.post("/settings/keys/{name}/check", dependencies=[Depends(check_csrf)])
     def verify_key(name: str) -> RedirectResponse:
