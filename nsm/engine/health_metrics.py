@@ -12,6 +12,7 @@ from typing import Any
 from nsm.domain.errors import KindedError, kind_of, policy_for
 from nsm.engine.context import JobContext, JobResult, is_interrupted, is_page_failure
 from nsm.engine.incidents import record_incident, with_diagnosis
+from nsm.engine.key_watch import check_keys
 from nsm.engine.pause import (
     HEALTH_STREAK_KEY,
     PAUSE_INFO_KEY,
@@ -171,6 +172,13 @@ def run_health(ctx: JobContext) -> JobResult:
         stalls = []
     if stalls:
         result.counts["stalls"] = stalls
+    try:  # API 키 만료일 알림·하루 한 번 자동 확인(C53). 로그인 점검 결과와 섞지 않는다
+        sent = check_keys(ctx)
+    except Exception as e:  # noqa: BLE001
+        log.warning("API 키 확인 실패: %s", type(e).__name__)
+        sent = []
+    if sent:
+        result.counts["key_alerts"] = sent
     return result
 
 

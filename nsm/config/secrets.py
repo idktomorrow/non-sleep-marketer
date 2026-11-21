@@ -22,6 +22,16 @@ KEY_USES = {
     "gemini_api_key": "자료·댓글을 분류합니다. 무료 구간(없으면 Claude로 분류)",
     "openai_api_key": "표지 배경 이미지. 선택이며 기본은 꺼짐(설정 image_generation)",
 }
+# 키 확인 결과(코드 → 화면 문구). 설정 화면 "확인"(nsm/app/keys.py)과 자동 확인(nsm/engine/key_watch.py, C53)이 같이 쓴다.
+# 응답 본문은 싣지 않는다(키·계정 정보가 섞일 수 있음)
+CHECK_TEXT = {
+    "ok": "연결됨",
+    "invalid": "키가 틀렸거나 만료됨",
+    "limit": "키는 맞지만 한도·결제 확인 필요",
+    "network": "연결 실패(네트워크·시간 초과)",
+    "missing": "등록된 키가 없음",
+    "unknown": "확인하지 못함",  # 404 등 예상 밖 응답: 키가 맞다고도 틀리다고도 말하지 않는다
+}
 ENV_NAMES = {
     "anthropic_api_key": ("NSM_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
     "openai_api_key": ("NSM_OPENAI_API_KEY", "OPENAI_API_KEY"),
