@@ -33,7 +33,7 @@ def _row(html: str, label: str, nxt: str | None) -> str:
 
 def test_form_has_optional_date_field(env) -> None:
     row = _row(_page(env), "Claude", "Gemini")
-    assert 'type="date" name="expires"' in row and "만료일(선택)" in row
+    assert 'type="date" name="expires"' in row and "만료일(없으면 비움)" in row  # C54 라벨
 
 
 def test_date_only_save_update_and_clear(env) -> None:
