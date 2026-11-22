@@ -16,7 +16,7 @@
 | 생성·답변·진단 | Claude API(anthropic SDK, 원고·답글·진단 `claude-sonnet-5-5`, 문서 질문 `claude-haiku-5-5`): 원고·답글, 문서 질문 답변, 화면 변경 실패 진단(글만 돌려주고 동작은 안 함) | `nsm/adapters/`(generator·diagnosis), `nsm/rag/answer.py` |
 | 분류·임베딩 | Gemini REST를 httpx로 직접 호출(`gemini-3.5-flash-lite`, 임베딩 `gemini-embedding-2`). 실패하면 Claude 키가 있을 때 Claude(`claude-haiku-5-5`), 그다음 키워드 분류로 대체 | `nsm/adapters/classifier/`, `nsm/rag/gemini.py` |
 | 카드 배경 그림(선택, 기본 꺼짐) | OpenAI 이미지 API(`gpt-image-2.5-flare`) | `nsm/adapters/generator/image_api.py` |
-| 브라우저 | Aside 브라우저 + CLI(기본 드라이버: 게시·댓글·지표·자료 수집), Playwright Chromium(카드 HTML → PNG 렌더, 대체 드라이버) | `nsm/adapters/drivers/`, `nsm/render/html_renderer.py` |
+| 브라우저 | Aside 브라우저 + CLI(실계정 게시·댓글·지표) / Playwright Chromium(자료 수집: 수집 전용 프로필, 카드 HTML → PNG 렌더) | `nsm/adapters/drivers/`, `nsm/render/html_renderer.py` |
 | 그 외 | Pillow(브랜드 이미지), pypdf·openpyxl(올린 자료 읽기), PowerShell(Windows 토스트 알림·폴더 선택 창) | `nsm/adapters/notify/windows.py`, `nsm/app/folder_picker.py` |
 | 개발 | pytest, ruff, hatchling, GitHub Actions CI | `.github/workflows/ci.yml` |
 
@@ -236,6 +236,6 @@ It collects material on a persona's topics, writes card news and posts with Clau
 The engine talks only to ports; adapters (Claude, Gemini, Aside/Playwright browsers, dry-run, Windows toast) plug in behind them, so the classifier can fall back from Gemini to Claude and dry-run vs live is just an adapter swap.
 Reliability: isolated job failures with retries, rate-limit back-off, login-loss detection, catch-up of missed jobs, daily backups and API-key expiry alerts.
 A RAG chatbot (`/ask`) answers questions from project docs, collected sources and our own posts, with citations.
-**Stack**: Python 3.12 + uv + Typer; DuckDB (tables and RAG vector search via `list_cosine_similarity`, no external vector DB); FastAPI + Jinja2 + HTMX; APScheduler 3; Claude API (generation, RAG answers, failure diagnosis); Gemini REST via httpx (classification, embeddings); optional OpenAI image API; Aside browser + Playwright Chromium; pytest, ruff, GitHub Actions. Nothing to deploy (one PC plus API keys); paid calls are Claude and the optional image API, with Gemini on its free tier.
+**Stack**: Python 3.12 + uv + Typer; DuckDB (tables and RAG vector search via `list_cosine_similarity`, no external vector DB); FastAPI + Jinja2 + HTMX; APScheduler 3; Claude API (generation, RAG answers, failure diagnosis); Gemini REST via httpx (classification, embeddings); optional OpenAI image API; Aside browser for publishing and comments, Playwright Chromium for collection and card rendering; pytest, ruff, GitHub Actions. Nothing to deploy (one PC plus API keys); paid calls are Claude and the optional image API, with Gemini on its free tier.
 **Status**: running on live accounts since 2026-10-15, version 0.4.46, 1,618 tests, 77 ADRs, 91 batches with devlogs, 16 incident write-ups.
 Keys stay in the Windows Credential Manager; required AI, virtual-person and ad labels are inserted automatically and cannot be turned off.
