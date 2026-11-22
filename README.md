@@ -2,9 +2,19 @@
 
 **잠들지 않는 AI 가상 인플루언서 마케터.** 내 PC에 켜 두기만 하면, 내가 정한 가상 인물(페르소나)이 관심 주제의 자료를 모으고, 카드뉴스와 글을 만들어 인스타그램·스레드에 올리고, 댓글에 답하고, 성과를 정리합니다. 민감한 글과 댓글은 사람에게 넘기고, 법으로 정해진 가상인물·광고 표기는 자동으로 넣습니다.
 
-> 상태: **실계정 운영 중** (`v0.4-quality`, 2026-10-15). 스레드·인스타그램에 실제로 게시하고 댓글·지표를 다룹니다. 2주차 품질 배치(계약 테스트 S-β, 품질 체크리스트 S-γ, 카드 스타일 clean·photo·illust S8)까지 들어갔습니다. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
+> 상태: **실계정 운영 중** · 2026-10-15부터 · 버전 0.4.46 · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
 
 ![대시보드 "오늘" 화면](docs/samples/ui/after/1-overview-desktop.png)
+
+## 왜 만들었나
+
+1인 브랜드 운영자나 소규모 마케터는 인스타그램·스레드를 꾸준히 운영해야 합니다. 그런데 자료를 찾고, 카드뉴스를 만들고, 플랫폼마다 형식을 바꿔 올리고, 댓글에 답하고, 무엇이 잘됐는지 결산하는 일을 사람이 다 하면 시간이 너무 많이 듭니다.
+특히 **사람이 자는 동안이나 바쁠 때 달린 댓글**은 사람의 근무 시간에 묶여 있습니다.
+
+AI에게 맡기면 시간은 줄지만 두 가지가 걱정됩니다. AI가 쓴 **내용을 믿을 수 있는지**, 그리고 AI 기본법과 공정위 추천·보증 심사지침에 따른 **AI·가상인물·광고 표기 의무**를 지키는지입니다.
+
+이 프로젝트의 답은 하나입니다. **사람이 잠든 동안에도 일하되, 잘못돼도 되돌릴 수 있는 일만 자동으로 하고 위험한 건 사람에게 묻는다.**
+근거 없는 주장·민감한 댓글·처음 20건은 사람이 보고, 표기는 끌 수 없게 코드로 넣습니다. 자세한 배경은 [PRD](docs/PRD.md)에 있습니다.
 
 ## 무엇을 하나
 
@@ -23,20 +33,80 @@
 | 게시 | 정한 게시 시간 안에서 플랫폼별 하루 개수와 간격을 지켜 올립니다. 올리기 전에 로그인된 계정이 설정한 계정과 같은지 확인합니다 |
 | 댓글 | 칭찬·질문에는 페르소나 말투로 답합니다. 불만·환불·법적 문제·애매한 댓글은 사람에게 넘깁니다. 스팸은 스레드에서 숨깁니다 |
 | 성과 | 게시물별 조회·좋아요·저장·공유, 팔로워, 비용을 모으고, 매주 월요일 잘된 콘텐츠와 다음 주 추천 주제를 정리합니다 |
+| 문서 질문 | 프로젝트 문서·모은 자료·우리가 올린 글에서 근거를 찾아 답하는 챗봇(RAG, `/ask`). 답의 문장마다 근거 번호가 붙고, 근거가 없으면 모른다고 답합니다 |
+
+## 어떻게 돌아가나
+
+[architecture.md](docs/architecture.md) 1절의 그림입니다.
+
+```mermaid
+flowchart LR
+  subgraph P["nsm run (단일 프로세스)"]
+    S[APScheduler<br/>잡 9개 + 따라잡기] --> E[엔진 잡<br/>run_once ctx]
+    W[FastAPI 대시보드<br/>Jinja2 + HTMX] --> R[(DuckDB<br/>data.duckdb)]
+    E --> R
+    E --> PT[포트]
+  end
+  PT --> PA[플랫폼 어댑터<br/>instagram · threads · dryrun]
+  PT --> SRC[수집 소스<br/>upload · naver · google_news · google_trends · community]
+  PT --> CL[분류기<br/>gemini · claude · keyword]
+  PT --> GEN[생성기<br/>claude_text · image_api]
+  PT --> RD[렌더러<br/>카드 덱 → PNG]
+  PT --> NT[알림<br/>Windows 토스트]
+  PA --> DRV[브라우저 드라이버<br/>aside · playwright]
+  DRV --> Web[(인스타그램 / 스레드 / 네이버 검색)]
+  CL --> GM[(Gemini API 무료 구간)]
+  GEN --> API[(Claude API / 이미지 API)]
+  U[사용자 브라우저] --> W
+```
+
+- **프로세스 하나**: `nsm run` 하나가 스케줄러(APScheduler)·엔진·대시보드(FastAPI, 127.0.0.1:8765)를 함께 띄우고, DB는 DuckDB 파일 하나(`data.duckdb`)를 이 프로세스만 엽니다. 서버도 클라우드 계정도 필요 없습니다.
+- **잡**: 엔진의 잡은 `collect`(자료 모으기)·`generate`(원고 만들기)·`publish`(게시)·`reply`(댓글)·`health`(상태 점검)·`metrics`(성과 읽기)·`weekly_report`(주간 리포트)·`maintenance`(백업·정리)·`index`(문서 색인)이고(`nsm/engine/runner.py`), 스케줄러가 여기에 놓친 일을 다시 돌리는 `catch_up`을 더합니다(`nsm/scheduler/app.py`). 잡은 한 번에 하나씩 돕니다.
+- **포트와 어댑터(헥사고날)**: 엔진은 벽의 콘센트(포트: 플랫폼·자료 소스·분류기·글 생성기·이미지 생성기·렌더러·알림·시계·비용, `nsm/ports/`)만 알고, 그 뒤에 꽂힌 플러그(어댑터: Claude·Gemini·Aside·Playwright·드라이런·Windows 알림, `nsm/adapters/`)는 모릅니다. 그래서 플러그만 바꿔 끼우면 됩니다. 예를 들어 분류기는 Gemini → Claude → 키워드 순서의 사슬이라, Gemini 호출이 실패하면(키 거절·한도 등) 엔진 코드를 건드리지 않고 다음 분류기로 넘어갑니다(ADR 0048). 드라이런과 실계정도 `settings.dry_run` 하나로 플랫폼 어댑터만 갈아 끼웁니다(드라이런 어댑터는 올리는 대신 미리보기 폴더에 저장, `nsm/runtime.py`).
+- **원고의 일생**: `draft` → `pending_review`(사람 검토) 또는 `approved` → 게시 중(`publishing`, 게시 기록의 상태) → `published`, 언제든 `discarded`(폐기).
+- **사람이 개입하는 곳**: 원고 검토·승인, 사람에게 넘어온 댓글, 설정(페르소나·브랜드·운영·API 키), 주간 리포트를 보고 다음 주 방향 정하기.
+
+**안정성 장치**
+- **잡 실패 격리·재시도**: 한 잡이 실패해도 실행 기록에 남기고 다른 잡은 예정대로 돕니다. 게시 실패는 15분·60분·240분 뒤 세 번 다시 시도하고(모두 4번), 그래도 실패하면 검토로 돌려 사람에게 넘깁니다.
+- **요청 제한·로그인 풀림**: 플랫폼이 요청 제한(HTTP 429)을 걸면 멈추지 않고 정해진 시간 쉽니다(ADR 0038). 30분마다 로그인 상태를 점검해 풀렸으면 그 플랫폼만 멈추고 알립니다.
+- **놓친 일 따라잡기**: 예정 시각에 PC가 꺼져 있었거나 절전이었으면, 켠 뒤 90초와 그 뒤 30분마다 오늘 못 한 일을 한 번 돌립니다(ADR 0066).
+- **매일 백업**: 새벽 4시 30분에 DB를 백업해 최근 7개를 남기고, 설정에서 고른 복사 폴더(구글 드라이브·OneDrive 등)에도 한 부 더 둡니다(ADR 0074).
+- **API 키 점검**: 하루 한 번 키마다 비용 없는 조회로 자동 확인하고, 적어 둔 만료일 7·3·1일 전과 당일에 알립니다. 실행 중 키가 거절되면 바로 알립니다(ADR 0077).
 
 ## 하루가 이렇게 흘러갑니다
 
-| 시각 (기본 설정 예) | 자동으로 하는 일 |
+| 시각 (활동 시간 기준) | 자동으로 하는 일 |
 |---|---|
-| 0시 20분쯤 | 자료 모으기 |
-| 0시 50분쯤 | 원고 만들기 → 검토 대기 또는 (자동 게시가 켜져 있고 기준을 통과하면) 게시 대기 |
-| 08~23시, 30분마다 | 게시 (인스타 하루 1개, 스레드 하루 2개, 같은 플랫폼은 3시간 간격) |
-| 5분마다 | 댓글 확인·답글 |
-| 30분마다 | 로그인 상태 점검 (풀리면 그 플랫폼을 멈추고 알림) |
-| 새벽 3시 | 지표·팔로워 기록 |
+| 활동 시간 시작 20분 뒤 (마지막 활동 시간 시작 20분 뒤에 한 번 더) | 자료 모으기 |
+| 활동 시간 시작 50분 뒤 | 원고 만들기 → 검토 대기 또는 (자동 게시가 켜져 있고 기준을 통과하면) 게시 대기 |
+| 게시 시간 안에서 30분마다 | 게시 (인스타 하루 1개, 스레드 하루 2개, 같은 플랫폼은 3시간 간격) |
+| 5분마다 | 댓글 확인·답글 (인스타그램은 30분, 스레드는 15분보다 자주 보지 않음) |
+| 30분마다 | 상태 점검 (로그인, API 키 하루 한 번) |
+| 새벽 3시 10분 | 성과 읽기 (지표·팔로워) |
+| 새벽 4시 30분 | 백업·정리 |
+| 저녁 8시 | 문서 색인 (문서 질문용) |
 | 월요일 8시 | 주간 리포트 |
 
-시각은 대시보드 **설정**에서 바꿉니다(활동 시간, 게시 시간, 하루 게시 수, 댓글 확인 간격). 사람이 하는 일은 **매일 아침 "오늘" 화면의 할 일 목록을 위에서부터 처리하는 것**입니다.
+예를 들어 `nsm init`이 권하는 활동 시간 "09:00-12:00, 18:00-23:00"이면 자료 모으기는 9시 20분·18시 20분, 원고 만들기는 9시 50분쯤입니다. 시각마다 무작위로 조금씩 흔듭니다(자료 모으기는 ±30분).
+시각은 대시보드 **설정**에서 바꿉니다(활동 시간, 게시 시간, 하루 게시 수, 댓글 확인 간격, 따라잡을 일). 사람이 하는 일은 **매일 아침 "오늘" 화면의 할 일 목록을 위에서부터 처리하는 것**입니다.
+
+## 지금 어디까지 왔나
+
+| 태그 | 날짜 | 무엇이 들어갔나 |
+|---|---|---|
+| `v0.1-dryrun` | 2026-10-11 | 드라이런 MVP: 모으기·만들기·게시(미리보기 저장)·댓글·지표 잡, 대시보드, 스케줄러 |
+| `v0.2-live` | 2026-10-13 | 실계정 연결(스레드·인스타그램), 주간 리포트, 카드뉴스 렌더러 |
+| `v0.3-mvp` | 2026-10-13 | 원고 품질, 카드 편집 화면, 대시보드 디자인 |
+| `v0.4-quality` | 2026-10-15 | 계약 테스트, 품질 체크리스트, 카드 스타일 3종. 이날부터 실계정 운영 |
+| 지금 | 0.4.46 | 운영하며 고친 안정화·문서 질문(RAG)·장애 화면·백업·API 키 점검 |
+
+숫자로 보면 (저장소 기준, 2026-11-22)
+- 테스트 **1,618개** (`uv run pytest --co -q`, 실계정 계약 테스트 13개는 기본 제외)
+- 설계 결정 기록(ADR) **77개** ([docs/adr/](docs/adr/README.md))
+- 배치 **91개**(이번 C55 포함), 배치마다 devlog 한 편 ([docs/devlog/](docs/devlog/README.md))
+- 운영 중 장애 기록 **16건** ([docs/incidents/](docs/incidents/README.md))
+
+남은 과제는 [known-gaps.md](docs/known-gaps.md)에 있습니다.
 
 ## 시작하기
 
@@ -73,17 +143,19 @@ uv run nsm run       # 실행. 대시보드: http://127.0.0.1:8765 (끄기: Ctrl
 
 | 메뉴 | 할 수 있는 일 |
 |---|---|
-| 오늘 | 오늘 해야 할 일(검토할 원고, 사람이 답할 댓글, 게시 실패, 로그인 필요), 오늘 게시·비용, 페르소나·자동 게시 켜기/끄기, 작업 바로 실행 |
+| 오늘 | 오늘 해야 할 일(검토할 원고, 사람이 답할 댓글, 게시 실패, 로그인 필요, API 키 만료), 오늘 게시·비용, 페르소나·자동 게시 켜기/끄기, 작업 바로 실행 |
 | 검토 | 카드와 글을 나란히 보고 문구·배경 사진·출처 고치기, 미리보기, 승인·폐기 |
-| 자료 | 브랜드 자료 파일 올리기(바로 읽기 확인), 올린 파일과 모은 자료의 판정·쓰인 원고 |
 | 게시 대기 | 승인돼 올라갈 원고와 순서, 최근 7일 게시. 검토로 되돌려 고치거나 폐기 |
-| 종 모양 (오른쪽 위) | 알림함: 검토할 원고, 확인할 댓글, 로그인 필요, 게시 실패, 작업 완료. 누르면 그 화면으로, 전체 읽음 |
 | 댓글 | 사람에게 넘어온 댓글에 직접 답하거나 처리 완료 |
+| 자료 | 브랜드 자료 파일 올리기(바로 읽기 확인), 올린 파일과 모은 자료의 판정·쓰인 원고 |
 | 성과 · 주간 리포트 | 게시물별 지표, 팔로워, 댓글 처리, 비용, 주간 결산 |
+| 문서 질문 | 문서·모은 자료·우리가 올린 글에 질문하고 근거와 함께 답 보기, 검색 측정 |
+| 장애 | 실패한 작업의 원인 분류·증거 화면·할 일 |
 | 실행 기록 | 작업마다 언제 돌았고 무엇을 했는지 |
-| 설정 | 페르소나(이름·인물상·말투·관심 주제·금칙어), 브랜드(이름·업종·제품·핵심 메시지·색), 운영(활동·게시 시간, 하루 게시 수, 비용 상한, 댓글 확인 간격). 저장하면 바로 반영 |
+| 종 모양 (오른쪽 위) | 알림함: 검토할 원고, 확인할 댓글, 로그인 필요, 게시 실패, 작업 완료. 누르면 그 화면으로, 전체 읽음 |
+| 설정 | 페르소나(이름·인물상·말투·관심 주제·금칙어), 브랜드(이름·업종·제품·핵심 메시지·색), 운영(활동·게시 시간, 하루 게시 수, 비용 상한, 댓글 확인 간격, 따라잡기), 백업 복사 폴더, API 키와 만료일. 저장하면 바로 반영 |
 
-드라이런/실계정 전환, 게시 계정, API 키, 보호 모드 건수는 사고를 막기 위해 설정 화면에서 바꾸지 않습니다(`nsm init` 또는 `config.yaml`).
+자료·문서 질문·장애·실행 기록 메뉴와 설정의 따라잡기·백업 복사 폴더는 "고급" 보기에서 보입니다. 드라이런/실계정 전환, 게시 계정, 보호 모드 건수는 사고를 막기 위해 설정 화면에서 바꾸지 않습니다(`nsm init` 또는 `config.yaml`).
 
 ## 안전장치
 
@@ -135,3 +207,16 @@ uv run python scripts/dashboard_demo.py   # 예시 데이터로 대시보드만 
 ```
 
 로컬 단일 프로세스(Python 3.12, FastAPI + Jinja + HTMX, APScheduler, DuckDB)입니다. 작업은 배치 단위로 PR을 올리고, 완료 기준은 [CLAUDE.md](CLAUDE.md)와 [process.md](docs/process.md)에 있습니다.
+
+## English summary
+
+**non-sleep-marketer** is an AI virtual-influencer marketer that runs as a single local process on your own Windows PC.
+It collects material on a persona's topics, writes card news and posts with Claude, publishes to Instagram and Threads, replies to comments, and writes a weekly report.
+**Why**: a solo brand owner cannot keep up with research, design, multi-platform posting, overnight comments and reporting, and AI content raises trust and legal-labeling concerns (Korean AI Basic Act, Korea Fair Trade Commission endorsement guidelines).
+**Principle**: work while the owner sleeps, but automate only what can be undone; anything risky goes to a human (first 20 posts, unsupported claims, sensitive comments).
+**Architecture**: one `nsm run` process hosts an APScheduler job runner, the engine and a FastAPI + HTMX dashboard on 127.0.0.1, backed by one DuckDB file.
+The engine talks only to ports; adapters (Claude, Gemini, Aside/Playwright browsers, dry-run, Windows toast) plug in behind them, so the classifier can fall back from Gemini to Claude and dry-run vs live is just an adapter swap.
+Reliability: isolated job failures with retries, rate-limit back-off, login-loss detection, catch-up of missed jobs, daily backups and API-key expiry alerts.
+A RAG chatbot (`/ask`) answers questions from project docs, collected sources and our own posts, with citations.
+**Status**: running on live accounts since 2026-10-15, version 0.4.46, 1,618 tests, 77 ADRs, 91 batches with devlogs, 16 incident write-ups.
+Keys stay in the Windows Credential Manager; required AI, virtual-person and ad labels are inserted automatically and cannot be turned off.

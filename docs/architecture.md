@@ -4,12 +4,12 @@
 
 ## 1. 한 장 요약
 
-사용자 PC에서 `nsm run` 하나가 세 가지를 동시에 띄운다: 스케줄러(잡 7개), 엔진(포트를 통해 외부 접근), 로컬 대시보드(FastAPI, 127.0.0.1:8765). DB는 DuckDB 파일 하나이고 이 프로세스만 연다.
+사용자 PC에서 `nsm run` 하나가 세 가지를 동시에 띄운다: 스케줄러(잡 9개 + 따라잡기), 엔진(포트를 통해 외부 접근), 로컬 대시보드(FastAPI, 127.0.0.1:8765). DB는 DuckDB 파일 하나이고 이 프로세스만 연다.
 
 ```mermaid
 flowchart LR
   subgraph P["nsm run (단일 프로세스)"]
-    S[APScheduler<br/>잡 7개] --> E[엔진 잡<br/>run_once ctx]
+    S[APScheduler<br/>잡 9개 + 따라잡기] --> E[엔진 잡<br/>run_once ctx]
     W[FastAPI 대시보드<br/>Jinja2 + HTMX] --> R[(DuckDB<br/>data.duckdb)]
     E --> R
     E --> PT[포트]
