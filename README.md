@@ -4,6 +4,24 @@
 
 > 상태: **실계정 운영 중** · 2026-10-15부터 · 버전 0.4.46 · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
 
+## 무엇으로 만들었나
+
+| 역할 | 쓴 것 | 어디에 |
+|---|---|---|
+| 언어·실행 | Python 3.12, uv, Typer CLI(`nsm`) | `pyproject.toml`, `nsm/cli.py` |
+| 저장 | DuckDB 파일(운영 표, 프리셋마다 하나), keyring(API 키는 Windows 자격 증명 관리자), Pydantic + YAML 설정 | `nsm/store/`, `nsm/config/` |
+| 벡터 검색(RAG) | 외부 벡터 DB 없이 DuckDB `FLOAT[]` 임베딩 + `list_cosine_similarity` | `nsm/rag/search.py` |
+| 대시보드 | FastAPI + uvicorn, Jinja2, HTMX | `nsm/app/` |
+| 스케줄 | APScheduler 3 | `nsm/scheduler/` |
+| 생성·답변·진단 | Claude API(anthropic SDK, 원고·답글·진단 `claude-sonnet-5-5`, 문서 질문 `claude-haiku-5-5`): 원고·답글, 문서 질문 답변, 화면 변경 실패 진단(글만 돌려주고 동작은 안 함) | `nsm/adapters/`(generator·diagnosis), `nsm/rag/answer.py` |
+| 분류·임베딩 | Gemini REST를 httpx로 직접 호출(`gemini-3.5-flash-lite`, 임베딩 `gemini-embedding-2`). 실패하면 Claude 키가 있을 때 Claude(`claude-haiku-5-5`), 그다음 키워드 분류로 대체 | `nsm/adapters/classifier/`, `nsm/rag/gemini.py` |
+| 카드 배경 그림(선택, 기본 꺼짐) | OpenAI 이미지 API(`gpt-image-2.5-flare`) | `nsm/adapters/generator/image_api.py` |
+| 브라우저 | Aside 브라우저 + CLI(기본 드라이버: 게시·댓글·지표·자료 수집), Playwright Chromium(카드 HTML → PNG 렌더, 대체 드라이버) | `nsm/adapters/drivers/`, `nsm/render/html_renderer.py` |
+| 그 외 | Pillow(브랜드 이미지), pypdf·openpyxl(올린 자료 읽기), PowerShell(Windows 토스트 알림·폴더 선택 창) | `nsm/adapters/notify/windows.py`, `nsm/app/folder_picker.py` |
+| 개발 | pytest, ruff, hatchling, GitHub Actions CI | `.github/workflows/ci.yml` |
+
+모델 이름은 기본값이고 `config.yaml`의 `models`에서 바꿉니다. 따로 띄우는 서버나 클라우드 배포는 없습니다(내 PC 한 대, 필요한 건 API 키). 유료는 Claude API와 (켰을 때) 이미지 API 호출뿐이고, Gemini는 무료 구간의 하루 한도 안이면 0원입니다([비용](#비용-실측-기준-대략) 참고).
+
 ![대시보드 "오늘" 화면](docs/samples/ui/after/1-overview-desktop.png)
 
 ## 왜 만들었나
@@ -206,7 +224,7 @@ uv run pytest                 # 실계정 계약 테스트(-m contract)는 기�
 uv run python scripts/dashboard_demo.py   # 예시 데이터로 대시보드만 띄우기(http://127.0.0.1:8799, API 비용 없음)
 ```
 
-로컬 단일 프로세스(Python 3.12, FastAPI + Jinja + HTMX, APScheduler, DuckDB)입니다. 작업은 배치 단위로 PR을 올리고, 완료 기준은 [CLAUDE.md](CLAUDE.md)와 [process.md](docs/process.md)에 있습니다.
+스택은 위 [무엇으로 만들었나](#무엇으로-만들었나)를 보세요. 작업은 배치 단위로 PR을 올리고, 완료 기준은 [CLAUDE.md](CLAUDE.md)와 [process.md](docs/process.md)에 있습니다.
 
 ## English summary
 
@@ -218,5 +236,6 @@ It collects material on a persona's topics, writes card news and posts with Clau
 The engine talks only to ports; adapters (Claude, Gemini, Aside/Playwright browsers, dry-run, Windows toast) plug in behind them, so the classifier can fall back from Gemini to Claude and dry-run vs live is just an adapter swap.
 Reliability: isolated job failures with retries, rate-limit back-off, login-loss detection, catch-up of missed jobs, daily backups and API-key expiry alerts.
 A RAG chatbot (`/ask`) answers questions from project docs, collected sources and our own posts, with citations.
+**Stack**: Python 3.12 + uv + Typer; DuckDB (tables and RAG vector search via `list_cosine_similarity`, no external vector DB); FastAPI + Jinja2 + HTMX; APScheduler 3; Claude API (generation, RAG answers, failure diagnosis); Gemini REST via httpx (classification, embeddings); optional OpenAI image API; Aside browser + Playwright Chromium; pytest, ruff, GitHub Actions. Nothing to deploy (one PC plus API keys); paid calls are Claude and the optional image API, with Gemini on its free tier.
 **Status**: running on live accounts since 2026-10-15, version 0.4.46, 1,618 tests, 77 ADRs, 91 batches with devlogs, 16 incident write-ups.
 Keys stay in the Windows Credential Manager; required AI, virtual-person and ad labels are inserted automatically and cannot be turned off.
