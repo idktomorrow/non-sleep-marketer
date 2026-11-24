@@ -70,8 +70,9 @@ class NsmError extends Error { constructor(code, msg) { super(msg); this.code = 
 async function nsmOpen(url) { const p = await openTab(url); __opened.push(p); return p; }
 async function nsmWait(loc, ms) { await loc.first().waitFor({ timeout: Math.max(1000, Math.min(ms || 20000, nsmLeft())) }); return loc.first(); }
 // opts.noShot: 화면 글만 모으고 스크린샷은 찍지 않는다(health가 증거를 남기지 않을 때, E5)
+// opts.page: 찍을 탭(없으면 마지막에 연 탭). 스레드 게시는 확인 탭을 따로 열어도 게시 탭을 찍는다(C58)
 async function nsmEvidence(opts) {
-  const pg = __opened[__opened.length - 1];
+  const pg = (opts && opts.page) || __opened[__opened.length - 1];
   if (!pg) return null;
   const ev = { url: pg.url() };
   const budget = (ms) => Math.max(500, Math.min(ms, nsmLeft() - 3000));

@@ -357,7 +357,8 @@ await sleep(500);
 await pg.keyboard.press('Enter');
 const posted = await nsmUntil(async () => (await readBox()) === '', 6000, 300);
 if (!posted) {
-  const sent = await nsmClickText(pg.locator('main'), '게시');
+  // 잠깐 비활성인 순간이 있어도 '버튼 없음'이 되지 않게 다시 본다(C58: nsmClickText가 비활성을 건너뜀)
+  const sent = await nsmUntil(() => nsmClickText(pg.locator('main'), '게시'), 5000, 300);
   if (!sent) throw new NsmError('ui', '답글 게시 버튼 없음');
 }
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다
