@@ -1,6 +1,6 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-11-24 (C57, 문서만: DuckDB 파일은 프리셋마다 하나, 그림에 수집 소스 → 브라우저 드라이버 선(naver·community가 Playwright), 엔진 잡 수 9개로 정정. 이전: C54: `app/keys.py` `_saved_msg`가 새 키 저장 문구를 만료일 적음·안 적음·옛 날짜 지움 세 갈래로, 날짜 칸 라벨 "만료일(없으면 비움)"·안내문 보강(ADR 0077). 이전: C53: `engine/key_watch.py`가 만료일 메모(`key_expiry`)로 7·3·1·0일·지난 뒤 하루 한 번 알림(`key_expiry_notified`), health 끝 별도 try에서 키마다 24시간에 한 번 `ctx.check_key`(= `app.keys.check_key`, 모델 목록 조회) 결과를 `key_check`에 적고 invalid·limit 알림, generate 401/403과 분류기 키 거절은 `key_error`로 하루 한 번 즉시 알림. 설정 API 키 표에 날짜 칸·만료·자동 확인 문구, 첫 화면 `key_banner`(ADR 0077). 이전: C52: metrics의 게시물·계정 지표 읽기가 `is_page_failure`(일시적 + `code='page'`, reply와 같이 `context.py`로 옮김)이고 `retry_at`이 없는 실패면 `RETRY_WAIT_S`(5초) 쉬고 같은 호출을 한 번만 더, 성공 수는 `counts.page_retried`·실행 기록 "페이지 오류로 다시 읽음 n개"(ADR 0076). 이전: C51: 폴더 선택 창의 주인 폼을 화면 중앙에 실제로 띄우고 최소화·복원으로 포그라운드 잠금을 피해 브라우저 앞에 바로 뜨게, 설정 바로가기 "백업" 칩(ADR 0075). 이전: C50: 설정 화면 "백업 복사 폴더" 옆 "폴더 고르기…"를 누르면 `POST /settings/pick-folder`가 요청 스레드에서 `folder_picker.pick_folder`로 이 PC에 Windows 폴더 선택 창(PowerShell `FolderBrowserDialog`)을 띄우고 경로를 JSON으로 돌려줌, 칸만 채우고 저장은 사용자가(ADR 0075). 이전: C49: maintenance가 본 백업 뒤 `settings.backup_copy_dir`이 있으면 `backup_copy.copy_backup`으로 같은 이름을 임시 이름 → 교체로 복사하고 같은 보관 개수로 정리, 실패는 WARNING·알림 "백업 복사 실패"만(ADR 0074). 설정 화면 고급 "백업 복사 폴더"는 `check_copy_dir`로 안내만 하고 저장은 막지 않음. 이전: C48 폐기 원고 이미지 정리)
+> 갱신: 2026-11-24 (C57, 문서만: DuckDB 파일은 프리셋마다 하나, 그림에 수집 소스 → 브라우저 드라이버 선(naver·community·구글 뉴스 본문 읽기가 Playwright), 엔진 잡 수 9개로 정정. 이전: C54: `app/keys.py` `_saved_msg`가 새 키 저장 문구를 만료일 적음·안 적음·옛 날짜 지움 세 갈래로, 날짜 칸 라벨 "만료일(없으면 비움)"·안내문 보강(ADR 0077). 이전: C53: `engine/key_watch.py`가 만료일 메모(`key_expiry`)로 7·3·1·0일·지난 뒤 하루 한 번 알림(`key_expiry_notified`), health 끝 별도 try에서 키마다 24시간에 한 번 `ctx.check_key`(= `app.keys.check_key`, 모델 목록 조회) 결과를 `key_check`에 적고 invalid·limit 알림, generate 401/403과 분류기 키 거절은 `key_error`로 하루 한 번 즉시 알림. 설정 API 키 표에 날짜 칸·만료·자동 확인 문구, 첫 화면 `key_banner`(ADR 0077). 이전: C52: metrics의 게시물·계정 지표 읽기가 `is_page_failure`(일시적 + `code='page'`, reply와 같이 `context.py`로 옮김)이고 `retry_at`이 없는 실패면 `RETRY_WAIT_S`(5초) 쉬고 같은 호출을 한 번만 더, 성공 수는 `counts.page_retried`·실행 기록 "페이지 오류로 다시 읽음 n개"(ADR 0076). 이전: C51: 폴더 선택 창의 주인 폼을 화면 중앙에 실제로 띄우고 최소화·복원으로 포그라운드 잠금을 피해 브라우저 앞에 바로 뜨게, 설정 바로가기 "백업" 칩(ADR 0075). 이전: C50: 설정 화면 "백업 복사 폴더" 옆 "폴더 고르기…"를 누르면 `POST /settings/pick-folder`가 요청 스레드에서 `folder_picker.pick_folder`로 이 PC에 Windows 폴더 선택 창(PowerShell `FolderBrowserDialog`)을 띄우고 경로를 JSON으로 돌려줌, 칸만 채우고 저장은 사용자가(ADR 0075). 이전: C49: maintenance가 본 백업 뒤 `settings.backup_copy_dir`이 있으면 `backup_copy.copy_backup`으로 같은 이름을 임시 이름 → 교체로 복사하고 같은 보관 개수로 정리, 실패는 WARNING·알림 "백업 복사 실패"만(ADR 0074). 설정 화면 고급 "백업 복사 폴더"는 `check_copy_dir`로 안내만 하고 저장은 막지 않음. 이전: C48 폐기 원고 이미지 정리)
 
 ## 1. 한 장 요약
 
@@ -21,8 +21,8 @@ flowchart LR
   PT --> RD[렌더러<br/>카드 덱 → PNG]
   PT --> NT[알림<br/>Windows 토스트]
   PA --> DRV[브라우저 드라이버<br/>aside · playwright]
-  SRC -->|naver · community| DRV
-  DRV --> Web[(인스타그램 / 스레드 / 네이버 검색)]
+  SRC -->|naver · community · google_news 본문| DRV
+  DRV --> Web[(인스타그램 / 스레드 / 네이버 검색 · 기사 · 커뮤니티)]
   CL --> GM[(Gemini API 무료 구간)]
   GEN --> API[(Claude API / 이미지 API)]
   U[사용자 브라우저] --> W
