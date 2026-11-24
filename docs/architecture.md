@@ -1,10 +1,10 @@
 # 현재 구현 아키텍처
 
-> 갱신: 2026-11-21 (C54: `app/keys.py` `_saved_msg`가 새 키 저장 문구를 만료일 적음·안 적음·옛 날짜 지움 세 갈래로, 날짜 칸 라벨 "만료일(없으면 비움)"·안내문 보강(ADR 0077). 이전: C53: `engine/key_watch.py`가 만료일 메모(`key_expiry`)로 7·3·1·0일·지난 뒤 하루 한 번 알림(`key_expiry_notified`), health 끝 별도 try에서 키마다 24시간에 한 번 `ctx.check_key`(= `app.keys.check_key`, 모델 목록 조회) 결과를 `key_check`에 적고 invalid·limit 알림, generate 401/403과 분류기 키 거절은 `key_error`로 하루 한 번 즉시 알림. 설정 API 키 표에 날짜 칸·만료·자동 확인 문구, 첫 화면 `key_banner`(ADR 0077). 이전: C52: metrics의 게시물·계정 지표 읽기가 `is_page_failure`(일시적 + `code='page'`, reply와 같이 `context.py`로 옮김)이고 `retry_at`이 없는 실패면 `RETRY_WAIT_S`(5초) 쉬고 같은 호출을 한 번만 더, 성공 수는 `counts.page_retried`·실행 기록 "페이지 오류로 다시 읽음 n개"(ADR 0076). 이전: C51: 폴더 선택 창의 주인 폼을 화면 중앙에 실제로 띄우고 최소화·복원으로 포그라운드 잠금을 피해 브라우저 앞에 바로 뜨게, 설정 바로가기 "백업" 칩(ADR 0075). 이전: C50: 설정 화면 "백업 복사 폴더" 옆 "폴더 고르기…"를 누르면 `POST /settings/pick-folder`가 요청 스레드에서 `folder_picker.pick_folder`로 이 PC에 Windows 폴더 선택 창(PowerShell `FolderBrowserDialog`)을 띄우고 경로를 JSON으로 돌려줌, 칸만 채우고 저장은 사용자가(ADR 0075). 이전: C49: maintenance가 본 백업 뒤 `settings.backup_copy_dir`이 있으면 `backup_copy.copy_backup`으로 같은 이름을 임시 이름 → 교체로 복사하고 같은 보관 개수로 정리, 실패는 WARNING·알림 "백업 복사 실패"만(ADR 0074). 설정 화면 고급 "백업 복사 폴더"는 `check_copy_dir`로 안내만 하고 저장은 막지 않음. 이전: C48 폐기 원고 이미지 정리)
+> 갱신: 2026-11-24 (C57, 문서만: DuckDB 파일은 프리셋마다 하나, 그림에 수집 소스 → 브라우저 드라이버 선(naver·community가 Playwright), 엔진 잡 수 9개로 정정. 이전: C54: `app/keys.py` `_saved_msg`가 새 키 저장 문구를 만료일 적음·안 적음·옛 날짜 지움 세 갈래로, 날짜 칸 라벨 "만료일(없으면 비움)"·안내문 보강(ADR 0077). 이전: C53: `engine/key_watch.py`가 만료일 메모(`key_expiry`)로 7·3·1·0일·지난 뒤 하루 한 번 알림(`key_expiry_notified`), health 끝 별도 try에서 키마다 24시간에 한 번 `ctx.check_key`(= `app.keys.check_key`, 모델 목록 조회) 결과를 `key_check`에 적고 invalid·limit 알림, generate 401/403과 분류기 키 거절은 `key_error`로 하루 한 번 즉시 알림. 설정 API 키 표에 날짜 칸·만료·자동 확인 문구, 첫 화면 `key_banner`(ADR 0077). 이전: C52: metrics의 게시물·계정 지표 읽기가 `is_page_failure`(일시적 + `code='page'`, reply와 같이 `context.py`로 옮김)이고 `retry_at`이 없는 실패면 `RETRY_WAIT_S`(5초) 쉬고 같은 호출을 한 번만 더, 성공 수는 `counts.page_retried`·실행 기록 "페이지 오류로 다시 읽음 n개"(ADR 0076). 이전: C51: 폴더 선택 창의 주인 폼을 화면 중앙에 실제로 띄우고 최소화·복원으로 포그라운드 잠금을 피해 브라우저 앞에 바로 뜨게, 설정 바로가기 "백업" 칩(ADR 0075). 이전: C50: 설정 화면 "백업 복사 폴더" 옆 "폴더 고르기…"를 누르면 `POST /settings/pick-folder`가 요청 스레드에서 `folder_picker.pick_folder`로 이 PC에 Windows 폴더 선택 창(PowerShell `FolderBrowserDialog`)을 띄우고 경로를 JSON으로 돌려줌, 칸만 채우고 저장은 사용자가(ADR 0075). 이전: C49: maintenance가 본 백업 뒤 `settings.backup_copy_dir`이 있으면 `backup_copy.copy_backup`으로 같은 이름을 임시 이름 → 교체로 복사하고 같은 보관 개수로 정리, 실패는 WARNING·알림 "백업 복사 실패"만(ADR 0074). 설정 화면 고급 "백업 복사 폴더"는 `check_copy_dir`로 안내만 하고 저장은 막지 않음. 이전: C48 폐기 원고 이미지 정리)
 
 ## 1. 한 장 요약
 
-사용자 PC에서 `nsm run` 하나가 세 가지를 동시에 띄운다: 스케줄러(잡 9개 + 따라잡기), 엔진(포트를 통해 외부 접근), 로컬 대시보드(FastAPI, 127.0.0.1:8765). DB는 DuckDB 파일 하나이고 이 프로세스만 연다.
+사용자 PC에서 `nsm run` 하나가 세 가지를 동시에 띄운다: 스케줄러(잡 9개 + 따라잡기), 엔진(포트를 통해 외부 접근), 로컬 대시보드(FastAPI, 127.0.0.1:8765). DB는 프리셋(브랜드)마다 DuckDB 파일 하나이고 이 프로세스만 연다.
 
 ```mermaid
 flowchart LR
@@ -21,6 +21,7 @@ flowchart LR
   PT --> RD[렌더러<br/>카드 덱 → PNG]
   PT --> NT[알림<br/>Windows 토스트]
   PA --> DRV[브라우저 드라이버<br/>aside · playwright]
+  SRC -->|naver · community| DRV
   DRV --> Web[(인스타그램 / 스레드 / 네이버 검색)]
   CL --> GM[(Gemini API 무료 구간)]
   GEN --> API[(Claude API / 이미지 API)]
@@ -110,7 +111,7 @@ erDiagram
 | `nsm/app/settings_form.py` + 설정 화면(`/settings`) | 완료 | 라우트·검사(`tests/app/test_settings.py`) + 예약 다시 걸기(`test_scheduler.py`) | M17 | 페르소나·브랜드·운영 값 편집, 저장 즉시 반영(`set_config`), 활동 시간이 바뀌면 `JobScheduler.reschedule`. 계정·드라이런·키는 제외(ADR 0028) S8: 카드 스타일을 견본 카드(지금 색·페르소나로 그린 표지·본문, `nsm/app/style_preview.py`, `/settings/style-preview/…`)를 보고 고름 |
 | `nsm/app/card_editor.py` + 검토 상세 편집 라우트 | 완료 | 라우트(`tests/app/test_card_editor.py`) + 실측 | M16 | 슬라이드별 문구, 배경 올리기·지우기(형식·크기 검사, AI 표기 재계산), 미리보기 렌더(`media/previews`, 잡 스레드, 설정 스타일로). 원고별 스타일 선택은 2차(ADR 0037) |
 | `nsm/domain/quality.py` | 완료 | 단위 | Q1, C36, C42 | 품질 규칙: 제외 장르, 카드 목록 번호 떼기, 이모지·딱딱한 표현 검사, 미래 일정 시제 검사(C36, 오늘 날짜는 generate가 넘김. C42: 같은 문장 안 연도 이어받기), 출처 줄(ADR 0023) |
-| `nsm/engine/` 잡 8개 + `material.py`(재료 고르기, C31) | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report), C9 | 잡 7개 전부 완료, `runner`가 실행 로그·실패 알림, 재시작 복구. C9: 요청 제한(429) 쉬기(`rate_limit.py`, 쉬는 구간마다 알림 1번), 인스타그램 댓글 확인 간격·기간 따로(`tests/engine/test_rate_limit.py`, ADR 0038). C10: `summary.py`가 결과를 잡별 한국어 문장으로(`JobResult.summary()`, 지금 실행 알림 `ko.result_text`, 로그). DB의 예전 형식 줄은 화면 필터 `run_text`가 문장으로 바꿈(`tests/unit/test_summary.py`). C12: `maintenance` 잡(백업·실행 기록 정리), `watchdog.check_stalls`(health 잡이 30분마다: 계속 0건 → 오늘 할 일·하루 한 번 알림, `tests/engine/test_stability.py`) |
+| `nsm/engine/` 잡 9개 + `material.py`(재료 고르기, C31) | 구현 중 | 경계 1 | D1(collect), D2(generate), E(publish), F(reply·health·metrics), H(weekly_report), C9 | 잡 9개 전부 완료(`runner.JOBS`), `runner`가 실행 로그·실패 알림, 재시작 복구. C9: 요청 제한(429) 쉬기(`rate_limit.py`, 쉬는 구간마다 알림 1번), 인스타그램 댓글 확인 간격·기간 따로(`tests/engine/test_rate_limit.py`, ADR 0038). C10: `summary.py`가 결과를 잡별 한국어 문장으로(`JobResult.summary()`, 지금 실행 알림 `ko.result_text`, 로그). DB의 예전 형식 줄은 화면 필터 `run_text`가 문장으로 바꿈(`tests/unit/test_summary.py`). C12: `maintenance` 잡(백업·실행 기록 정리), `watchdog.check_stalls`(health 잡이 30분마다: 계속 0건 → 오늘 할 일·하루 한 번 알림, `tests/engine/test_stability.py`) |
 | `nsm/adapters/platforms/dryrun.py` | 완료 | 경계 2(드라이런) + E2E | E | 미리보기 저장, 게시 시각 기준 가짜 댓글·지표, 답글·숨김 로그 |
 | `nsm/app/` 대시보드 | 구현 중 | 라우트 테스트 + 실서버 스모크 | F·H(백엔드), I(디자인) | 7개 화면(주간 리포트 포함)·CSRF·Host 검사·직접 답글. 화면은 최소 HTML(디자인은 I) |
 | `nsm/scheduler/` + autostart | 완료 | 단위 + 실서버 스모크 | F | 작업 스레드 1개, 활동 시간 기준 트리거, 시작프로그램 폴더(ADR 0013) |

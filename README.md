@@ -2,7 +2,9 @@
 
 **잠들지 않는 AI 가상 인플루언서 마케터.** 내 PC에 켜 두기만 하면, 내가 정한 가상 인물(페르소나)이 관심 주제의 자료를 모으고, 카드뉴스와 글을 만들어 인스타그램·스레드에 올리고, 댓글에 답하고, 성과를 정리합니다. 민감한 글과 댓글은 사람에게 넘기고, 법으로 정해진 가상인물·광고 표기는 자동으로 넣습니다.
 
-> 상태: **실계정 운영 중** · 2026-10-15부터 · 버전 0.4.46 · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
+> 상태: **실계정 운영 중** · 2026-10-13부터 · 버전 0.4.46 · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
+
+![대시보드 "오늘" 화면](docs/samples/ui/after/1-overview-desktop.png)
 
 ## 무엇으로 만들었나
 
@@ -21,8 +23,6 @@
 | 개발 | pytest, ruff, hatchling, GitHub Actions CI | `.github/workflows/ci.yml` |
 
 모델 이름은 기본값이고 `config.yaml`의 `models`에서 바꿉니다. 따로 띄우는 서버나 클라우드 배포는 없습니다(내 PC 한 대, 필요한 건 API 키). 유료는 Claude API와 (켰을 때) 이미지 API 호출뿐이고, Gemini는 무료 구간의 하루 한도 안이면 0원입니다([비용](#비용-실측-기준-대략) 참고).
-
-![대시보드 "오늘" 화면](docs/samples/ui/after/1-overview-desktop.png)
 
 ## 왜 만들었나
 
@@ -45,7 +45,7 @@ AI에게 맡기면 시간은 줄지만 두 가지가 걱정됩니다. AI가 쓴 
 
 | 단계 | 하는 일 |
 |---|---|
-| 자료 모으기 | 페르소나의 관심 주제로 네이버 블로그·뉴스를 검색합니다. 관련 있는 정보성 글만 고르고, 방문 후기·여행기·일기는 뺍니다. 고른 글은 원문 본문까지 읽습니다 |
+| 자료 모으기 | 페르소나의 관심 주제로 네이버 블로그·뉴스, 구글 뉴스·트렌드를 찾고, 사용자가 올린 파일도 자료로 씁니다. 관련 있는 정보성 글만 고르고, 방문 후기·여행기·일기는 뺍니다. 고른 글은 원문 본문까지 읽습니다 |
 | 원고 만들기 | 모은 자료로 카드뉴스(정보형·리스트형·비교형, 1080×1350)와 인스타 캡션·스레드 글을 만듭니다. 사실 주장마다 근거 자료를 연결하고, 페르소나 말투·이모지·금칙어 규칙을 코드로 검사합니다 |
 | 검토·승인 | 대시보드에서 카드와 글을 나란히 보고, 문구·배경 사진·출처를 고쳐 승인합니다. 처음 정한 건수(보호 모드)까지는 반드시 사람이 승인합니다 |
 | 게시 | 정한 게시 시간 안에서 플랫폼별 하루 개수와 간격을 지켜 올립니다. 올리기 전에 로그인된 계정이 설정한 계정과 같은지 확인합니다 |
@@ -72,13 +72,14 @@ flowchart LR
   PT --> RD[렌더러<br/>카드 덱 → PNG]
   PT --> NT[알림<br/>Windows 토스트]
   PA --> DRV[브라우저 드라이버<br/>aside · playwright]
+  SRC -->|naver · community| DRV
   DRV --> Web[(인스타그램 / 스레드 / 네이버 검색)]
   CL --> GM[(Gemini API 무료 구간)]
   GEN --> API[(Claude API / 이미지 API)]
   U[사용자 브라우저] --> W
 ```
 
-- **프로세스 하나**: `nsm run` 하나가 스케줄러(APScheduler)·엔진·대시보드(FastAPI, 127.0.0.1:8765)를 함께 띄우고, DB는 DuckDB 파일 하나(`data.duckdb`)를 이 프로세스만 엽니다. 서버도 클라우드 계정도 필요 없습니다.
+- **프로세스 하나**: `nsm run` 하나가 스케줄러(APScheduler)·엔진·대시보드(FastAPI, 127.0.0.1:8765)를 함께 띄우고, DB는 프리셋(브랜드)마다 DuckDB 파일 하나(`data.duckdb`)이고 이 프로세스만 엽니다. 따로 띄우는 서버는 없습니다.
 - **잡**: 엔진의 잡은 `collect`(자료 모으기)·`generate`(원고 만들기)·`publish`(게시)·`reply`(댓글)·`health`(상태 점검)·`metrics`(성과 읽기)·`weekly_report`(주간 리포트)·`maintenance`(백업·정리)·`index`(문서 색인)이고(`nsm/engine/runner.py`), 스케줄러가 여기에 놓친 일을 다시 돌리는 `catch_up`을 더합니다(`nsm/scheduler/app.py`). 잡은 한 번에 하나씩 돕니다.
 - **포트와 어댑터(헥사고날)**: 엔진은 벽의 콘센트(포트: 플랫폼·자료 소스·분류기·글 생성기·이미지 생성기·렌더러·알림·시계·비용, `nsm/ports/`)만 알고, 그 뒤에 꽂힌 플러그(어댑터: Claude·Gemini·Aside·Playwright·드라이런·Windows 알림, `nsm/adapters/`)는 모릅니다. 그래서 플러그만 바꿔 끼우면 됩니다. 예를 들어 분류기는 Gemini → Claude → 키워드 순서의 사슬이라, Gemini 호출이 실패하면(키 거절·한도 등) 엔진 코드를 건드리지 않고 다음 분류기로 넘어갑니다(ADR 0048). 드라이런과 실계정도 `settings.dry_run` 하나로 플랫폼 어댑터만 갈아 끼웁니다(드라이런 어댑터는 올리는 대신 미리보기 폴더에 저장, `nsm/runtime.py`).
 - **원고의 일생**: `draft` → `pending_review`(사람 검토) 또는 `approved` → 게시 중(`publishing`, 게시 기록의 상태) → `published`, 언제든 `discarded`(폐기).
@@ -113,15 +114,15 @@ flowchart LR
 | 태그 | 날짜 | 무엇이 들어갔나 |
 |---|---|---|
 | `v0.1-dryrun` | 2026-10-11 | 드라이런 MVP: 모으기·만들기·게시(미리보기 저장)·댓글·지표 잡, 대시보드, 스케줄러 |
-| `v0.2-live` | 2026-10-13 | 실계정 연결(스레드·인스타그램), 주간 리포트, 카드뉴스 렌더러 |
+| `v0.2-live` | 2026-10-13 | 실계정 연결(스레드·인스타그램), 주간 리포트, 카드뉴스 렌더러. 이날 실계정 첫 실행 |
 | `v0.3-mvp` | 2026-10-13 | 원고 품질, 카드 편집 화면, 대시보드 디자인 |
-| `v0.4-quality` | 2026-10-15 | 계약 테스트, 품질 체크리스트, 카드 스타일 3종. 이날부터 실계정 운영 |
+| `v0.4-quality` | 2026-10-15 | 계약 테스트, 품질 체크리스트, 카드 스타일 3종 |
 | 지금 | 0.4.46 | 운영하며 고친 안정화·문서 질문(RAG)·장애 화면·백업·API 키 점검 |
 
-숫자로 보면 (저장소 기준, 2026-11-22)
+숫자로 보면 (저장소 기준, 2026-11-24)
 - 테스트 **1,618개** (`uv run pytest --co -q`, 실계정 계약 테스트 13개는 기본 제외)
 - 설계 결정 기록(ADR) **77개** ([docs/adr/](docs/adr/README.md))
-- 배치 **91개**(이번 C55 포함), 배치마다 devlog 한 편 ([docs/devlog/](docs/devlog/README.md))
+- 배치 **93개**, 배치마다 devlog 한 편 ([docs/devlog/](docs/devlog/README.md))
 - 운영 중 장애 기록 **16건** ([docs/incidents/](docs/incidents/README.md))
 
 남은 과제는 [known-gaps.md](docs/known-gaps.md)에 있습니다.
@@ -232,10 +233,10 @@ uv run python scripts/dashboard_demo.py   # 예시 데이터로 대시보드만 
 It collects material on a persona's topics, writes card news and posts with Claude, publishes to Instagram and Threads, replies to comments, and writes a weekly report.
 **Why**: a solo brand owner cannot keep up with research, design, multi-platform posting, overnight comments and reporting, and AI content raises trust and legal-labeling concerns (Korean AI Basic Act, Korea Fair Trade Commission endorsement guidelines).
 **Principle**: work while the owner sleeps, but automate only what can be undone; anything risky goes to a human (first 20 posts, unsupported claims, sensitive comments).
-**Architecture**: one `nsm run` process hosts an APScheduler job runner, the engine and a FastAPI + HTMX dashboard on 127.0.0.1, backed by one DuckDB file.
+**Architecture**: one `nsm run` process hosts an APScheduler job runner, the engine and a FastAPI + HTMX dashboard on 127.0.0.1, backed by one DuckDB file per preset.
 The engine talks only to ports; adapters (Claude, Gemini, Aside/Playwright browsers, dry-run, Windows toast) plug in behind them, so the classifier can fall back from Gemini to Claude and dry-run vs live is just an adapter swap.
 Reliability: isolated job failures with retries, rate-limit back-off, login-loss detection, catch-up of missed jobs, daily backups and API-key expiry alerts.
 A RAG chatbot (`/ask`) answers questions from project docs, collected sources and our own posts, with citations.
 **Stack**: Python 3.12 + uv + Typer; DuckDB (tables and RAG vector search via `list_cosine_similarity`, no external vector DB); FastAPI + Jinja2 + HTMX; APScheduler 3; Claude API (generation, RAG answers, failure diagnosis); Gemini REST via httpx (classification, embeddings); optional OpenAI image API; Aside browser for publishing and comments, Playwright Chromium for collection and card rendering; pytest, ruff, GitHub Actions. Nothing to deploy (one PC plus API keys); paid calls are Claude and the optional image API, with Gemini on its free tier.
-**Status**: running on live accounts since 2026-10-15, version 0.4.46, 1,618 tests, 77 ADRs, 91 batches with devlogs, 16 incident write-ups.
+**Status**: running on live accounts since 2026-10-13, version 0.4.46, 1,618 tests, 77 ADRs, 93 batches with devlogs, 16 incident write-ups.
 Keys stay in the Windows Credential Manager; required AI, virtual-person and ad labels are inserted automatically and cannot be turned off.
