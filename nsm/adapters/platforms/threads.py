@@ -85,8 +85,9 @@ return { me };
 
 _FIND_MINE = r"""
 // 프로필 최신 글 중 고유 문구(probe)를 가진 내 글의 코드
-async function findMine(pg) {
-  await pg.goto('https://www.threads.com/@' + ARGS.handle);
+// noNav: 방금 그 주소로 연 탭이면 다시 읽지 않는다. 읽기 시간은 마감 10초 전까지(최대 30초, C58)
+async function findMine(pg, noNav) {
+  if (!noNav) await pg.goto('https://www.threads.com/@' + ARGS.handle, { timeout: Math.max(1000, Math.min(30000, nsmLeft() - 10000)) });
   await sleep(2500);
   return await pg.evaluate((args) => {
     for (const a of document.querySelectorAll('a[href*="/post/"]')) {
@@ -105,9 +106,53 @@ async function findMine(pg) {
 }
 """
 
+# 게시 뒤 게시 탭에서 기다리기와 확인 탭(C58, ADR 0078). node 가짜 실행기로 따로 시험한다
+_SETTLE = r"""
+// 게시 탭의 상태 문구: 글 카드·대화상자 밖의 글만 본다(내 글 본문의 "게시 중" 같은 말에 걸리지 않게)
+async function postStatusText(pg) {
+  return await pg.evaluate(() => {
+    let t = (document.body && document.body.innerText) || '';
+    for (const el of document.querySelectorAll('[data-pressable-container="true"], [role="dialog"]')) {
+      const s = el.innerText || '';
+      if (s) t = t.split(s).join(' ');
+    }
+    return t;
+  }).catch(() => '');
+}
+const NSM_POSTING = /게시 중|Posting/;
+const NSM_POSTED = /게시됨|게시되었|Posted/;
+// '게시 중'이 사라지거나 '게시됨'이 보일 때까지(최대 ms). 돌려주는 값: 본 '게시됨' 문구, 끝까지 '게시 중'이면
+// 'posting', '게시 중'이 보였다 사라졌으면 'posting-gone', 아무 문구도 없었으면 ''. 실패로 만들지 않는다.
+async function waitPostSettled(pg, ms) {
+  let settle = '';
+  let saw = false;
+  await nsmUntil(async () => {
+    const t = await postStatusText(pg);
+    const done = t.match(NSM_POSTED);
+    if (done) { settle = done[0]; return true; }
+    if (NSM_POSTING.test(t)) { saw = true; settle = 'posting'; return false; }
+    settle = saw ? 'posting-gone' : '';
+    return true;
+  }, ms, 1000);
+  return settle;
+}
+// 확인 탭: 처음 부를 때 한 번 열고(연 것이 첫 읽기), 다음부터는 findMine의 goto로 다시 읽는다.
+// 게시를 누른 뒤라 어떤 오류도 던지지 않고 '못 찾음'으로 본다(던지면 finally가 게시 탭을 닫는다).
+function makeChecker(url) {
+  let chk = null;
+  return async () => {
+    try {
+      if (!chk) { chk = await nsmOpen(url); return await findMine(chk, true); }
+      return await findMine(chk);
+    } catch (e) { return ''; }
+  };
+}
+"""
+
 _PUBLISH = (
     JS_HANDLE
     + _FIND_MINE
+    + _SETTLE
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
 await nsmAssertHandle(pg, readHandle);
@@ -125,19 +170,37 @@ if (files.length) {
   await dlg.locator('input[type="file"]').first().setInputFiles(files);
   const ok = await nsmUntil(async () => (await dlg.locator('img[src^="blob:"], video').count()) >= files.length, 60000);
   if (!ok) throw new NsmError('ui', '이미지 미리보기가 나타나지 않음');
+  // 미리보기가 생긴 직후에는 업로드 준비가 덜 끝났을 수 있다(C58). 잠깐 두고, '게시'가 활성일 때 누른다
+  await sleep(1500);
 }
-if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('ui', '게시 버튼 없음');
+// nsmClickText는 비활성(aria-disabled·disabled) 버튼을 건너뛴다. 활성이 될 때까지 다시 본다(C58)
+if (!(await nsmUntil(() => nsmClickText(dlg, '게시'), 15000, 500))) throw new NsmError('ui', '게시 버튼 없음 또는 계속 비활성');
 // 게시 버튼을 누른 뒤에는 던지지 않고 결과로 돌려준다. 글을 못 찾으면 Python이 "확인 실패"로 재시도하고,
 // 재시도는 게시 전에 위의 findMine으로 같은 글을 먼저 찾아 중복을 막는다(C43, ADR 0020 개정 1).
-// 못 찾았을 때 증거(화면)를 찍을 시간(약 8초)은 남긴다. nsmUntil은 마감을 회차 앞에서만 보므로 한 회차
-// (findMine 이동·대기 약 6초 + 간격 3초)만큼 더 남긴다. 탭은 스크립트가 끝나면 닫힌다.
-const evidence = async () => (ARGS.probe && nsmLeft() > 6000 ? await nsmEvidence() : null);
-const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 90000);
+// 증거는 게시 탭(pg)에서 찍는다. 탭은 스크립트가 끝나면 닫힌다.
+const evidence = async () => (ARGS.probe && nsmLeft() > 6000 ? await nsmEvidence({ page: pg }).catch(() => null) : null);
+const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count().catch(() => 1)) === 0, 90000);
 if (!closed) return { code: '', posted: 'unknown', page: await evidence() };
-const wait = Math.min(ARGS.find_ms, nsmLeft() - 17000);
-const found = ARGS.probe && wait > 0 ? await nsmUntil(() => findMine(pg), wait, 3000) : '';
-if (found) return { code: found, posted: true };
-return { code: '', posted: true, page: await evidence() };
+// 스레드 웹은 '게시'를 누르면 창을 먼저 닫고 업로드·게시를 뒤에서 마친다. 이 탭을 바로 다른 주소로 옮기면
+// 진행 중인 요청이 끊겨 글이 올라가지 않았다(2026-11-13~11-24 11회, incidents/0017, ADR 0078).
+// 그래서 게시 탭은 끝까지 그 주소에 그대로 두고, 최소 5초 + "게시 중"이 사라지거나 "게시됨"이 보일 때까지
+// (최대 15초) 기다린 뒤, 확인은 따로 연 탭에서 한다. 문구가 안 보여도 실패로 보지 않고 넘어간다.
+await sleep(Math.min(5000, nsmLeft()));
+let settle = await waitPostSettled(pg, 15000);
+// 못 찾았을 때 증거(화면 5초 + 글 3초)를 찍을 시간을 남긴다. nsmUntil은 마감을 회차 앞에서만 보므로
+// 한 회차(읽기 최대 15초 + 대기 2.5초 + 간격 3초)만큼 더 남긴다: 인스타그램과 같은 25초 여유.
+const check = makeChecker('https://www.threads.com/@' + ARGS.handle);
+const wait = Math.min(ARGS.find_ms, nsmLeft() - 25000);
+let found = ARGS.probe && wait > 0 ? await nsmUntil(check, wait, 3000) : '';
+if (found) return { code: found, posted: true, settle };
+// 못 찾았는데 게시 탭에 아직 "게시 중"이 보이면 증거 시간만 남기고 더 기다린다. 스크립트가 끝나면 탭이
+// 닫혀 업로드가 끊기기 때문이다. 다 끝나면 시간이 남을 때 한 번 더 찾는다.
+if (nsmLeft() > 13000 && NSM_POSTING.test(await postStatusText(pg))) {
+  settle = (await waitPostSettled(pg, nsmLeft() - 12000)) || settle;
+  if (ARGS.probe && settle !== 'posting' && nsmLeft() > 30000) found = await check();
+  if (found) return { code: found, posted: true, settle };
+}
+return { code: '', posted: true, settle, page: await evidence() };
 """
 )
 
@@ -290,7 +353,8 @@ const dlg = pg.locator('[role="dialog"]');
 const box = await nsmWait(dlg.locator('[contenteditable="true"]'));
 await box.click();
 await pg.keyboard.insertText(ARGS.text);
-if (!(await nsmClickText(dlg, '게시'))) throw new NsmError('ui', '답글 게시 버튼 없음');
+// 잠깐 비활성인 순간이 있어도 '버튼 없음'이 되지 않게 다시 본다(C58: nsmClickText가 비활성을 건너뜀)
+if (!(await nsmUntil(() => nsmClickText(dlg, '게시'), 5000, 300))) throw new NsmError('ui', '답글 게시 버튼 없음');
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다(사람이 다시 답하면 중복)
 const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 60000);
 if (!closed) return { code: '' };
@@ -379,6 +443,9 @@ class ThreadsAdapter(AsideAdapterBase):
         args = {"text": post.text, "probe": probe, "since": since, "find_ms": FIND_AFTER_POST_MS}
         data = self._run(_PUBLISH, args, images) or {}
         code = data.get("code", "")
+        if data.get("settle"):
+            # 게시 뒤 게시 탭에 보인 문구(C58). 스레드의 실제 문구를 운영 로그로 확인하려고 남긴다
+            log.info("스레드: 게시 뒤 화면 문구 %r", data.get("settle"))
         if data.get("existing"):
             log.warning("스레드: 지난 시도에서 이미 올라간 글을 찾아 다시 올리지 않음(%s)", code)
         if not code:

@@ -376,12 +376,19 @@ async function nsmLoggedInScreen(pg) {
   }).catch(() => '');
   return new RegExp(a.markers, 'i').test(seen) && !new RegExp(a.blockers, 'i').test(seen);
 }
+// 글자가 text와 같은 버튼을 누른다. 비활성(aria-disabled="true"·disabled)은 건너뛴다: 업로드 처리 중인
+// '게시'를 눌러도 아무 일이 없는데 누른 것으로 치면 안 된다(C58). 기다리려면 nsmUntil로 감싼다.
 async function nsmClickText(scope, text) {
   const cands = scope.locator('[role="button"], button, [role="menuitem"]');
   const n = await cands.count();
   for (let i = 0; i < n; i++) {
-    const t = ((await cands.nth(i).innerText()) || '').trim();
-    if (t === text) { await cands.nth(i).click(); return true; }
+    const c = cands.nth(i);
+    const t = ((await c.innerText()) || '').trim();
+    if (t !== text) continue;
+    const off = await c.evaluate((el) => el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('disabled')).catch(() => false);
+    if (off) continue;
+    await c.click();
+    return true;
   }
   return false;
 }

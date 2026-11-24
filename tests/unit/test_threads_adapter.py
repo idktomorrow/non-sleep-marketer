@@ -315,3 +315,12 @@ def test_find_aside_cli_ignores_cmd_wrappers(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "none"))
     monkeypatch.setattr(drivers.shutil, "which", lambda _: str(tmp_path / "aside.cmd"))
     assert drivers.find_aside_cli() is None
+
+
+def test_publish_logs_status_phrase_seen_after_post(tmp_path, clock, caplog) -> None:
+    """C58: 게시 뒤 게시 탭에 보인 문구를 로그에 남긴다(스레드의 실제 문구를 운영에서 확인하려고)."""
+    a, media = _adapter(tmp_path, clock, data={"code": "NEW1", "posted": True, "settle": "게시됨"})
+    with caplog.at_level("INFO"):
+        res = a.publish(_post(media))
+    assert res.external_id == "NEW1"
+    assert "게시 뒤 화면 문구 '게시됨'" in caplog.text

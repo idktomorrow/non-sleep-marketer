@@ -357,8 +357,12 @@ await sleep(500);
 await pg.keyboard.press('Enter');
 const posted = await nsmUntil(async () => (await readBox()) === '', 6000, 300);
 if (!posted) {
-  const sent = await nsmClickText(pg.locator('main'), '게시');
-  if (!sent) throw new NsmError('ui', '답글 게시 버튼 없음');
+  // Enter로 이미 보냈을 수 있다(전송 중에는 '게시'가 비활성). nsmClickText는 비활성을 건너뛰므로(C58) 그 사이
+  // 입력창이 비면 보낸 것으로 보고, 버튼이 있는데 계속 비활성이어도 던지지 않고 아래 확인으로 넘어간다.
+  // 던지면 재시도·사람 답글이 중복이 된다. 버튼 자체가 없을 때만 화면 변경으로 본다.
+  const sent = await nsmUntil(async () => (await readBox()) === '' || (await nsmClickText(pg.locator('main'), '게시')), 5000, 300);
+  const hasBtn = async () => (await pg.locator('main').locator('[role="button"], button').filter({ hasText: /^\s*게시\s*$/ }).count().catch(() => 0)) > 0;
+  if (!sent && !(await hasBtn())) throw new NsmError('ui', '답글 게시 버튼 없음');
 }
 // 여기부터는 답글이 나갔을 수 있으니 오류로 돌리지 않는다
 // 답글은 보통 "답글 N개 모두 보기"로 접혀 보인다. 내 문구가 보이거나 그 댓글 칸에 답글 수가 생기면 확인된 것으로 본다.
