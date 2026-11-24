@@ -85,8 +85,9 @@ return { me };
 
 _FIND_MINE = r"""
 // 프로필 최신 글 중 고유 문구(probe)를 가진 내 글의 코드
-async function findMine(pg) {
-  await pg.goto('https://www.threads.com/@' + ARGS.handle);
+// noNav: 방금 그 주소로 연 탭이면 다시 읽지 않는다. 읽기 시간은 마감 10초 전까지(최대 30초, C58)
+async function findMine(pg, noNav) {
+  if (!noNav) await pg.goto('https://www.threads.com/@' + ARGS.handle, { timeout: Math.max(1000, Math.min(30000, nsmLeft() - 10000)) });
   await sleep(2500);
   return await pg.evaluate((args) => {
     for (const a of document.querySelectorAll('a[href*="/post/"]')) {
@@ -105,9 +106,53 @@ async function findMine(pg) {
 }
 """
 
+# 게시 뒤 게시 탭에서 기다리기와 확인 탭(C58, ADR 0078). node 가짜 실행기로 따로 시험한다
+_SETTLE = r"""
+// 게시 탭의 상태 문구: 글 카드·대화상자 밖의 글만 본다(내 글 본문의 "게시 중" 같은 말에 걸리지 않게)
+async function postStatusText(pg) {
+  return await pg.evaluate(() => {
+    let t = (document.body && document.body.innerText) || '';
+    for (const el of document.querySelectorAll('[data-pressable-container="true"], [role="dialog"]')) {
+      const s = el.innerText || '';
+      if (s) t = t.split(s).join(' ');
+    }
+    return t;
+  }).catch(() => '');
+}
+const NSM_POSTING = /게시 중|Posting/;
+const NSM_POSTED = /게시됨|게시되었|Posted/;
+// '게시 중'이 사라지거나 '게시됨'이 보일 때까지(최대 ms). 돌려주는 값: 본 '게시됨' 문구, 끝까지 '게시 중'이면
+// 'posting', '게시 중'이 보였다 사라졌으면 'posting-gone', 아무 문구도 없었으면 ''. 실패로 만들지 않는다.
+async function waitPostSettled(pg, ms) {
+  let settle = '';
+  let saw = false;
+  await nsmUntil(async () => {
+    const t = await postStatusText(pg);
+    const done = t.match(NSM_POSTED);
+    if (done) { settle = done[0]; return true; }
+    if (NSM_POSTING.test(t)) { saw = true; settle = 'posting'; return false; }
+    settle = saw ? 'posting-gone' : '';
+    return true;
+  }, ms, 1000);
+  return settle;
+}
+// 확인 탭: 처음 부를 때 한 번 열고(연 것이 첫 읽기), 다음부터는 findMine의 goto로 다시 읽는다.
+// 게시를 누른 뒤라 어떤 오류도 던지지 않고 '못 찾음'으로 본다(던지면 finally가 게시 탭을 닫는다).
+function makeChecker(url) {
+  let chk = null;
+  return async () => {
+    try {
+      if (!chk) { chk = await nsmOpen(url); return await findMine(chk, true); }
+      return await findMine(chk);
+    } catch (e) { return ''; }
+  };
+}
+"""
+
 _PUBLISH = (
     JS_HANDLE
     + _FIND_MINE
+    + _SETTLE
     + r"""
 const pg = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
 await nsmAssertHandle(pg, readHandle);
@@ -134,35 +179,27 @@ if (!(await nsmUntil(() => nsmClickText(dlg, '게시'), 15000, 500))) throw new 
 // 재시도는 게시 전에 위의 findMine으로 같은 글을 먼저 찾아 중복을 막는다(C43, ADR 0020 개정 1).
 // 증거는 게시 탭(pg)에서 찍는다. 탭은 스크립트가 끝나면 닫힌다.
 const evidence = async () => (ARGS.probe && nsmLeft() > 6000 ? await nsmEvidence({ page: pg }).catch(() => null) : null);
-const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count()) === 0, 90000);
+const closed = await nsmUntil(async () => (await pg.locator('[role="dialog"] [contenteditable="true"]').count().catch(() => 1)) === 0, 90000);
 if (!closed) return { code: '', posted: 'unknown', page: await evidence() };
 // 스레드 웹은 '게시'를 누르면 창을 먼저 닫고 업로드·게시를 뒤에서 마친다. 이 탭을 바로 다른 주소로 옮기면
 // 진행 중인 요청이 끊겨 글이 올라가지 않았다(2026-11-13~11-24 11회, incidents/0017, ADR 0078).
 // 그래서 게시 탭은 끝까지 그 주소에 그대로 두고, 최소 5초 + "게시 중"이 사라지거나 "게시됨"이 보일 때까지
 // (최대 15초) 기다린 뒤, 확인은 따로 연 탭에서 한다. 문구가 안 보여도 실패로 보지 않고 넘어간다.
-await sleep(5000);
-const POSTING = /게시 중|Posting/;
-const POSTED = /게시됨|게시되었|Posted/;
-let settle = '';
-await nsmUntil(async () => {
-  const t = await pg.evaluate(() => (document.body && document.body.innerText) || '').catch(() => '');
-  const done = t.match(POSTED);
-  if (done) { settle = done[0]; return true; }
-  if (POSTING.test(t)) { settle = 'posting'; return false; }
-  return true;
-}, 15000, 1000);
-// 확인 탭: 한 번만 열고 회차마다 findMine의 goto로 다시 읽는다. 마지막에 연 탭이라 nsmEvidence 기본값이
-// 이 탭을 찍지 않게 증거는 page: pg로 넘긴다.
-let chk = null;
-const findOnCheckTab = async () => {
-  if (!chk) chk = await nsmOpen('https://www.threads.com/@' + ARGS.handle);
-  return await findMine(chk).catch(() => '');
-};
+await sleep(Math.min(5000, nsmLeft()));
+let settle = await waitPostSettled(pg, 15000);
 // 못 찾았을 때 증거(화면 5초 + 글 3초)를 찍을 시간을 남긴다. nsmUntil은 마감을 회차 앞에서만 보므로
-// 한 회차(findMine 이동·대기 약 6초 + 간격 3초)만큼 더 남긴다: 인스타그램과 같은 25초 여유.
+// 한 회차(읽기 최대 15초 + 대기 2.5초 + 간격 3초)만큼 더 남긴다: 인스타그램과 같은 25초 여유.
+const check = makeChecker('https://www.threads.com/@' + ARGS.handle);
 const wait = Math.min(ARGS.find_ms, nsmLeft() - 25000);
-const found = ARGS.probe && wait > 0 ? await nsmUntil(findOnCheckTab, wait, 3000) : '';
+let found = ARGS.probe && wait > 0 ? await nsmUntil(check, wait, 3000) : '';
 if (found) return { code: found, posted: true, settle };
+// 못 찾았는데 게시 탭에 아직 "게시 중"이 보이면 증거 시간만 남기고 더 기다린다. 스크립트가 끝나면 탭이
+// 닫혀 업로드가 끊기기 때문이다. 다 끝나면 시간이 남을 때 한 번 더 찾는다.
+if (nsmLeft() > 13000 && NSM_POSTING.test(await postStatusText(pg))) {
+  settle = (await waitPostSettled(pg, nsmLeft() - 12000)) || settle;
+  if (ARGS.probe && settle !== 'posting' && nsmLeft() > 30000) found = await check();
+  if (found) return { code: found, posted: true, settle };
+}
 return { code: '', posted: true, settle, page: await evidence() };
 """
 )

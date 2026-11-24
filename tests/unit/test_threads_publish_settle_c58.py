@@ -30,36 +30,33 @@ def test_publish_waits_on_post_tab_then_finds_on_check_tab() -> None:
     order = [
         "const closed = await nsmUntil(",
         "if (!closed) return",
-        "await sleep(5000)",
-        "POSTING.test(t)",
-        "chk = await nsmOpen(",
-        "findMine(chk)",
+        "await sleep(Math.min(5000, nsmLeft()))",
+        "await waitPostSettled(pg, 15000)",
+        "makeChecker(",
         "const wait = Math.min(ARGS.find_ms, nsmLeft() - 25000)",
-        "await nsmUntil(findOnCheckTab, wait, 3000)",
+        "await nsmUntil(check, wait, 3000)",
+        "return { code: '', posted: true, settle, page: await evidence() }",
     ]
     pos = -1
     for s in order:
         pos = js.index(s, pos + 1)
     after_click = _after(js, "nsmClickText(dlg, '게시')")
     # 게시 탭(pg)은 게시 뒤 다른 주소로 옮기지 않는다: findMine(pg)도, pg.goto도 없다
-    assert "findMine(pg)" not in after_click and "pg.goto" not in after_click
-    # findMine 자체의 goto는 넘겨받은 탭에서만
-    assert "await pg.goto(" in threads._FIND_MINE  # 함수 인자 이름
+    assert "findMine(pg" not in after_click and "pg.goto" not in after_click
     # 게시 전 멱등 확인은 그대로 게시 탭에서
     assert js.index("const before = ARGS.probe ? await findMine(pg)") < js.index("nsmFiles()")
     # 증거는 게시 탭에서 찍는다
     assert "nsmEvidence({ page: pg })" in after_click
     # 옛 예산(17초 여유)은 남지 않는다
     assert "nsmLeft() - 17000" not in js
+    # 못 찾았는데 아직 게시 중이면 탭을 닫기 전에 더 기다린다(스크립트가 끝나면 탭이 닫힌다)
+    tail = _after(js, "if (found) return { code: found, posted: true, settle };")
+    assert "NSM_POSTING.test(await postStatusText(pg))" in tail
+    assert "waitPostSettled(pg, nsmLeft() - 12000)" in tail
 
 
-def test_publish_status_phrases_are_optional() -> None:
-    """'게시 중'이 보이면 기다리고 '게시됨'이면 바로 넘어간다. 아무 문구가 없어도 실패가 아니다(최대 15초)."""
-    js = threads._PUBLISH
-    assert "/게시 중|Posting/" in js and "/게시됨|게시되었|Posted/" in js
-    seg = js[js.index("await sleep(5000)") : js.index("let chk = null")]
-    assert "}, 15000, 1000)" in seg
-    assert "throw" not in seg  # 문구 대기는 실패로 만들지 않는다
+def test_find_mine_goto_has_a_deadline_bound_timeout() -> None:
+    assert "timeout: Math.max(1000, Math.min(30000, nsmLeft() - 10000))" in threads._FIND_MINE
 
 
 def test_publish_click_waits_for_enabled_button_after_preview() -> None:
@@ -72,7 +69,13 @@ def test_publish_click_waits_for_enabled_button_after_preview() -> None:
 
 def test_replies_retry_the_post_button() -> None:
     assert "nsmUntil(() => nsmClickText(dlg, '게시'), 5000, 300)" in threads._REPLY
-    assert "nsmUntil(() => nsmClickText(pg.locator('main'), '게시'), 5000, 300)" in instagram._REPLY
+    seg = instagram._REPLY[
+        instagram._REPLY.index("if (!posted) {") : instagram._REPLY.index("여기부터는 답글이")
+    ]
+    # Enter로 이미 보냈을 수 있으니: 입력창이 비면 보낸 것, 버튼이 있는데 비활성이면 던지지 않는다(중복 방지)
+    assert "(await readBox()) === '' || (await nsmClickText(pg.locator('main'), '게시'))" in seg
+    assert "}, 5000, 300)" in seg or ", 5000, 300);" in seg
+    assert "if (!sent && !(await hasBtn())) throw" in seg
 
 
 def test_click_text_skips_disabled_in_source() -> None:
@@ -82,6 +85,94 @@ def test_click_text_skips_disabled_in_source() -> None:
 
 
 # ---- node 가짜 실행기 ----
+# 게시 뒤 기다리기(waitPostSettled)와 확인 탭(makeChecker)은 실제 JS를 가짜 탭에 대고 돌린다.
+
+_SETTLE_HARNESS = r"""
+let __now = 1_700_000_000_000;
+Date.now = () => __now;
+globalThis.sleep = async (ms) => { __now += ms || 0; };
+const __deadline = Date.now() + 105000;
+function nsmLeft() { return Math.max(0, __deadline - Date.now()); }
+const ARGS = { handle: 'me', probe: 'hello', since: '' };
+// 화면 글: 시각(가짜 시계, 시작부터 ms)에 따라 바뀐다. frames = [[시작 ms, 바깥 글, 글 카드 글]]
+const T0 = Date.now();
+let FRAMES = [[0, '', '']];
+const frame = () => { let f = FRAMES[0]; for (const x of FRAMES) if (Date.now() - T0 >= x[0]) f = x; return f; };
+globalThis.document = {
+  get body() { const f = frame(); return { innerText: f[1] + '\\n' + f[2] }; },
+  querySelectorAll: () => { const f = frame(); return f[2] ? [{ innerText: f[2] }] : []; },
+};
+const pg = { evaluate: async (fn, a) => fn(a) };
+"""
+
+
+def _run_settle(tmp_path: Path, body: str) -> dict:
+    js = (
+        _SETTLE_HARNESS
+        + _helper("nsmUntil")
+        + threads._SETTLE
+        + "\n(async () => {\n"
+        + body
+        + "\n})().then((r) => console.log(JSON.stringify(r)));\n"
+    )
+    f = tmp_path / "s.mjs"
+    f.write_text(js, encoding="utf-8")
+    out = subprocess.run(
+        [NODE, str(f)], capture_output=True, text=True, encoding="utf-8", timeout=30
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+@needs_node
+@pytest.mark.parametrize(
+    ("frames", "settle", "waited"),
+    [
+        # 문구 없음: 바로 넘어간다(실패 아님)
+        ([[0, "프로필", ""]], "", 0),
+        # "게시 중" 6초 → 사라짐: 사라질 때까지 기다린다
+        ([[0, "게시 중...", ""], [6000, "프로필", ""]], "posting-gone", 6000),
+        # "게시 중" → 3초 뒤 "게시됨": 그 문구에서 멈춘다
+        ([[0, "게시 중...", ""], [3000, "게시됨", ""]], "게시됨", 3000),
+        # 끝까지 "게시 중": 최대 15초에서 멈추고 'posting'
+        ([[0, "Posting...", ""]], "posting", 15000),
+        # 글 카드 안의 "게시 중"(내 글 본문)은 상태 문구가 아니다
+        ([[0, "프로필", "현재 게시 중인 이벤트"]], "", 0),
+    ],
+    ids=["none", "posting_then_gone", "posted", "still_posting", "post_body_ignored"],
+)
+def test_wait_post_settled_in_node(tmp_path, frames, settle, waited) -> None:
+    r = _run_settle(
+        tmp_path,
+        f"FRAMES = {json.dumps(frames, ensure_ascii=False)};\n"
+        "const s = await waitPostSettled(pg, 15000);\n"
+        "return { s, waited: Date.now() - T0 };",
+    )
+    assert r["s"] == settle
+    assert waited <= r["waited"] <= waited + 1000
+
+
+@needs_node
+def test_checker_opens_one_tab_and_never_throws(tmp_path) -> None:
+    r = _run_settle(
+        tmp_path,
+        """
+const calls = [];
+let opens = 0;
+globalThis.nsmOpen = async (u) => { opens += 1; if (opens === 1) throw new Error('openTab 실패'); return { id: 'chk' }; };
+globalThis.findMine = async (p, noNav) => { calls.push([p.id, !!noNav]); if (calls.length === 2) throw new Error('goto timeout'); return calls.length >= 3 ? 'CODE' : ''; };
+const check = makeChecker('https://www.threads.com/@me');
+const a = await check();   // 탭 열기 실패 -> '' (던지지 않음)
+const b = await check();   // 탭 열림, 첫 읽기는 이동 없이
+const c = await check();   // goto 오류 -> ''
+const d = await check();   // 찾음
+return { a, b, c, d, opens, calls };
+""",
+    )
+    assert r["a"] == "" and r["b"] == "" and r["c"] == "" and r["d"] == "CODE"
+    assert r["opens"] == 2  # 실패한 한 번 + 성공한 한 번, 그 뒤로는 다시 열지 않는다
+    assert r["calls"] == [["chk", True], ["chk", False], ["chk", False]]
+
 
 _HARNESS = r"""
 let __now = 1_700_000_000_000;
@@ -125,7 +216,9 @@ def _run_node(tmp_path: Path, body: str) -> dict:
     )
     f = tmp_path / "t.mjs"
     f.write_text(js, encoding="utf-8")
-    out = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
+    out = subprocess.run(
+        [NODE, str(f)], capture_output=True, text=True, encoding="utf-8", timeout=30
+    )
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout.strip().splitlines()[-1])
 
@@ -183,7 +276,9 @@ console.log(JSON.stringify({ a: a.url, b: b.url, shot }));
 """
     f = tmp_path / "e.mjs"
     f.write_text(prelude + body, encoding="utf-8")
-    out = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
+    out = subprocess.run(
+        [NODE, str(f)], capture_output=True, text=True, encoding="utf-8", timeout=30
+    )
     assert out.returncode == 0, out.stderr
     r = json.loads(out.stdout.strip().splitlines()[-1])
     assert r["a"] == "post" and r["b"] == "check"
@@ -193,11 +288,13 @@ console.log(JSON.stringify({ a: a.url, b: b.url, shot }));
 @needs_node
 @pytest.mark.parametrize(
     "body",
-    [threads._PUBLISH, threads._REPLY, instagram._REPLY],
-    ids=["threads_publish", "threads_reply", "instagram_reply"],
+    [threads._PUBLISH, threads._REPLY, instagram._REPLY, threads._SETTLE],
+    ids=["threads_publish", "threads_reply", "instagram_reply", "threads_settle"],
 )
 def test_changed_scripts_parse(tmp_path, body) -> None:
     f = tmp_path / "s.mjs"
     f.write_text(build_script(body, {}), encoding="utf-8")
-    out = subprocess.run([NODE, "--check", str(f)], capture_output=True, text=True, timeout=30)
+    out = subprocess.run(
+        [NODE, "--check", str(f)], capture_output=True, text=True, encoding="utf-8", timeout=30
+    )
     assert out.returncode == 0, out.stderr
