@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 OnSwitch = Callable[[str, str, Exception], None]
 RETRY_PRIMARY_AFTER_S = 30 * 60  # 대체한 뒤 이만큼 지나면 첫 분류기부터 다시 시도
 NOTIFY_EVERY_S = 6 * 3600  # 같은 대체 알림은 이 간격으로만
-# 묶음 단위 폴백 크기. gemini.BATCH와 같은 값(순환 import를 피하려 가져오지 않고, 같은지는 테스트로 고정).
+# 묶음 단위 폴백 크기. gemini.BATCH와 같은 값. gemini는 키가 있을 때만 늦게 가져오므로(httpx 포함)
+# 여기서 위에 import하지 않는다. 같은지는 테스트로 고정.
 # 뒤 묶음이 실패해도 앞 묶음의 성공한 판정은 버리지 않는다(ADR 0079)
 CHUNK = 10
 

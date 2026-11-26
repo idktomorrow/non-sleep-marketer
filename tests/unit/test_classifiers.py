@@ -307,6 +307,8 @@ def test_claude_classify_many_batches_by_ten_and_maps_by_index() -> None:
         '{"items": [{"i": 0, "lab',  # 깨진 JSON
         None,  # 텍스트 블록 없음
         '["not", "an", "object"]',
+        _items(4, order=[0, 1, 1, 2, 3]),  # 번호 겹침
+        _items(4, order=[0, 1, 2, True]),  # 정수가 아닌 번호
     ],
 )
 def test_claude_classify_many_broken_batch_retries_one_by_one(broken) -> None:

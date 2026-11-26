@@ -161,7 +161,12 @@ def _parse_batch(response: Any, n: int, labels: list[str]) -> list[Classificatio
     raw = next((b.text for b in response.content if b.type == "text"), None)
     if raw is None:
         raise ValueError("텍스트 블록 없음")
-    items = {int(it["i"]): it for it in json.loads(raw)["items"]}  # JSONDecodeError는 ValueError
+    listed = json.loads(raw)["items"]  # JSONDecodeError는 ValueError
+    idx = [it["i"] for it in listed]
+    # 번호는 정수(bool 제외)이고 0..n-1이 한 번씩만. 겹치거나 남으면 어느 글의 판정인지 믿을 수 없다
+    if any(type(i) is not int for i in idx) or sorted(idx) != list(range(n)):
+        raise ValueError(f"번호가 0..{n - 1}과 맞지 않음")
+    items = {it["i"]: it for it in listed}
     result = []
     for i in range(n):
         it = items.get(i)
