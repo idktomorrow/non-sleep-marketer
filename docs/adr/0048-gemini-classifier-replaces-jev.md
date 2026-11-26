@@ -4,6 +4,7 @@
 - 날짜: 2026-10-20
 - 결정한 사람: 선웅제(방향·제거), 배치 C27 기본값(모델, 묶음 크기, 대체 순서)
 - 관련: [ADR 0003](0003-classifier-jev-and-claude.md)(대체됨), [ADR 0011](0011-keyword-classifier-fallback.md)(키 없을 때 낱말 분류기)
+- 후속: [ADR 0079](0079-classifier-chunk-fallback.md)(C59: 자동 대체를 10건 묶음 단위로, Claude 분류기도 묶음 호출)
 
 ## 배경
 
