@@ -173,3 +173,170 @@ def test_claude_clients_have_timeouts(app_config, monkeypatch) -> None:
     assert len(seen) == 2
     for kw in seen:
         assert 0 < kw["timeout"] <= 180 and kw["max_retries"] <= 5
+
+
+# ---- C59: 묶음 단위 폴백 + Claude 묶음 호출 (ADR 0079) ----
+
+
+def test_fallback_chunk_size_matches_gemini_batch() -> None:
+    from nsm.adapters.classifier import CHUNK, gemini
+    from nsm.adapters.classifier import claude as claude_mod
+
+    assert CHUNK == gemini.BATCH == claude_mod.BATCH
+
+
+def test_fallback_keeps_first_chunk_when_second_fails() -> None:
+    from nsm.adapters.classifier import ChainState, FallbackClassifier
+    from nsm.domain.models import Classification
+
+    first_sizes: list[int] = []
+    second_sizes: list[int] = []
+
+    class FirstThenFail:
+        def classify_many(self, texts, labels, instruction):
+            first_sizes.append(len(texts))
+            if len(first_sizes) > 1:
+                raise AdapterError("503")
+            return [Classification(label="first", confidence=0.8) for _ in texts]
+
+    class Second:
+        def classify_many(self, texts, labels, instruction):
+            second_sizes.append(len(texts))
+            return [Classification(label="second", confidence=0.7) for _ in texts]
+
+    state = ChainState(clock=lambda: 0.0)
+    f = FallbackClassifier([("gemini", FirstThenFail()), ("claude", Second())], state)
+    out = f.classify_many([f"t{i}" for i in range(15)], ["first", "second"], "q")
+    assert [c.label for c in out] == ["first"] * 10 + ["second"] * 5
+    assert first_sizes == [10, 5] and second_sizes == [5]
+    assert state.index == 1
+
+
+def test_fallback_empty_list_makes_no_call() -> None:
+    from nsm.adapters.classifier import FallbackClassifier
+
+    class Never:
+        def classify_many(self, *a):
+            raise AssertionError("부르면 안 됨")
+
+    assert FallbackClassifier([("gemini", Never())]).classify_many([], ["r", "i"], "q") == []
+
+
+class ScriptedMessages:
+    """요청마다 정해 둔 응답 텍스트를 돌려준다. 단건 스키마(label만 있음) 요청에는 단건 응답."""
+
+    def __init__(self, batch_texts: list[str | None], single_label: str = "irrelevant") -> None:
+        self.batch_texts = list(batch_texts)
+        self.single_label = single_label
+        self.requests: list[dict] = []
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        schema = kwargs["output_config"]["format"]["schema"]
+        if "items" in schema["properties"]:
+            text = self.batch_texts.pop(0)
+        else:
+            text = json.dumps({"label": self.single_label, "confidence": 0.6})
+        content = [SimpleNamespace(type="thinking", thinking="")]
+        if text is not None:
+            content.append(SimpleNamespace(type="text", text=text))
+        return SimpleNamespace(
+            stop_reason="end_turn",
+            content=content,
+            usage=SimpleNamespace(input_tokens=500, output_tokens=50),
+        )
+
+
+def _items(n: int, label: str = "relevant", conf: float = 0.9, order=None) -> str:
+    idx = order if order is not None else range(n)
+    return json.dumps({"items": [{"i": i, "label": label, "confidence": conf} for i in idx]})
+
+
+LABELS = ["relevant", "irrelevant"]
+
+
+def test_claude_classify_many_batches_by_ten_and_maps_by_index() -> None:
+    first = json.dumps(
+        {
+            "items": [
+                {"i": i, "label": "relevant" if i % 2 == 0 else "irrelevant", "confidence": 0.5}
+                for i in reversed(range(10))  # 순서가 뒤섞여 와도 i로 맞춘다
+            ]
+        }
+    )
+    second = json.dumps(
+        {
+            "items": [
+                {"i": 0, "label": "irrelevant", "confidence": 1.3},
+                {"i": 1, "label": "relevant", "confidence": -0.2},
+                {"i": 2, "label": "relevant", "confidence": 0.4},
+            ]
+        }
+    )
+    msgs = ScriptedMessages([first, second])
+    sink = FakeCostSink()
+    c = ClaudeClassifier(SimpleNamespace(messages=msgs), "claude-haiku-5-5", sink)
+    out = c.classify_many([f"자료 {i} " + "가" * 3000 for i in range(13)], LABELS, "관련 있나?")
+    assert len(msgs.requests) == 2
+    assert [r.label for r in out[:10]] == ["relevant", "irrelevant"] * 5
+    assert [r.label for r in out[10:]] == ["irrelevant", "relevant", "relevant"]
+    assert [r.confidence for r in out[10:]] == [1.0, 0.0, 0.4]
+    assert len(sink.records) == 2
+    assert all(k == "classifier" and p == "anthropic" for k, p, _, _ in sink.records)
+    assert [r[3] for r in sink.records] == ["classify_many", "classify_many"]
+    req = msgs.requests[0]
+    assert req["max_tokens"] == 2048 and req["thinking"] == {"type": "disabled"}
+    assert req["output_config"]["effort"] == "low"
+    schema = req["output_config"]["format"]["schema"]
+    item = schema["properties"]["items"]["items"]
+    assert schema["additionalProperties"] is False and item["additionalProperties"] is False
+    assert item["required"] == ["i", "label", "confidence"]
+    assert item["properties"]["label"]["enum"] == LABELS
+    content = req["messages"][0]["content"]
+    assert "[9]" in content and "[10]" not in content
+    assert (
+        "가" * 1495 in content and "가" * 1496 not in content
+    )  # 건당 1500자까지만(앞 "자료 i " 5자)
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        _items(4, order=[0, 1, 3]),  # 2번 빠짐
+        _items(4, label="spam"),  # 허용되지 않은 라벨
+        '{"items": [{"i": 0, "lab',  # 깨진 JSON
+        None,  # 텍스트 블록 없음
+        '["not", "an", "object"]',
+    ],
+)
+def test_claude_classify_many_broken_batch_retries_one_by_one(broken) -> None:
+    msgs = ScriptedMessages([broken], single_label="irrelevant")
+    sink = FakeCostSink()
+    c = ClaudeClassifier(SimpleNamespace(messages=msgs), "claude-haiku-5-5", sink)
+    out = c.classify_many(["a", "b", "c", "d"], LABELS, "q")  # 예외 없이
+    assert len(msgs.requests) == 1 + 4
+    assert [r.label for r in out] == ["irrelevant"] * 4
+    contents = [r["messages"][0]["content"] for r in msgs.requests[1:]]
+    assert [x.endswith(f"<text>\n{t}\n</text>") for x, t in zip(contents, "abcd", strict=True)] == [
+        True
+    ] * 4
+    assert [r[3] for r in sink.records] == ["classify_many"] + ["classify"] * 4
+
+
+def test_claude_classify_many_refusal_still_raises() -> None:
+    msgs = FakeMessages({"items": []}, stop_reason="refusal")
+    c = ClaudeClassifier(SimpleNamespace(messages=msgs), "claude-haiku-5-5")
+    with pytest.raises(AdapterError):
+        c.classify_many(["a", "b"], LABELS, "q")
+    assert len(msgs.requests) == 1
+
+
+def test_claude_classify_many_single_and_empty_use_single_call() -> None:
+    msgs = FakeMessages({"label": "relevant", "confidence": 0.8})
+    c = ClaudeClassifier(SimpleNamespace(messages=msgs), "claude-haiku-5-5")
+    assert c.classify_many([], LABELS, "q") == []
+    assert msgs.requests == []
+    out = c.classify_many(["하나"], LABELS, "q")
+    assert [r.label for r in out] == ["relevant"]
+    schema = msgs.requests[0]["output_config"]["format"]["schema"]
+    assert set(schema["properties"]) == {"label", "confidence"}
