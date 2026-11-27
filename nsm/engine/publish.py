@@ -229,6 +229,7 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
         )
         result.ok = False
         return result
+    _settle_published_contents(ctx, result)
     start, end = local_day_bounds(now, ctx.tz)
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     published = failed = 0
@@ -256,7 +257,13 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
         if not due:
             waits.append(f"{name} 올릴 차례인 원고 없음(재시도 시각 전이거나 대기 없음)")
             continue
-        outcome = _publish_one(ctx, adapter, due[0], result)
+        try:
+            outcome = _publish_one(ctx, adapter, due[0], result)
+        except Exception as e:  # noqa: BLE001  한 플랫폼의 예기치 않은 오류가 다른 플랫폼 게시를 막지 않게
+            log.exception("%s 게시 중 예기치 않은 오류", platform)
+            result.errors.append(f"{name} 게시 중 예기치 않은 오류: {type(e).__name__}: {e}"[:500])
+            record_incident(ctx, platform, "publish", "unexpected", e, UNEXPECTED_ACTION)
+            outcome = "failed"
         published += outcome == "published"
         failed += outcome == "failed"
     result.counts.update(published=published, failed=failed)
@@ -319,7 +326,88 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
             log.exception("게시 실패 기록 중 오류")
             result.errors.append(f"{pub.platform} 실패 기록 오류: {e2}")
         return "failed"
-    ctx.repo.transition_publication(pub.id, "published", external_id=res.external_id, url=res.url)
-    ctx.repo.mark_content_published_if_complete(content.id)
+    if not _record_published(ctx, pub, res, result):
+        return "failed"
+    try:
+        ctx.repo.mark_content_published_if_complete(content.id)
+    except Exception as e:  # noqa: BLE001  게시 줄은 이미 published: 원고 상태는 다음 회차 시작에 다시
+        log.exception("%s 게시 뒤 원고 상태 갱신 실패", pub.platform)
+        result.errors.append(
+            f"{pub.platform} 게시 뒤 원고 상태 갱신 실패: {type(e).__name__}: {e}"[:500]
+        )
     log.info("%s 게시 완료: %s", pub.platform, res.url)
     return "published"
+
+
+UNEXPECTED_ACTION = "이 플랫폼만 건너뛰고 다음 플랫폼 계속. 게시 줄 상태는 사람이 확인"
+
+
+def _settle_published_contents(ctx: JobContext, result: JobResult) -> None:
+    """모든 플랫폼이 published인데 원고가 approved로 남은 것을 맞춘다(C60 리뷰).
+
+    마지막 플랫폼 게시 뒤 원고 상태 갱신이 실패하면, 다시 게시할 줄이 없어 아무도 고치지 않는다.
+    """
+    try:
+        for c in ctx.repo.list_contents("approved"):
+            if ctx.repo.mark_content_published_if_complete(c.id):
+                log.info("원고 %s 상태를 게시됨으로 맞춤", c.id)
+    except Exception as e:  # noqa: BLE001  상태 맞추기 실패가 게시를 막지 않게
+        log.exception("게시 끝난 원고 상태 맞추기 실패")
+        result.errors.append(f"게시 끝난 원고 상태 맞추기 실패: {type(e).__name__}: {e}"[:500])
+
+
+RECORD_FAILED_ACTION = "되돌리지 않음(글은 올라감). 게시 줄은 '게시 중'에 남고 사람이 확인"
+
+
+def _record_published(ctx: JobContext, pub: Publication, res, result: JobResult) -> bool:
+    """플랫폼에 올라간 뒤 게시 줄을 published로. 실패하면 한 번 더, 그래도 안 되면 알린다(ADR 0080).
+
+    글은 이미 올라갔다. 되돌리기(글 삭제)도, abandoned 전이나 검토로 돌리기도 하지 않는다:
+    검토로 돌리면 사람이 다시 승인해 같은 글이 또 올라갈 수 있다. 예외는 밖으로 내지 않는다.
+    """
+
+    def mark() -> None:
+        ctx.repo.transition_publication(
+            pub.id, "published", external_id=res.external_id, url=res.url
+        )
+
+    try:
+        mark()
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.exception("%s 게시는 됐는데 기록 실패, 한 번 더", pub.platform)
+        result.errors.append(
+            f"{pub.platform} 게시는 됐는데 기록 실패: {type(e).__name__}: {e}"[:500]
+        )
+    try:
+        mark()
+        log.info("%s 게시 기록 두 번째에 성공", pub.platform)
+        return True
+    except InvalidTransitionError as e:
+        # 첫 시도가 실제로는 적혔는데 예외만 났을 수 있다: 이미 published면 성공으로 본다
+        cur = _safe_get_publication(ctx, pub.id)
+        if cur is not None and cur.status == "published":
+            return True
+        err: Exception = e
+    except Exception as e:  # noqa: BLE001
+        err = e
+    log.error("%s 게시 기록 재시도도 실패: %s", pub.platform, err)
+    record_incident(ctx, pub.platform, "publish", "record", err, RECORD_FAILED_ACTION)
+    name = PLATFORM_NAMES.get(pub.platform, pub.platform)
+    try:
+        ctx.notifier.notify(
+            "게시 기록 실패",
+            f"{name} 게시는 됐는데 기록 실패, 대시보드 장애 화면 확인. 다시 승인하지 마세요"
+            + (f" · 글 주소: {res.url}" if res.url else ""),
+            "error",
+        )
+    except Exception:  # noqa: BLE001  알림 실패가 다른 플랫폼 게시를 막지 않게
+        log.exception("게시 기록 실패 알림 오류")
+    return False
+
+
+def _safe_get_publication(ctx: JobContext, pub_id: str) -> Publication | None:
+    try:
+        return ctx.repo.get_publication(pub_id)
+    except Exception:  # noqa: BLE001
+        return None

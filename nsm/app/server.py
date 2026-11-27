@@ -103,6 +103,7 @@ BRAND_IMAGE_KINDS = (
     "character_outro",
 )  # 설정 화면에서 올리는 그림(C17)
 PREVIEW_CHARS = 200  # 올린 이미지에서 옮긴 글을 올림 안내에 이만큼 보여 준다(C16)
+REPLY_MAX_CHARS = 500  # 대시보드 직접 답글 상한(플랫폼 구분 없이, comments.html maxlength와 같음)
 # 화면 모드(C13): 간단(일반 사용자, 기본) / 고급(개발자). 보이는 것만 다르고 기능은 같다
 UI_MODE_KEY = "ui_mode"
 UI_MODES = ("simple", "advanced")
@@ -1190,10 +1191,16 @@ def create_app(state: AppState) -> FastAPI:
         return back("/comments")
 
     @app.post("/comments/{key}/reply", dependencies=[Depends(check_csrf)])
-    def reply(key: str, text: str = Form(...)) -> RedirectResponse:
+    def reply(key: str, text: str = Form("")) -> RedirectResponse:
         stored = state.repo.get_comment(key)
         if stored is None:
             raise HTTPException(404)
+        # 빈 답글·공백만 있는 답글을 보내지 않는다(C60, 외부 검토 1-10). 저장도 앞뒤 공백을 뗀 값
+        text = text.strip()
+        if not text:
+            raise HTTPException(400, "답글 내용이 비어 있습니다")
+        if len(text) > REPLY_MAX_CHARS:
+            raise HTTPException(400, f"답글은 {REPLY_MAX_CHARS}자까지 쓸 수 있습니다")
         adapter = state.adapters.get(stored.comment.platform)
         if adapter is None:
             raise HTTPException(503, "이 플랫폼 어댑터가 연결돼 있지 않습니다")

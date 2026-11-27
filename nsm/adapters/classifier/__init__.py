@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from nsm.adapters.classifier.keyword import COMMENT_VOCAB, KeywordClassifier
+from nsm.adapters.classifier.keyword import COMMENT_PRIORITY, COMMENT_VOCAB, KeywordClassifier
 from nsm.config.schema import AppConfig
 from nsm.config.secrets import SecretStore
 from nsm.domain.models import Classification
@@ -123,7 +123,9 @@ def _keyword_set(cfg: AppConfig) -> tuple[Classifier, Classifier, Classifier]:
         {"relevant": [*p.topics, b.name, *b.products, b.industry]}, default_label="irrelevant"
     )
     topic = KeywordClassifier({t: [t] for t in p.topics}, default_label=p.topics[0])
-    comment = KeywordClassifier(COMMENT_VOCAB, default_label="praise_general")
+    comment = KeywordClassifier(
+        COMMENT_VOCAB, default_label="praise_general", priority=COMMENT_PRIORITY
+    )
     return relevance, topic, comment
 
 

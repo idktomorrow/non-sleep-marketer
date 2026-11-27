@@ -104,6 +104,19 @@ def norm_handle(h: str | None) -> str:
     return (h or "").strip().lstrip("@").lower()
 
 
+def post_probe(text: str) -> str:
+    """프로필에서 이 글을 알아볼 고유 문구: 표기 첫 줄·해시태그 줄을 뺀 본문 앞 40자.
+
+    모든 공백 문자(연속 공백·탭·NBSP·줄바꿈)를 한 칸으로 접는다. 브라우저 쪽이 화면 글을
+    innerText의 공백 묶음을 한 칸으로 접어(JS 정규식 s+) 비교하므로 같은 규칙이어야 게시 확인과 재시도 전
+    멱등 확인이 맞는다(C60, 외부 검토 1-1). 너무 짧으면(8자 미만) 빈 문자열: 다른 글과 헷갈릴 수
+    있어 멱등 확인을 하지 않는다.
+    """
+    lines = [ln.strip() for ln in text.splitlines()[1:]]
+    body = " ".join(" ".join(ln for ln in lines if ln and not ln.startswith("#")).split())
+    return body[:40] if len(body) >= 8 else ""
+
+
 def media_root() -> Path:
     return (paths.nsm_home() / "media").resolve()
 
