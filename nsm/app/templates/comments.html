@@ -14,7 +14,7 @@
   {% if s.reason %}<div class="warn small">넘어온 이유: {{ s.reason }}</div>{% endif %}
   {% if s.reply_text %}<div class="muted small">답글 초안: {{ s.reply_text }}</div>{% endif %}
   <form class="reply" method="post" action="/comments/{{ s.id }}/reply"><input type="hidden" name="csrf" value="{{ csrf }}">
-    <input type="text" name="text" placeholder="직접 답글 쓰기" value="{{ s.reply_text or '' }}" aria-label="답글">
+    <input type="text" name="text" placeholder="직접 답글 쓰기" value="{{ s.reply_text or '' }}" aria-label="답글" required maxlength="500">
     <button class="btn-primary">답글 보내기</button></form>
   <form method="post" action="/comments/{{ s.id }}/resolve" style="margin-top:8px" onsubmit="return confirm('답하지 않고 처리 완료로 둘까요?')"><input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="btn-sm btn-ghost">답하지 않고 처리 완료</button></form>

@@ -324,3 +324,12 @@ def test_publish_logs_status_phrase_seen_after_post(tmp_path, clock, caplog) -> 
         res = a.publish(_post(media))
     assert res.external_id == "NEW1"
     assert "게시 뒤 화면 문구 '게시됨'" in caplog.text
+
+
+def test_probe_collapses_tabs_nbsp_and_runs_of_spaces_c60() -> None:
+    """브라우저가 innerText 공백 묶음을 한 칸으로 접으므로 probe도 같아야 한다(외부 검토 1-1)."""
+    text = f"{VIRTUAL_PERSON_TEXT}\n\n치이카와  팝업\t소식 안내입니다\n#치이카와"
+    assert _probe(text) == "치이카와 팝업 소식 안내입니다"
+    assert _probe(f"{VIRTUAL_PERSON_TEXT}\n짧은\t  글") == ""  # 접으면 4자: 8자 미만
+    long = f"{VIRTUAL_PERSON_TEXT}\n" + "가  나\t" * 30
+    assert _probe(long) == ("가 나 " * 20)[:40]  # 접은 뒤 앞 40자

@@ -342,3 +342,43 @@ def test_claude_classify_many_single_and_empty_use_single_call() -> None:
     assert [r.label for r in out] == ["relevant"]
     schema = msgs.requests[0]["output_config"]["format"]["schema"]
     assert set(schema["properties"]) == {"label", "confidence"}
+
+
+# ---- C60: 낱말 분류기 위험 댓글 범주 우선 (ADR 0080, 외부 검토 1-8) ----
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("환불 어떻게 하나요?", "price_refund"),  # question 낱말이 2개여도 위험 범주가 이긴다
+        ("고소하려면 어떻게 되나요?", "legal"),
+        ("배송이 왜 안 와요? 궁금해요?", "complaint"),
+        ("이거어떻게 쓰나요?", "question"),  # 위험 낱말이 없으면 그대로
+        ("최고 좋아요 감사", "praise_general"),
+        ("환불 받고 고소할래요", "legal"),  # 위험 범주끼리는 vocab 순서
+    ],
+)
+def test_keyword_comment_priority_categories_win(text: str, expected: str) -> None:
+    from nsm.adapters.classifier.keyword import COMMENT_PRIORITY
+
+    k = KeywordClassifier(COMMENT_VOCAB, default_label="praise_general", priority=COMMENT_PRIORITY)
+    assert COMMENT_PRIORITY == 4
+    assert k.classify(text, list(COMMENT_CATEGORIES), "").label == expected
+
+
+def test_keyword_without_priority_keeps_count_rule() -> None:
+    k = KeywordClassifier(COMMENT_VOCAB, default_label="praise_general")
+    assert k.classify("환불 어떻게 하나요?", list(COMMENT_CATEGORIES), "").label == "question"
+    rel = KeywordClassifier({"relevant": ["커피", "드립"]}, default_label="irrelevant")
+    assert rel.priority == []
+    assert rel.classify("드립 커피", ["relevant", "irrelevant"], "").label == "relevant"
+    assert rel.classify("날씨", ["relevant", "irrelevant"], "").label == "irrelevant"
+
+
+def test_make_classifiers_comment_keyword_uses_priority(app_config) -> None:
+    cs = make_classifiers(app_config, MemorySecretStore(), FakeCostSink())
+    assert cs.comment.priority == ["spam", "legal", "price_refund", "complaint"]
+    assert cs.relevance.priority == [] and cs.topic.priority == []
+    assert cs.comment.classify("환불 어떻게 하나요?", list(COMMENT_CATEGORIES), "").label == (
+        "price_refund"
+    )

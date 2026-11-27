@@ -333,3 +333,39 @@ def test_overview_shows_next_publish_time_when_waiting(env) -> None:
     assert "다음 게시" in html and ("스레드" in html or "인스타그램" in html)
     # C28: 플랫폼+시각은 한 덩어리(span)로 감싸 줄이 단어 중간에서 끊기지 않게 한다
     assert 'class="muted small next-pubs">다음 게시 <span>' in html
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\t  ", "가" * 501])
+def test_reply_rejects_empty_or_too_long_c60(env, text: str) -> None:
+    """빈 답글·공백만·501자는 400, 어댑터를 부르지 않고 상태도 그대로(외부 검토 1-10)."""
+    repo = env["repo"]
+    comment, _ = load_comment_cases()[2]
+    comment = comment.model_copy(update={"platform": "threads"})
+    repo.insert_comment(comment)
+    key = repo.comment_key(comment)
+    repo.update_comment(key, status="escalated", reason="불만")
+    r = _post(env, f"/comments/{key}/reply", text=text)
+    assert r.status_code == 400
+    assert env["adapters"]["threads"].replied == []
+    assert repo.get_comment(key).status == "escalated"
+
+
+def test_reply_strips_and_accepts_500_chars_c60(env) -> None:
+    repo = env["repo"]
+    comment, _ = load_comment_cases()[2]
+    comment = comment.model_copy(update={"platform": "threads"})
+    repo.insert_comment(comment)
+    key = repo.comment_key(comment)
+    repo.update_comment(key, status="escalated", reason="불만")
+    body = "가" * 500
+    assert _post(env, f"/comments/{key}/reply", text=f"  {body}\n").status_code == 303
+    assert env["adapters"]["threads"].replied[0][1] == body
+    assert repo.get_comment(key).reply_text == body
+
+
+def test_comments_reply_input_is_required_with_maxlength_c60() -> None:
+    from nsm.app.server import HERE, REPLY_MAX_CHARS
+
+    html = (HERE / "templates" / "comments.html").read_text(encoding="utf-8")
+    line = next(ln for ln in html.splitlines() if 'name="text"' in ln and "답글" in ln)
+    assert " required" in line and f'maxlength="{REPLY_MAX_CHARS}"' in line

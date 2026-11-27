@@ -23,6 +23,7 @@ from nsm.adapters.platforms.aside_common import (
     RateLimitedError,
     check_upload_paths,
     norm_handle,
+    post_probe,
 )
 from nsm.domain.models import (
     AccountMetrics,
@@ -551,11 +552,7 @@ def impossible_zero(got: dict[str, int | None]) -> str:
     return ""
 
 
-def _probe(text: str) -> str:
-    """이 글을 알아볼 고유 문구: 표기 줄·해시태그 줄을 뺀 본문 앞 40자(8자 미만이면 빈 문자열)."""
-    lines = [ln.strip() for ln in text.splitlines()[1:]]
-    body = " ".join(ln for ln in lines if ln and not ln.startswith("#"))
-    return body[:40] if len(body) >= 8 else ""
+_probe = post_probe  # 규칙은 aside_common.post_probe 한 곳(스레드와 같음)
 
 
 def _split_comment_id(external_id: str) -> tuple[str, str]:

@@ -313,3 +313,75 @@ def test_manual_publish_ignores_gap_but_keeps_quota(ctx: JobContext) -> None:
     assert any("인스타그램 오늘 1건 다 올림" in w for w in r.counts.get("waits", []))
     run_job("publish", ctx, manual=True)
     assert len(_published(ctx, "threads")) == 2  # 스레드 하루 2건도 그대로
+
+
+# ---- C60: 게시 뒤 기록 실패 격리, 플랫폼 루프 격리 (ADR 0080, 외부 검토 1-2·1-3) ----
+
+
+def _platform_of(ctx: JobContext, pub_id: str) -> str:
+    return ctx.repo.get_publication(pub_id).platform
+
+
+def _calls(ctx: JobContext, monkeypatch, fail) -> list[tuple[str, str]]:
+    """transition_publication을 감싸 (플랫폼, 상태)를 적고, fail(플랫폼, 상태, n번째)이 참이면 예외."""
+    real = ctx.repo.transition_publication
+    seen: list[tuple[str, str]] = []
+
+    def wrapped(pub_id, status, **kw):
+        platform = _platform_of(ctx, pub_id)
+        seen.append((platform, status))
+        n = seen.count((platform, status))
+        if fail(platform, status, n):
+            raise RuntimeError(f"db down ({platform} {status} #{n})")
+        return real(pub_id, status, **kw)
+
+    monkeypatch.setattr(ctx.repo, "transition_publication", wrapped)
+    return seen
+
+
+def test_unexpected_error_on_first_platform_does_not_stop_second(ctx, monkeypatch) -> None:
+    first, second = ctx.config.settings.enabled_platforms[:2]
+    _calls(ctx, monkeypatch, lambda p, s, n: p == first and s == "publishing")
+    r = run_publish(ctx)  # 예외가 밖으로 나오지 않는다
+    assert r.counts["published"] == 1 and r.counts["failed"] == 1
+    assert not _published(ctx, first) and len(_published(ctx, second)) == 1
+    assert any("예기치 않은 오류" in e for e in r.errors) and r.ok is False
+
+
+def test_record_failure_after_publish_retries_once_then_succeeds(ctx, monkeypatch) -> None:
+    seen = _calls(ctx, monkeypatch, lambda p, s, n: p == "threads" and s == "published" and n == 1)
+    r = run_publish(ctx)
+    assert seen.count(("threads", "published")) == 2  # 한 번 더 시도
+    assert r.counts["published"] == 2
+    pub = ctx.repo.publications_for_content(_published(ctx, "threads")[0].content_id)
+    assert {p.platform: p.status for p in pub}["threads"] == "published"
+    assert any("기록 실패" in e for e in r.errors)
+    assert not [c for c in ctx.notifier.calls if c[0] == "게시 기록 실패"]
+
+
+def test_record_failure_after_publish_never_rolls_back_or_requeues(ctx, monkeypatch) -> None:
+    seen = _calls(ctx, monkeypatch, lambda p, s, n: p == "threads" and s == "published")
+    r = run_publish(ctx)  # 예외 없이 돌아온다
+    assert seen.count(("threads", "published")) == 2
+    assert ("threads", "abandoned") not in seen and ("threads", "failed") not in seen
+    content_id = _published(ctx, "threads")[0].content_id
+    assert len(_published(ctx, "threads")) == 1  # 글은 올라갔고 지우지 않는다
+    assert ctx.repo.get_content(content_id).status != "pending_review"
+    pubs = {p.platform: p.status for p in ctx.repo.publications_for_content(content_id)}
+    assert pubs["threads"] == "publishing"  # 다음 켤 때 recover_interrupted가 맡는다
+    sent = [c for c in ctx.notifier.calls if c[0] == "게시 기록 실패"]
+    assert len(sent) == 1 and "장애 화면" in sent[0][1] and sent[0][2] == "error"
+    assert r.counts["failed"] == 1 and r.counts["published"] == 1
+    assert any(f["stage"] == "record" for f in ctx.repo.recent_failures())
+
+
+def test_mark_content_published_failure_is_isolated(ctx, monkeypatch) -> None:
+    def boom(content_id):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ctx.repo, "mark_content_published_if_complete", boom)
+    r = run_publish(ctx)
+    assert r.counts == {"published": 2, "failed": 0}
+    content_id = _published(ctx, "threads")[0].content_id
+    assert all(p.status == "published" for p in ctx.repo.publications_for_content(content_id))
+    assert sum("원고 상태 갱신 실패" in e for e in r.errors) == 2
