@@ -385,3 +385,29 @@ def test_mark_content_published_failure_is_isolated(ctx, monkeypatch) -> None:
     content_id = _published(ctx, "threads")[0].content_id
     assert all(p.status == "published" for p in ctx.repo.publications_for_content(content_id))
     assert sum("원고 상태 갱신 실패" in e for e in r.errors) == 2
+
+
+def test_content_status_settled_next_run_when_last_platform_update_failed(ctx, monkeypatch) -> None:
+    """마지막 플랫폼 뒤 원고 상태 갱신이 실패해도 다음 회차 시작에 published로 맞춘다(C60 리뷰)."""
+    real = ctx.repo.mark_content_published_if_complete
+
+    def boom(content_id):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ctx.repo, "mark_content_published_if_complete", boom)
+    run_publish(ctx)
+    content_id = _published(ctx, "threads")[0].content_id
+    assert ctx.repo.get_content(content_id).status == "approved"
+    monkeypatch.setattr(ctx.repo, "mark_content_published_if_complete", real)
+    ctx.clock.advance(minutes=1)
+    run_publish(ctx)
+    assert ctx.repo.get_content(content_id).status == "published"
+
+
+def test_unexpected_error_records_incident(ctx, monkeypatch) -> None:
+    first = ctx.config.settings.enabled_platforms[0]
+    _calls(ctx, monkeypatch, lambda p, s, n: p == first and s == "publishing")
+    run_publish(ctx)
+    assert any(
+        f["stage"] == "unexpected" and f["platform"] == first for f in ctx.repo.recent_failures()
+    )

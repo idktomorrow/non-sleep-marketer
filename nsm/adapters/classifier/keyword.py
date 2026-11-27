@@ -8,9 +8,13 @@ from __future__ import annotations
 
 from nsm.domain.models import Classification
 
-# 댓글 6분류용 기본 어휘. 앞 COMMENT_PRIORITY개(spam·legal·price_refund·complaint)는 사람에게 넘기는
-# 위험 범주라, 낱말이 하나라도 맞으면 자동 답글 범주(question·praise_general)보다 먼저 이긴다(ADR 0080)
+# 댓글 6분류용 기본 어휘. 앞 COMMENT_PRIORITY개(legal·price_refund·complaint·spam)는 위험 범주라, 낱말이
+# 하나라도 맞으면 자동 답글 범주(question·praise_general)보다 먼저 이긴다(ADR 0080). 순서가 곧 우선순위:
+# 사람에게 넘기는 셋이 숨김·무시되는 spam보다 앞이다("클릭했는데 결제가 두 번… 환불"이 spam으로 숨겨지지 않게)
 COMMENT_VOCAB: dict[str, list[str]] = {
+    "legal": ["법적", "고소", "소송", "상표", "저작권", "변호사", "신고하겠", "명예훼손"],
+    "price_refund": ["환불", "가격", "비싸", "할인", "결제", "취소", "얼마"],
+    "complaint": ["불만", "실망", "배송", "안 와", "안와", "불량", "최악", "별로", "너무하"],
     "spam": [
         "http://",
         "https://",
@@ -22,9 +26,6 @@ COMMENT_VOCAB: dict[str, list[str]] = {
         "홍보",
         "팔로우 해주시면",
     ],
-    "legal": ["법적", "고소", "소송", "상표", "저작권", "변호사", "신고하겠", "명예훼손"],
-    "price_refund": ["환불", "가격", "비싸", "할인", "결제", "취소", "얼마"],
-    "complaint": ["불만", "실망", "배송", "안 와", "안와", "불량", "최악", "별로", "너무하"],
     "question": ["?", "궁금", "어떻게", "되나요", "인가요", "알려주"],
     "praise_general": ["좋아", "최고", "감사", "예뻐", "멋져", "유용", "저장", "👍", "❤"],
 }

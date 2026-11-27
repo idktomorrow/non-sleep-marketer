@@ -356,6 +356,10 @@ def test_claude_classify_many_single_and_empty_use_single_call() -> None:
         ("이거어떻게 쓰나요?", "question"),  # 위험 낱말이 없으면 그대로
         ("최고 좋아요 감사", "praise_general"),
         ("환불 받고 고소할래요", "legal"),  # 위험 범주끼리는 vocab 순서
+        # spam은 숨김·무시라 사람에게 가지 않는다: 사람에게 넘기는 범주가 먼저(C60 리뷰)
+        ("클릭했는데 결제가 두번 됐어요 환불해주세요", "price_refund"),
+        ("수익금 환불 안 해주면 변호사 통해 소송", "legal"),
+        ("부업으로 수익 내는 법 https://x.example 궁금하면 클릭?", "spam"),
     ],
 )
 def test_keyword_comment_priority_categories_win(text: str, expected: str) -> None:
@@ -377,7 +381,7 @@ def test_keyword_without_priority_keeps_count_rule() -> None:
 
 def test_make_classifiers_comment_keyword_uses_priority(app_config) -> None:
     cs = make_classifiers(app_config, MemorySecretStore(), FakeCostSink())
-    assert cs.comment.priority == ["spam", "legal", "price_refund", "complaint"]
+    assert cs.comment.priority == ["legal", "price_refund", "complaint", "spam"]
     assert cs.relevance.priority == [] and cs.topic.priority == []
     assert cs.comment.classify("환불 어떻게 하나요?", list(COMMENT_CATEGORIES), "").label == (
         "price_refund"

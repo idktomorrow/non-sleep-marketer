@@ -2,7 +2,7 @@
 
 - 상태: 채택
 - 날짜: 2026-11-28
-- 결정한 사람: 선웅제(배치 C60 지시), 배치 C60 기본값(우선 범주 수 4, 재시도 때 이미 published면 성공으로 봄)
+- 결정한 사람: 선웅제(배치 C60 지시: 앞 4개 범주 우선, 게시 뒤 기록 실패는 한 번 더 시도 후 알림, 되돌리지 않음). 리뷰 반영: 우선 범주 안 순서(spam을 맨 뒤로), 다음 회차 시작에 원고 상태 맞추기
 - 관련: [ADR 0011](0011-keyword-classifier-fallback.md)(낱말 분류기), [ADR 0054](0054-error-taxonomy-and-evidence.md)(오류 종류 표, "두 번 올리는 것보다 한 번 빠지는 쪽"), [ADR 0008](0008-autopublish-guardrails.md), known-gaps 2-5, devlog [C60](../devlog/2026-11-28-batch-C60.md)
 
 ## 배경
@@ -29,7 +29,7 @@
 
 - **낱말 분류기**
   - `KeywordClassifier(vocab, default_label, priority=0)`로 받는다. `priority`가 n이면 vocab 앞 n개 범주는 낱말이 하나라도 맞으면(`scores[k] > 0`) 다른 범주가 낱말이 더 많아도 이긴다.
-  - 우선 범주끼리는 vocab 순서를 따른다(spam → legal → price_refund → complaint).
+  - 우선 범주끼리는 vocab 순서를 따른다(legal → price_refund → complaint → spam). 그래서 `COMMENT_VOCAB`에서 spam을 넷째로 옮겼다. spam은 숨기거나 무시되고(`policy.decide`) 사람에게 가지 않는다. 그래서 "클릭했는데 결제가 두 번 됐어요 환불해주세요"처럼 위험 낱말과 같이 있으면, 사람에게 넘기는 범주가 먼저 이겨야 한다.
   - `make_classifiers`의 댓글 분류기만 `COMMENT_PRIORITY = 4`이다. 관련성·주제는 0이라 지금과 같다.
   - 신뢰도 계산은 그대로다(0.6 + 0.1 × 낱말 수, 최대 0.85).
 - **게시 뒤 기록 실패**(`publish._record_published`)
@@ -38,8 +38,8 @@
   - 재시도가 `InvalidTransitionError`이고 게시 줄이 이미 `published`면 성공으로 본다. 첫 시도가 적혔는데 예외만 난 경우다.
   - 그래도 실패하면 `record_incident(stage="record")`를 남긴다. 알림 "게시 기록 실패"("게시는 됐는데 기록 실패, 대시보드 장애 화면 확인. 다시 승인하지 마세요" + 글 주소)를 보내고 `"failed"`를 돌려준다. 예외는 밖으로 내지 않는다.
   - 다음 켤 때 `publishing`에 남은 줄은 지금의 복구 로직(`recover_interrupted`: "게시 중 중단됨, 플랫폼에서 실제 게시 여부 확인 필요")이 맡는다.
-  - `mark_content_published_if_complete` 실패는 따로 감싼다. 게시 줄은 `published` 그대로 두고 `result.errors`에만 적는다. 원고 상태는 다음 플랫폼이 게시될 때 다시 맞춰진다.
-  - `run_publish`의 `_publish_one` 호출을 감싼다. 한 플랫폼의 예기치 않은 예외는 `log.exception`과 `result.errors`에 남기고 `failed`로 센 뒤 다음 플랫폼을 계속 처리한다.
+  - `mark_content_published_if_complete` 실패는 따로 감싼다. 게시 줄은 `published` 그대로 두고 `result.errors`에만 적는다. 원고 상태는 다음 게시 회차 시작에 맞춘다(`_settle_published_contents`: approved 원고 중 모든 게시 줄이 published인 것). 마지막 플랫폼에서 실패해도 approved에 남지 않는다.
+  - `run_publish`의 `_publish_one` 호출을 감싼다. 한 플랫폼의 예기치 않은 예외는 `log.exception`, `result.errors`, 장애 기록(`stage=unexpected`)에 남기고 `failed`로 센 뒤 다음 플랫폼을 계속 처리한다.
 
 ## 결과
 
@@ -49,6 +49,11 @@
   - 기록이 끝내 실패한 게시 줄은 다음 켤 때 `recover_interrupted`가 abandoned + 원고를 검토로 보낸다. 사람이 그 원고를 다시 승인하면 같은 글이 또 올라갈 수 있다.
   - 이번에는 복구 로직을 바꾸지 않았다(배치 지시). 그 대신 알림과 사용자 설명서 문제 해결 표에 "다시 승인하지 마세요"를 적었다.
   - 다시 승인해도 인스타·스레드 어댑터는 올리기 전에 최근 72시간(`IDEMPOTENCY_WINDOW`) 글에서 고유 문구(probe)를 찾는다. 이미 올라간 글을 찾으면 다시 올리지 않는다. 그러나 72시간이 지났거나 본문이 8자 미만이면 이 확인이 없다.
+  - 기록이 끝내 실패한 게시 줄은 `publishing`이라 하루 한도(`count_published_between`)와 게시 간격(`last_published_at`)에 세지지 않는다. 같은 회차에는 플랫폼마다 1건이라 바로 겹치지 않는다. 그러나 다음 회차에는 그 계정에 다음 원고가 간격 없이 나갈 수 있다. 알림을 받으면 그 플랫폼을 일시 중지하면 된다.
+  - 첫 기록이 실패하고 재시도가 성공해도 첫 오류는 `result.errors`에 남는다(배치 지시). 그 회차는 실행 기록에서 실패로 보인다.
+  - 기록 재시도는 바로 한 번이고 기다림이 없다. DuckDB 파일은 이 프로세스만 열고 쓰기는 작업 스레드 하나라, 잠금 경합으로 실패할 일은 드물다고 봤다.
+  - 대시보드 답글 확인 문구(`text.strip()[:20]`)도 화면 `innerText`와 공백을 접지 않고 비교한다. 1-1과 같은 종류다. 브라우저 스크립트를 건드리지 않는 배치라 C61 후보로 둔다.
+  - 직접 답글 상한은 플랫폼 구분 없이 500자다(배치 지시). 미리 채운 초안이 500자를 넘으면 브라우저는 막지 않고 서버가 400을 낸다.
 - 다시 볼 조건
   - "게시 기록 실패" 알림이 실제로 오면, 복구 로직이 장애 기록(`stage=record`)을 보고 그 원고를 검토로 돌리지 않게 하는 것을 검토한다.
   - 낱말 분류기 오탐으로 사람 확인이 너무 많아지면 우선 범주 낱말을 다듬는다.

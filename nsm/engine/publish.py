@@ -229,6 +229,7 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
         )
         result.ok = False
         return result
+    _settle_published_contents(ctx, result)
     start, end = local_day_bounds(now, ctx.tz)
     paused = set(ctx.repo.get_setting(PAUSED_KEY, []))
     published = failed = 0
@@ -261,6 +262,7 @@ def run_publish(ctx: JobContext, manual: bool = False) -> JobResult:
         except Exception as e:  # noqa: BLE001  한 플랫폼의 예기치 않은 오류가 다른 플랫폼 게시를 막지 않게
             log.exception("%s 게시 중 예기치 않은 오류", platform)
             result.errors.append(f"{name} 게시 중 예기치 않은 오류: {type(e).__name__}: {e}"[:500])
+            record_incident(ctx, platform, "publish", "unexpected", e, UNEXPECTED_ACTION)
             outcome = "failed"
         published += outcome == "published"
         failed += outcome == "failed"
@@ -328,13 +330,30 @@ def _publish_one(ctx: JobContext, adapter, pub: Publication, result: JobResult) 
         return "failed"
     try:
         ctx.repo.mark_content_published_if_complete(content.id)
-    except Exception as e:  # noqa: BLE001  게시 줄은 이미 published: 원고 상태만 다음 회차에 다시
+    except Exception as e:  # noqa: BLE001  게시 줄은 이미 published: 원고 상태는 다음 회차 시작에 다시
         log.exception("%s 게시 뒤 원고 상태 갱신 실패", pub.platform)
         result.errors.append(
             f"{pub.platform} 게시 뒤 원고 상태 갱신 실패: {type(e).__name__}: {e}"[:500]
         )
     log.info("%s 게시 완료: %s", pub.platform, res.url)
     return "published"
+
+
+UNEXPECTED_ACTION = "이 플랫폼만 건너뛰고 다음 플랫폼 계속. 게시 줄 상태는 사람이 확인"
+
+
+def _settle_published_contents(ctx: JobContext, result: JobResult) -> None:
+    """모든 플랫폼이 published인데 원고가 approved로 남은 것을 맞춘다(C60 리뷰).
+
+    마지막 플랫폼 게시 뒤 원고 상태 갱신이 실패하면, 다시 게시할 줄이 없어 아무도 고치지 않는다.
+    """
+    try:
+        for c in ctx.repo.list_contents("approved"):
+            if ctx.repo.mark_content_published_if_complete(c.id):
+                log.info("원고 %s 상태를 게시됨으로 맞춤", c.id)
+    except Exception as e:  # noqa: BLE001  상태 맞추기 실패가 게시를 막지 않게
+        log.exception("게시 끝난 원고 상태 맞추기 실패")
+        result.errors.append(f"게시 끝난 원고 상태 맞추기 실패: {type(e).__name__}: {e}"[:500])
 
 
 RECORD_FAILED_ACTION = "되돌리지 않음(글은 올라감). 게시 줄은 '게시 중'에 남고 사람이 확인"
