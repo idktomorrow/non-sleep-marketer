@@ -148,3 +148,17 @@ def test_settings_short_window_shown_in_form(env) -> None:  # noqa: F811
     r = _post(env, "/settings", headers=HTML, **form)
     assert r.status_code == 400 and "활동 시간 창은 60분 이상이어야 합니다" in r.text
     assert 'value="12:00-12:30"' in r.text or ">12:00-12:30<" in r.text  # 넣은 값이 남는다
+
+
+def test_422_is_html_for_browser_and_json_otherwise(env) -> None:  # noqa: F811
+    url = "/review/c1/slides/0/background"  # 파일 칸 없이 보냄(File(...) 필수)
+    r = _post(env, url, headers=HTML)
+    assert r.status_code == 422 and r.headers["content-type"].startswith("text/html")
+    assert "입력 칸이 빠졌거나 형식이 맞지 않습니다: file" in r.text
+    j = _post(env, url)
+    assert j.status_code == 422 and isinstance(j.json()["detail"], list)
+
+
+def test_base_shows_htmx_error_banner(env) -> None:  # noqa: F811
+    html = env["client"].get("/").text
+    assert 'id="htmx-error"' in html and "htmx:responseError" in html

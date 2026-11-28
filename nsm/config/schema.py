@@ -9,7 +9,14 @@ from datetime import datetime
 from typing import Any, Literal, get_args
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
@@ -42,6 +49,8 @@ def check_windows(
     적으면 원고가 18:50에 잡혔다. 설정 화면·마법사·config.yaml 읽기·프리셋이 모두 이 함수를 지난다.
     """
     out = sorted(windows, key=lambda w: (w.start, w.end))
+    if min_minutes <= 0:  # 관대하게 읽기(LENIENT): 정렬만
+        return out
     for w in out:
         n = window_minutes(w)
         label = f"{w.start:%H:%M}-{w.end:%H:%M}"
@@ -50,6 +59,17 @@ def check_windows(
         if n < min_minutes:
             raise ValueError(WINDOW_TOO_SHORT.format(window=label))
     return out
+
+
+# 검사 문맥 {"lenient": True}: 마법사가 예전 설정을 기본값으로 쓰려고 읽을 때(C61 리뷰). 0.4.49까지 받던
+# 짧은 창·틀린 시간대 때문에 설정 전체를 버리지 않게, 창은 정렬만 하고 시간대는 기본값으로 둔다.
+# 마법사가 활동 시간을 다시 물어(parse_windows) 규칙에 맞는 값으로 저장한다
+LENIENT = {"lenient": True}
+DEFAULT_TIMEZONE = "Asia/Seoul"
+
+
+def _lenient(info: ValidationInfo) -> bool:
+    return bool(info.context and info.context.get("lenient"))
 
 
 def check_timezone(name: str) -> str:
@@ -309,14 +329,23 @@ class Settings(_Model):
 
     @field_validator("timezone")
     @classmethod
-    def _timezone(cls, v: str) -> str:
-        return check_timezone(v)
+    def _timezone(cls, v: str, info: ValidationInfo) -> str:
+        try:
+            return check_timezone(v)
+        except ValueError:
+            if _lenient(info):
+                return DEFAULT_TIMEZONE
+            raise
 
     @field_validator("posting_hours")
     @classmethod
-    def _posting_hours(cls, v: list[ActiveWindow] | None) -> list[ActiveWindow] | None:
+    def _posting_hours(
+        cls, v: list[ActiveWindow] | None, info: ValidationInfo
+    ) -> list[ActiveWindow] | None:
         # 게시 시간은 수집·생성 오프셋과 무관해 60분 규칙은 두지 않는다. 정렬과 길이 0 거절만
-        return check_windows(v, min_minutes=1) if v else v
+        if not v:
+            return v
+        return check_windows(v, min_minutes=0 if _lenient(info) else 1)
 
     @field_validator("classifier", mode="before")
     @classmethod
@@ -333,9 +362,10 @@ class AppConfig(_Model):
 
     @field_validator("persona")
     @classmethod
-    def _active_hours(cls, v: Persona) -> Persona:
+    def _active_hours(cls, v: Persona, info: ValidationInfo) -> Persona:
         # 동결 계약(domain.models.Persona)은 그대로 두고 설정 쪽에서 검사한다(C61)
-        return v.model_copy(update={"active_hours": check_windows(v.active_hours)})
+        floor = 0 if _lenient(info) else MIN_WINDOW_MINUTES
+        return v.model_copy(update={"active_hours": check_windows(v.active_hours, floor)})
 
     @field_validator("brand", mode="before")
     @classmethod

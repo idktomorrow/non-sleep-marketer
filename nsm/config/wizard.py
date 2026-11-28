@@ -14,9 +14,11 @@ from nsm.config.paths import config_path, uploads_dir
 from nsm.config.schema import CARD_LOOK_FIELDS, AppConfig, BrandSettings, Settings
 from nsm.config.secrets import KEY_NAMES, KEY_USES, KEYS, KeyringSecretStore, SecretStore, mask
 from nsm.config.store import (
+    ConfigInvalidError,
     ConfigNotFoundError,
     format_windows,
     load_config,
+    load_config_lenient,
     parse_windows,
     save_config,
     split_list,
@@ -98,10 +100,21 @@ def _ask_list(io: WizardIO, text: str, default: str) -> list[str]:
         io.echo("  하나 이상 입력해 주세요 (쉼표로 구분).")
 
 
+def _move_broken(io: WizardIO, path: Path, e: Exception) -> None:
+    backup = path.with_suffix(".yaml.broken")
+    path.replace(backup)
+    io.echo(f"기존 설정을 읽지 못해 {backup.name}로 옮기고 새로 만듭니다: {e}\n")
+    return None
+
+
+CLEAR = "-"  # 계정 칸: 엔터는 기존 값 유지라, 지우려면 이 글자
+
+
 def _ask_accounts(io: WizardIO, s: Settings) -> Settings:
     """실계정 게시 계정(settings.accounts)과 보호 모드 건수(protect_count). 비운 플랫폼은 게시하지 않는다."""
     io.echo(
-        "  게시할 계정 핸들을 적으세요. Aside 브라우저에 로그인된 계정과 다르면 게시하지 않습니다(비우면 그 플랫폼은 게시 안 함)."
+        "  게시할 계정 핸들을 적으세요. Aside 브라우저에 로그인된 계정과 다르면 게시하지 않습니다. "
+        f"엔터는 기존 값 유지, 그 플랫폼에 게시하지 않으려면 {CLEAR}를 적으세요."
     )
     accounts = dict(s.accounts)
     for platform in s.enabled_platforms:
@@ -111,7 +124,7 @@ def _ask_accounts(io: WizardIO, s: Settings) -> Settings:
             accounts.get(platform, ""),
             required=False,
         )
-        if v:
+        if v and v != CLEAR:
             accounts[platform] = v
         else:
             accounts.pop(platform, None)
@@ -121,7 +134,7 @@ def _ask_accounts(io: WizardIO, s: Settings) -> Settings:
         )
     while True:
         raw = _ask(io, "보호 모드: 처음 몇 건을 사람이 승인할까요", str(s.protect_count))
-        if raw.isdigit():
+        if raw.isascii() and raw.isdigit():  # "²"처럼 int()가 못 읽는 숫자는 거른다
             break
         io.echo("  0 이상의 숫자로 적어 주세요.")
     return s.model_copy(update={"accounts": accounts, "protect_count": int(raw)})
@@ -147,6 +160,16 @@ def wizard(
         io.echo(f"기존 설정을 불러왔습니다: {path}\n엔터를 누르면 기존 값을 유지합니다.\n")
     except ConfigNotFoundError:
         existing = None
+    except ConfigInvalidError as first:
+        # 새 규칙(60분 창·시간대, C61)에만 걸리면 값은 살리고 그 칸을 다시 묻는다(파일을 버리지 않음)
+        try:
+            existing = load_config_lenient(path)
+            io.echo(
+                f"기존 설정을 불러왔습니다: {path}\n고칠 칸이 있습니다: {first}\n"
+                "엔터를 누르면 나머지 기존 값은 유지합니다.\n"
+            )
+        except Exception as e:  # noqa: BLE001  형식 자체가 깨진 설정
+            existing = _move_broken(io, path, e)
     except Exception as e:  # noqa: BLE001  깨진 설정도 마법사로 고칠 수 있어야 한다
         backup = path.with_suffix(".yaml.broken")
         path.replace(backup)

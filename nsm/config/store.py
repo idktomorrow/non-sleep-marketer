@@ -9,7 +9,7 @@ import yaml
 from pydantic import ValidationError
 
 from nsm.config.paths import config_path
-from nsm.config.schema import MIN_WINDOW_MINUTES, AppConfig, check_windows
+from nsm.config.schema import LENIENT, MIN_WINDOW_MINUTES, AppConfig, check_windows
 from nsm.domain.models import ActiveWindow
 
 
@@ -25,14 +25,39 @@ def load_config(path: Path | None = None) -> AppConfig:
     p = path or config_path()
     if not p.exists():
         raise ConfigNotFoundError(f"설정 파일이 없습니다: {p}. `nsm init`을 먼저 실행하세요.")
+    raw = _read_yaml(p)
     try:
-        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         return AppConfig.model_validate(raw)
-    except (yaml.YAMLError, ValidationError) as e:
+    except ValidationError as e:
         raise ConfigInvalidError(
-            f"설정 파일이 잘못됐습니다: {p}. {_first_error(e)}. "
-            "`nsm init`으로 다시 만들거나 그 줄을 고친 뒤 다시 실행하세요."
+            f"설정 파일이 잘못됐습니다: {p}. {_first_error(e)}. 그 줄을 고친 뒤 다시 실행하세요"
+            "(`nsm init`을 다시 하면 기존 값을 기본값으로 보여 주고 이 칸을 다시 묻습니다)."
         ) from e
+
+
+def load_config_lenient(path: Path) -> AppConfig:
+    """마법사용(C61 리뷰): 새 규칙(60분 창·시간대)에 걸리는 예전 설정도 기본값으로 쓰게 관대하게 읽는다.
+    형식 자체가 깨졌으면 load_config와 같은 ConfigInvalidError."""
+    raw = _read_yaml(path)
+    try:
+        return AppConfig.model_validate(raw, context=LENIENT)
+    except ValidationError as e:
+        raise ConfigInvalidError(f"설정 파일이 잘못됐습니다: {path}. {_first_error(e)}") from e
+
+
+def _read_yaml(p: Path) -> dict:
+    try:
+        return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except UnicodeDecodeError as e:
+        raise ConfigInvalidError(
+            f"설정 파일을 읽지 못했습니다: {p}. UTF-8로 저장해 주세요(메모장: 다른 이름으로 저장 → 인코딩 UTF-8)."
+        ) from e
+    except yaml.YAMLError as e:
+        raise ConfigInvalidError(
+            f"설정 파일이 잘못됐습니다: {p}. {_first_error(e)}. 그 줄을 고친 뒤 다시 실행하세요."
+        ) from e
+    except OSError as e:
+        raise ConfigInvalidError(f"설정 파일을 읽지 못했습니다: {p}. {e}") from e
 
 
 def _first_error(e: Exception) -> str:

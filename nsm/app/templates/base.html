@@ -50,7 +50,21 @@
 <main>{% block content %}{% endblock %}</main>
 <footer class="footer muted small">논슬립 마케터 v{{ version }}</footer>
 {% include "_jobstatus.html" %}
+<div id="htmx-error" class="htmx-error" role="alert" hidden></div>
 <script>
+// HTMX 요청이 4xx·5xx면 서버가 준 배너 조각(문구는 서버에서 이스케이프)을 잠깐 보여 준다(C61). htmx 2는 오류 응답을 화면에 넣지 않는다
+(function () {
+  var box = document.getElementById('htmx-error'), timer = null;
+  if (!box) return;
+  document.addEventListener('htmx:responseError', function (e) {
+    var x = e.detail && e.detail.xhr;
+    if (!x || (x.getResponseHeader('content-type') || '').indexOf('text/html') !== 0) return;
+    box.innerHTML = x.responseText;
+    box.hidden = false;
+    clearTimeout(timer);
+    timer = setTimeout(function () { box.hidden = true; box.innerHTML = ''; }, 8000);
+  });
+})();
 // 알림 창: 바깥을 누르거나 Esc를 누르면 닫는다
 (function () {
   var b = document.getElementById('bell');

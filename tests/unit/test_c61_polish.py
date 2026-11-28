@@ -323,3 +323,95 @@ def test_reply_scripts_fold_whitespace_too() -> None:
 
     assert "replace(/\\s+/g, ' ').includes(args.probe)" in threads._REPLY
     assert "replace(/\\s+/g, ' ').includes(args.probe)" in instagram._REPLY
+
+
+# ---------------------------------------------------------------- C61 리뷰 반영
+def _write_raw(nsm_home: Path, raw: dict, encoding: str = "utf-8") -> Path:
+    nsm_home.mkdir(parents=True, exist_ok=True)
+    p = nsm_home / "config.yaml"
+    p.write_text(yaml.safe_dump(raw, allow_unicode=True), encoding=encoding)
+    return p
+
+
+def test_wizard_keeps_old_config_that_breaks_new_rules(nsm_home) -> None:
+    """0.4.49까지 받던 짧은 창·틀린 시간대: 파일을 버리지 않고 값을 살린 채 활동 시간만 다시 묻는다."""
+    raw = _sample()
+    raw["persona"]["active_hours"] = [{"start": "12:00", "end": "12:30"}]
+    raw["settings"] = {"timezone": "Asia/Seol", "quotas": {"instagram": 3, "threads": 2}}
+    _write_raw(nsm_home, raw)
+    answers = ["<default>"] * 6 + ["<default>", "09:00-12:00"] + ["<default>"] * 6 + ["", "", ""]
+    io = ScriptedIO(answers, [True, False, True, True])
+    cfg = wizard(io, MemorySecretStore())
+    assert not (nsm_home / "config.yaml.broken").exists()
+    assert cfg.brand.name == raw["brand"]["name"] and cfg.persona.name == raw["persona"]["name"]
+    assert cfg.settings.quotas["instagram"] == 3  # 나머지 값 유지
+    assert cfg.settings.timezone == "Asia/Seoul"  # 틀린 시간대는 기본값으로
+    assert load_config().persona.active_hours[0].start == time(9)
+    assert any("고칠 칸이 있습니다" in t for t in io.out)
+    assert any("60분 이상" in t for t in io.out)  # 기본값(12:00-12:30)을 그대로 두면 다시 묻는다
+
+
+def test_wizard_dash_clears_existing_account(nsm_home) -> None:
+    wizard(ScriptedIO(LIVE_ANSWERS, [True, False, True, False]), MemorySecretStore())
+    keep = ["<default>"] * 13 + ["", "", ""] + ["-", "<default>", "<default>"]
+    cfg = wizard(ScriptedIO(keep, [True, False, True, False]), MemorySecretStore())
+    assert cfg.settings.accounts == {"threads": "@luna.threads"}  # 엔터는 유지, "-"는 지움
+    assert cfg.settings.protect_count == 5
+
+
+def test_wizard_rejects_unicode_digit_protect_count(nsm_home) -> None:
+    answers = [*NEW_ANSWERS, "@i", "@t", "²", "7"]
+    io = ScriptedIO(answers, [True, False, True, False])
+    assert wizard(io, MemorySecretStore()).settings.protect_count == 7
+
+
+def test_port_in_use_only_for_address_in_use(monkeypatch) -> None:
+    import errno
+
+    import nsm.runtime as runtime
+
+    class FakeSock:
+        def __init__(self, err):
+            self.err = err
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def setsockopt(self, *a):
+            pass
+
+        def bind(self, addr):
+            raise self.err
+
+    for err, busy in (
+        (OSError(errno.EADDRINUSE, "in use"), True),
+        (OSError(errno.EACCES, "denied"), False),
+    ):
+        monkeypatch.setattr(socket, "socket", lambda *a, e=err, **k: FakeSock(e))
+        assert runtime.port_in_use(1) is busy
+
+
+def test_non_utf8_config_is_one_line(nsm_home, monkeypatch) -> None:
+    import nsm.runtime as runtime
+
+    monkeypatch.setattr(runtime, "_setup_logging", lambda: None)
+    _write_raw(nsm_home, _sample(), encoding="cp949")
+    r = runner.invoke(app, ["run"])
+    assert r.exit_code == 1 and "UTF-8로 저장해 주세요" in r.output
+
+
+def test_doctor_unreadable_config_does_not_claim_dry_run(monkeypatch, nsm_home) -> None:
+    import nsm.config.secrets as secrets
+
+    raw = _sample()
+    raw["settings"] = {"dry_run": False, "timezone": "Asia/Seol"}
+    _write_raw(nsm_home, raw)
+    monkeypatch.setattr(secrets, "KeyringSecretStore", lambda: MemorySecretStore())
+    monkeypatch.setattr(drivers, "find_aside_cli", lambda: None)
+    got = {c.name: c for c in doctor.run_checks()}
+    assert got["설정 파일"].status == "FAIL" and "시간대" in got["설정 파일"].detail
+    assert "드라이런" not in got["Aside CLI"].detail and "알 수 없음" in got["Aside CLI"].detail
+    assert "드라이런" not in got["게시 계정"].detail

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
-if TYPE_CHECKING:
-    from nsm.config.schema import AppConfig
+from nsm.config.schema import AppConfig
 
 Status = Literal["OK", "WARN", "FAIL"]
 
@@ -38,21 +37,39 @@ def _duckdb() -> Check:
         return Check("DuckDB", "FAIL", str(e))
 
 
-def _config() -> Check:
+UNREADABLE = "unreadable"  # 설정 파일이 있는데 못 읽음: 실계정인지 알 수 없다
+
+
+def _load() -> AppConfig | str | None:
+    """설정을 한 번만 읽는다(C61 리뷰). 없으면 None, 못 읽으면 UNREADABLE."""
+    from nsm.config.paths import config_path
+    from nsm.config.store import load_config
+
+    p = config_path()
+    if not p.exists():
+        return None
+    try:
+        return load_config(p)
+    except Exception:  # noqa: BLE001  이유는 _config가 보여 준다
+        return UNREADABLE
+
+
+def _config(loaded: AppConfig | str | None = None) -> Check:
+    """loaded: run_checks가 읽어 둔 설정(읽었으면 다시 읽지 않음). 못 읽었으면 이유를 보이려고 한 번 더."""
     from nsm.config.paths import config_path
 
     p = config_path()
     if not p.exists():
         return Check("설정 파일", "FAIL", f"{p} 없음. `nsm init`을 실행하세요")
+    if isinstance(loaded, AppConfig):
+        return Check("설정 파일", "OK", str(p))
     try:
         from nsm.config.store import load_config
 
         load_config(p)
         return Check("설정 파일", "OK", str(p))
-    except ModuleNotFoundError:
-        return Check("설정 파일", "WARN", "설정 로더는 배치 C에서 추가됩니다")
     except Exception as e:  # noqa: BLE001
-        return Check("설정 파일", "FAIL", f"{p}: {e}")
+        return Check("설정 파일", "FAIL", str(e))
 
 
 def _secrets() -> Check:
@@ -98,15 +115,20 @@ def _fonts() -> Check:
     return Check("Pretendard 폰트", "WARN", "nsm/templates/fonts/ 비어 있음 (배치 S-α)")
 
 
-def _live(cfg: AppConfig | None) -> bool:
+def _live(cfg: AppConfig | str | None) -> bool:
     """실계정 모드인가. 설정이 없으면(nsm init 전) 드라이런으로 본다(설정 파일 점검이 따로 FAIL을 낸다)."""
-    return cfg is not None and not cfg.settings.dry_run
+    return isinstance(cfg, AppConfig) and not cfg.settings.dry_run
 
 
-def _aside(cfg: AppConfig | None = None) -> Check:
+UNKNOWN_NOTE = "설정 파일을 읽지 못해 실계정인지 알 수 없음(위 설정 파일 줄을 먼저 고치세요)"
+
+
+def _aside(cfg: AppConfig | str | None = None) -> Check:
     from nsm.adapters.drivers import find_aside_cli
 
     exe = find_aside_cli()
+    if exe is None and cfg == UNREADABLE:
+        return Check("Aside CLI", "WARN", f"없음. {UNKNOWN_NOTE}")
     if exe is None:
         if _live(cfg):
             return Check(
@@ -123,10 +145,12 @@ def _aside(cfg: AppConfig | None = None) -> Check:
     return Check("Aside CLI", "OK", f"{exe} · 게시할 계정으로 Aside 브라우저에 로그인돼 있어야 함")
 
 
-def _accounts(cfg: AppConfig | None) -> Check:
+def _accounts(cfg: AppConfig | str | None) -> Check:
+    if cfg == UNREADABLE:
+        return Check("게시 계정", "WARN", UNKNOWN_NOTE)
     if not _live(cfg):
         return Check("게시 계정", "OK" if cfg else "WARN", DRY_RUN_NOTE)
-    assert cfg is not None
+    assert isinstance(cfg, AppConfig)
     s = cfg.settings
     have = {p: h for p, h in s.accounts.items() if h.strip()}
     if not have:
@@ -142,19 +166,10 @@ def _accounts(cfg: AppConfig | None) -> Check:
     return Check("게시 계정", "OK", detail)
 
 
-def _load() -> AppConfig | None:
-    from nsm.config.paths import config_path
-    from nsm.config.store import load_config
-
-    try:
-        return load_config(config_path())
-    except Exception:  # noqa: BLE001  없거나 깨진 설정은 _config가 알린다
-        return None
-
-
-CHECKS = [_python, _duckdb, _config, _secrets, _chromium, _fonts]
+CHECKS = [_python, _duckdb, _secrets, _chromium, _fonts]
 
 
 def run_checks() -> list[Check]:
     cfg = _load()
-    return [*(c() for c in CHECKS), _aside(cfg), _accounts(cfg)]
+    py, duck, *rest = (c() for c in CHECKS)
+    return [py, duck, _config(cfg), *rest, _aside(cfg), _accounts(cfg)]
