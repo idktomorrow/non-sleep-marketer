@@ -310,6 +310,47 @@ def switch_preset(
     return new.settings.preset
 
 
+class AlreadyRunningError(Exception):
+    """다른 nsm run이 DB 파일이나 대시보드 포트를 쥐고 있음(C61, 외부 검토 1-16). CLI가 한 줄로 보여 준다."""
+
+
+def already_running(port: int) -> str:
+    return (
+        f"논슬립 마케터가 이미 켜져 있는 것 같습니다(대시보드 http://127.0.0.1:{port}). "
+        "먼저 그 창을 끄세요"
+    )
+
+
+def open_workspace_db(cfg: AppConfig) -> Database:
+    """지금 프리셋의 DB(C29). 다른 프로세스가 쥐고 있으면 생 DuckDB 트레이스 대신 AlreadyRunningError."""
+    from nsm.rag.command import is_lock_error
+
+    try:
+        return Database(workspace_db_path(cfg))
+    except Exception as e:
+        if is_lock_error(e):
+            raise AlreadyRunningError(already_running(cfg.settings.dashboard_port)) from e
+        raise
+
+
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    """대시보드 포트를 누가 쓰고 있나. uvicorn은 묶기 실패를 로그 한 줄과 sys.exit으로 끝내서 미리 본다."""
+    import errno
+    import os
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if os.name != "nt":  # uvicorn처럼: 방금 끈 소켓(TIME_WAIT)은 쓰는 중으로 보지 않는다
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+        except OSError as e:
+            # "이미 쓰는 주소"만 켜져 있다고 본다. 권한·예약 범위(WSAEACCES) 같은 다른 이유는 uvicorn이
+            # 진짜 오류를 보이게 둔다(잘못된 "이미 켜짐" 안내를 하지 않게, C61 리뷰)
+            return e.errno in (errno.EADDRINUSE, 10048) or getattr(e, "winerror", None) == 10048
+    return False
+
+
 def run_job_once(job: str, arg: str | None = None) -> None:
     from nsm.engine.runner import run_job
 
@@ -317,7 +358,7 @@ def run_job_once(job: str, arg: str | None = None) -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     cfg = load_config()
-    db = Database(workspace_db_path(cfg))  # 전환해 둔 프리셋의 DB(C29)
+    db = open_workspace_db(cfg)  # 전환해 둔 프리셋의 DB(C29). nsm run이 켜져 있으면 잠겨 있다
     try:
         with ExitStack() as stack:
             ctx = build_context(cfg, db, stack)
@@ -369,7 +410,9 @@ def run_forever() -> None:
     port = cfg.settings.dashboard_port
     stopping = threading.Event()  # 끄는 중 표시(C33): 그 순간 돌던 잡의 오류는 "중단"으로 적는다
     url = f"http://127.0.0.1:{port}"
-    db = Database(workspace_db_path(cfg))  # 전환해 둔 프리셋의 DB(C29)
+    if port_in_use(port):  # DB를 열고 잡을 예약하기 전에(C61)
+        raise AlreadyRunningError(already_running(port))
+    db = open_workspace_db(cfg)  # 전환해 둔 프리셋의 DB(C29)
     stack = ExitStack()
     drivers = ExitStack()  # 브라우저는 작업 스레드에서 열리므로 닫기도 작업 스레드에서
     scheduler = None
@@ -470,7 +513,13 @@ def run_forever() -> None:
             _orig_exit(sig, frame)
 
         server.handle_exit = _handle_exit
-        server.run()
+        try:
+            server.run()
+        except SystemExit:
+            # 미리 본 뒤에 다른 프로그램이 포트를 잡으면 uvicorn이 로그 한 줄 뒤 sys.exit한다(C61)
+            if not server.started and not stopping.is_set() and port_in_use(port):
+                raise AlreadyRunningError(already_running(port)) from None
+            raise
     finally:
         stopping.set()
         if scheduler is not None:

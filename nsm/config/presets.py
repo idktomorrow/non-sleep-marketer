@@ -22,7 +22,7 @@ from pathlib import Path
 import yaml
 
 from nsm.config import paths
-from nsm.config.schema import AppConfig, BrandSettings
+from nsm.config.schema import AppConfig, BrandSettings, check_windows
 from nsm.domain.models import Persona
 
 DEFAULT_PRESET = "기본"
@@ -145,6 +145,12 @@ class PresetStore:
         persona = Persona.model_validate(
             {**(raw.get("persona") or {}), "handle": cfg.persona.handle}
         )
+        try:  # 설정 화면·config.yaml과 같은 활동 시간 규칙(C61): model_copy는 검사를 건너뛴다
+            persona = persona.model_copy(
+                update={"active_hours": check_windows(persona.active_hours)}
+            )
+        except ValueError as e:
+            raise PresetError(f"프리셋 '{name}'의 활동 시간: {e}") from e
         brand = BrandSettings.model_validate(raw.get("brand") or {})
         stored = str(raw.get("name") or name)
         settings = cfg.settings.model_copy(update={"preset": stored})

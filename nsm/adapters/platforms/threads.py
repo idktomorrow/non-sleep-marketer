@@ -17,6 +17,7 @@ from nsm.adapters.platforms.aside_common import (
     check_upload_paths,
     norm_handle,
     post_probe,
+    reply_probe,
 )
 from nsm.domain.models import (
     AccountMetrics,
@@ -365,7 +366,7 @@ const mine = await nsmUntil(async () => {
   return await pg.evaluate((args) => {
     for (const c of document.querySelectorAll('[data-pressable-container="true"]')) {
       const h = Array.from(c.querySelectorAll('a[href^="/@' + args.handle + '/post/"]')).map(a => a.getAttribute('href'))[0];
-      if (h && (c.innerText || '').includes(args.probe)) return h.split('/post/')[1].split(/[/?]/)[0];
+      if (h && (c.innerText || '').replace(/\s+/g, ' ').includes(args.probe)) return h.split('/post/')[1].split(/[/?]/)[0];
     }
     return '';
   }, { handle: ARGS.handle, probe: ARGS.probe });
@@ -530,7 +531,7 @@ class ThreadsAdapter(AsideAdapterBase):
                 "code": code,
                 "parent": comment.post_external_id,
                 "text": text,
-                "probe": text.strip()[:20],
+                "probe": reply_probe(text),
             },
         )
         if not d.get("code"):

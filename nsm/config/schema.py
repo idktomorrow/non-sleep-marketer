@@ -7,14 +7,78 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal, get_args
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from nsm.domain.models import ActiveWindow, Brand, Persona, Platform
 
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+# 활동 시간 창 하나의 최소 길이(분). 수집·원고 만들기가 창 시작 +20분·+50분에 돌아서(engine.catch_up.at_offset)
+# 이보다 짧으면 매일 창 밖으로 판정돼 건너뛴다(C61, 외부 검토 1-18). 오프셋은 고치지 않고 입력만 막는다
+MIN_WINDOW_MINUTES = 60
+WINDOW_TOO_SHORT = (
+    "활동 시간 창은 60분 이상이어야 합니다(수집·생성이 창 안에서 돌아야 해서): {window}"
+)
+
+
+def window_minutes(w: ActiveWindow) -> int:
+    """창 길이(분). end가 start보다 이르면 자정을 넘는 창(22:00-02:00 = 240분). 같으면 0."""
+    a = w.start.hour * 60 + w.start.minute
+    b = w.end.hour * 60 + w.end.minute
+    return (b - a) % (24 * 60)
+
+
+def check_windows(
+    windows: list[ActiveWindow], min_minutes: int = MIN_WINDOW_MINUTES
+) -> list[ActiveWindow]:
+    """시작 시각 순으로 정렬하고, 길이 0이거나 min_minutes보다 짧은 창은 ValueError(C61).
+
+    정렬하는 까닭: 첫 창(windows[0])의 시작이 수집·원고 시각이 된다. "18:00-22:00, 09:00-12:00"처럼
+    적으면 원고가 18:50에 잡혔다. 설정 화면·마법사·config.yaml 읽기·프리셋이 모두 이 함수를 지난다.
+    """
+    out = sorted(windows, key=lambda w: (w.start, w.end))
+    if min_minutes <= 0:  # 관대하게 읽기(LENIENT): 정렬만
+        return out
+    for w in out:
+        n = window_minutes(w)
+        label = f"{w.start:%H:%M}-{w.end:%H:%M}"
+        if n == 0:
+            raise ValueError(f"시작과 끝이 같은 창은 쓸 수 없습니다: {label}")
+        if n < min_minutes:
+            raise ValueError(WINDOW_TOO_SHORT.format(window=label))
+    return out
+
+
+# 검사 문맥 {"lenient": True}: 마법사가 예전 설정을 기본값으로 쓰려고 읽을 때(C61 리뷰). 0.4.49까지 받던
+# 짧은 창·틀린 시간대 때문에 설정 전체를 버리지 않게, 창은 정렬만 하고 시간대는 기본값으로 둔다.
+# 마법사가 활동 시간을 다시 물어(parse_windows) 규칙에 맞는 값으로 저장한다
+LENIENT = {"lenient": True}
+DEFAULT_TIMEZONE = "Asia/Seoul"
+
+
+def _lenient(info: ValidationInfo) -> bool:
+    return bool(info.context and info.context.get("lenient"))
+
+
+def check_timezone(name: str) -> str:
+    """ZoneInfo로 열리는 이름만. 오타면 켤 때 스케줄러가 트레이스로 죽었다(C61, 외부 검토 1-6)."""
+    try:
+        ZoneInfo(name)
+    except Exception as e:  # noqa: BLE001  ZoneInfoNotFoundError·ValueError(빈 값, 경로 문자)
+        raise ValueError("시간대 이름이 잘못됐습니다(예: Asia/Seoul)") from e
+    return name
 
 
 # 카드 디자인 스타일(S8, ADR 0036). clean은 기존 스타일. 세 스타일 모두 배경을 코드(CSS·SVG)로 그린다.
@@ -263,6 +327,26 @@ class Settings(_Model):
     models: ModelSettings = Field(default_factory=ModelSettings)
     rag: RagSettings = Field(default_factory=RagSettings)
 
+    @field_validator("timezone")
+    @classmethod
+    def _timezone(cls, v: str, info: ValidationInfo) -> str:
+        try:
+            return check_timezone(v)
+        except ValueError:
+            if _lenient(info):
+                return DEFAULT_TIMEZONE
+            raise
+
+    @field_validator("posting_hours")
+    @classmethod
+    def _posting_hours(
+        cls, v: list[ActiveWindow] | None, info: ValidationInfo
+    ) -> list[ActiveWindow] | None:
+        # 게시 시간은 수집·생성 오프셋과 무관해 60분 규칙은 두지 않는다. 정렬과 길이 0 거절만
+        if not v:
+            return v
+        return check_windows(v, min_minutes=0 if _lenient(info) else 1)
+
     @field_validator("classifier", mode="before")
     @classmethod
     def _old_jev(cls, v: object) -> object:
@@ -275,6 +359,13 @@ class AppConfig(_Model):
     brand: BrandSettings
     persona: Persona
     settings: Settings = Field(default_factory=Settings)
+
+    @field_validator("persona")
+    @classmethod
+    def _active_hours(cls, v: Persona, info: ValidationInfo) -> Persona:
+        # 동결 계약(domain.models.Persona)은 그대로 두고 설정 쪽에서 검사한다(C61)
+        floor = 0 if _lenient(info) else MIN_WINDOW_MINUTES
+        return v.model_copy(update={"active_hours": check_windows(v.active_hours, floor)})
 
     @field_validator("brand", mode="before")
     @classmethod

@@ -382,3 +382,6 @@ nav.menu.has-more, .table-wrap.has-more { -webkit-mask-image: linear-gradient(to
 .api-keys .key-expires { display: inline-flex; gap: 4px; align-items: center; font-size: .85em; color: var(--muted); }
 .api-keys .key-expires input { width: auto; }
 .bad-text { color: var(--bad); }
+/* HTMX 요청 오류 배너(C61): 오른쪽 아래 작업 상태와 겹치지 않게 왼쪽 아래 */
+.htmx-error { position: fixed; left: 16px; bottom: 16px; z-index: 60; max-width: min(420px, calc(100% - 32px)); }
+.htmx-error .notice { margin: 0; box-shadow: 0 4px 14px rgba(0, 0, 0, .12); }

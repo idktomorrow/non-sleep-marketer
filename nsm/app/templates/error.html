@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ error_title }} · 논슬립 마케터{% endblock %}
+{% block content %}
+<h1>{{ error_title }}</h1>
+<div class="notice {{ 'warn' if error_status < 500 else 'bad' }}" role="alert">{{ error_detail }}</div>
+<p class="muted small">오류 번호 {{ error_status }}{% if error_status >= 500 %} · 계속되면 "장애"·"실행 기록" 화면과 로그(<code>%USERPROFILE%\.nsm\logs</code>)를 보세요{% endif %}</p>
+<p><a class="btn" href="{{ error_back }}">뒤로</a> <a class="btn-ghost" href="/">오늘 화면</a></p>
+{% endblock %}

@@ -1,6 +1,7 @@
 """대시보드 설정 화면(M17): 폼 → 새 AppConfig. 라우트는 server.py, 여기는 검사와 변환만(테스트하기 쉽게).
 
-API 키·게시 계정·드라이런은 여기서 바꾸지 않는다. 키는 keyring, 계정과 드라이런은 `nsm init`(ADR 0028).
+게시 계정·드라이런·보호 모드는 여기서 바꾸지 않는다(ADR 0028 개정 1). `nsm init` 또는 nsm run을 끄고
+config.yaml의 settings를 고친다(C61). API 키는 설정 화면의 키 칸(keyring).
 """
 
 from __future__ import annotations
@@ -58,12 +59,12 @@ def _number(form: dict[str, Any], key: str, label: str, lo: float, hi: float) ->
     return v
 
 
-def _windows(form: dict[str, Any], key: str, label: str) -> list | None:
+def _windows(form: dict[str, Any], key: str, label: str, min_minutes: int = 60) -> list | None:
     raw = str(form.get(key, "")).strip()
     if not raw:
         return None
     try:
-        return parse_windows(raw)
+        return parse_windows(raw, min_minutes)
     except ValueError as e:
         raise SettingsError(f"{label}: {e}") from e
 
@@ -147,7 +148,7 @@ def apply_settings_form(cfg: AppConfig, form: dict[str, Any]) -> AppConfig:
     )
     settings = cfg.settings.model_dump()
     settings.update(
-        posting_hours=_windows(form, "posting_hours", "게시 시간"),
+        posting_hours=_windows(form, "posting_hours", "게시 시간", min_minutes=1),
         quotas={
             **cfg.settings.quotas,
             "instagram": int(

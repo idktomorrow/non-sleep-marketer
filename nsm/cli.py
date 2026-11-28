@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
 
+from nsm.engine.job_names import job_help
+
 app = typer.Typer(help="논슬립 마케터: 로컬 AI 가상 인플루언서 마케터", no_args_is_help=True)
+
+
+@contextmanager
+def friendly_errors() -> Iterator[None]:
+    """사람이 고칠 수 있는 시작 오류는 Typer 예외 상자 대신 한국어 한 줄과 종료 코드 1로(C61).
+
+    설정 파일 없음·형식 오류(외부 검토 1-15), 이미 켜져 있음(DB 잠금·포트, 1-16).
+    """
+    from nsm.config.store import ConfigInvalidError, ConfigNotFoundError
+
+    try:
+        yield
+    except (ConfigNotFoundError, ConfigInvalidError) as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1) from None
+    except Exception as e:
+        from nsm.runtime import AlreadyRunningError
+
+        if isinstance(e, AlreadyRunningError):
+            typer.echo(str(e), err=True)
+            raise typer.Exit(1) from None
+        raise
 
 
 @app.command()
@@ -52,7 +78,7 @@ def run(
     job: str = typer.Option(
         "",
         "--job",
-        help="--once와 함께: collect|generate|publish|reply|metrics|health|weekly_report|maintenance|keyword",
+        help=job_help(),  # 원본은 engine.runner.JOBS(C61: index가 빠져 있었다)
     ),
     keyword: str = typer.Option(
         "", "--keyword", help="--job keyword와 함께: 이 키워드로 자료를 찾아 원고 1건"
@@ -66,9 +92,11 @@ def run(
             raise typer.BadParameter("--once에는 --job이 필요합니다")
         if (job == "keyword") != bool(keyword.strip()):
             raise typer.BadParameter("--keyword는 --job keyword와 함께, 그리고 함께만 씁니다")
-        run_job_once(job, keyword or None)
+        with friendly_errors():
+            run_job_once(job, keyword or None)
     else:
-        run_forever()
+        with friendly_errors():
+            run_forever()
 
 
 @app.command("index")
@@ -93,7 +121,8 @@ def index(
     from nsm.config.store import load_config
     from nsm.rag.command import DbLockedError, IndexInputError, run_index
 
-    cfg = load_config()
+    with friendly_errors():
+        cfg = load_config()
     target = db or workspace_db_path(cfg)
     try:
         code = run_index(
@@ -128,7 +157,8 @@ def ask(
     from nsm.config.store import load_config
     from nsm.rag.command import DbLockedError, run_ask
 
-    cfg = load_config()
+    with friendly_errors():
+        cfg = load_config()
     try:
         code = run_ask(cfg, db or workspace_db_path(cfg), question, k=k, echo=typer.echo)
     except DbLockedError as e:

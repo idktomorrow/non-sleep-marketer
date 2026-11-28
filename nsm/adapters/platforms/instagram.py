@@ -24,6 +24,7 @@ from nsm.adapters.platforms.aside_common import (
     check_upload_paths,
     norm_handle,
     post_probe,
+    reply_probe,
 )
 from nsm.domain.models import (
     AccountMetrics,
@@ -369,7 +370,7 @@ if (!posted) {
 // 답글은 보통 "답글 N개 모두 보기"로 접혀 보인다. 내 문구가 보이거나 그 댓글 칸에 답글 수가 생기면 확인된 것으로 본다.
 const seen = await nsmUntil(async () => await pg.evaluate((args) => {
   const main = document.querySelector('main');
-  if ((main.innerText || '').includes(args.probe)) return true;
+  if ((main.innerText || '').replace(/\s+/g, ' ').includes(args.probe)) return true;
   const a = main.querySelector('a[href*="/c/' + args.cid + '/"]');
   let box = a && a.parentElement;
   for (let i = 0; i < 10 && box; i++, box = box.parentElement) {
@@ -671,7 +672,7 @@ class InstagramAdapter(AsideAdapterBase):
             "author": author,
             "cid": cid,
             "text": text,
-            "probe": text.strip()[:20],
+            "probe": reply_probe(text),
         }
         d = self._run(_REPLY, args) or {}
         if not d.get("ok"):

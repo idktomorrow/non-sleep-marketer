@@ -14,9 +14,11 @@ from nsm.config.paths import config_path, uploads_dir
 from nsm.config.schema import CARD_LOOK_FIELDS, AppConfig, BrandSettings, Settings
 from nsm.config.secrets import KEY_NAMES, KEY_USES, KEYS, KeyringSecretStore, SecretStore, mask
 from nsm.config.store import (
+    ConfigInvalidError,
     ConfigNotFoundError,
     format_windows,
     load_config,
+    load_config_lenient,
     parse_windows,
     save_config,
     split_list,
@@ -37,6 +39,14 @@ RISK_NOTICE = """\
 KEY_LABELS = {
     k: f"{KEY_NAMES[k]} API 키 ({KEY_USES[k]})" for k in KEY_NAMES
 }  # 설정 화면과 같은 설명
+
+
+# 마법사 끝 안내(C61). 설정 화면·사용설명서·README가 같은 말을 한다(ADR 0028 개정 1: 설정 화면에서는 바꾸지 않음)
+CHANGE_LATER = (
+    "  계정·드라이런·보호 모드를 나중에 바꾸려면 `nsm init`을 다시 하거나, nsm run을 끄고 config.yaml의 "
+    "settings를 고친 뒤 다시 켜세요(사용설명서 5절). 실제 로그인은 `nsm run` 후 Aside 브라우저 창에서 합니다."
+)
+PLATFORM_KO = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
 
 
 class WizardAbortedError(Exception):
@@ -90,6 +100,46 @@ def _ask_list(io: WizardIO, text: str, default: str) -> list[str]:
         io.echo("  하나 이상 입력해 주세요 (쉼표로 구분).")
 
 
+def _move_broken(io: WizardIO, path: Path, e: Exception) -> None:
+    backup = path.with_suffix(".yaml.broken")
+    path.replace(backup)
+    io.echo(f"기존 설정을 읽지 못해 {backup.name}로 옮기고 새로 만듭니다: {e}\n")
+    return None
+
+
+CLEAR = "-"  # 계정 칸: 엔터는 기존 값 유지라, 지우려면 이 글자
+
+
+def _ask_accounts(io: WizardIO, s: Settings) -> Settings:
+    """실계정 게시 계정(settings.accounts)과 보호 모드 건수(protect_count). 비운 플랫폼은 게시하지 않는다."""
+    io.echo(
+        "  게시할 계정 핸들을 적으세요. Aside 브라우저에 로그인된 계정과 다르면 게시하지 않습니다. "
+        f"엔터는 기존 값 유지, 그 플랫폼에 게시하지 않으려면 {CLEAR}를 적으세요."
+    )
+    accounts = dict(s.accounts)
+    for platform in s.enabled_platforms:
+        v = _ask(
+            io,
+            f"{PLATFORM_KO.get(platform, platform)} 계정 핸들 (예: @my_account)",
+            accounts.get(platform, ""),
+            required=False,
+        )
+        if v and v != CLEAR:
+            accounts[platform] = v
+        else:
+            accounts.pop(platform, None)
+    if not accounts:
+        io.echo(
+            "  계정을 하나도 적지 않아 실계정 게시는 하지 않습니다(`nsm doctor`가 FAIL로 알립니다)."
+        )
+    while True:
+        raw = _ask(io, "보호 모드: 처음 몇 건을 사람이 승인할까요", str(s.protect_count))
+        if raw.isascii() and raw.isdigit():  # "²"처럼 int()가 못 읽는 숫자는 거른다
+            break
+        io.echo("  0 이상의 숫자로 적어 주세요.")
+    return s.model_copy(update={"accounts": accounts, "protect_count": int(raw)})
+
+
 def _ask(io: WizardIO, text: str, default: str = "", required: bool = True) -> str:
     while True:
         v = io.prompt(text, default=default).strip()
@@ -110,6 +160,16 @@ def wizard(
         io.echo(f"기존 설정을 불러왔습니다: {path}\n엔터를 누르면 기존 값을 유지합니다.\n")
     except ConfigNotFoundError:
         existing = None
+    except ConfigInvalidError as first:
+        # 새 규칙(60분 창·시간대, C61)에만 걸리면 값은 살리고 그 칸을 다시 묻는다(파일을 버리지 않음)
+        try:
+            existing = load_config_lenient(path)
+            io.echo(
+                f"기존 설정을 불러왔습니다: {path}\n고칠 칸이 있습니다: {first}\n"
+                "엔터를 누르면 나머지 기존 값은 유지합니다.\n"
+            )
+        except Exception as e:  # noqa: BLE001  형식 자체가 깨진 설정
+            existing = _move_broken(io, path, e)
     except Exception as e:  # noqa: BLE001  깨진 설정도 마법사로 고칠 수 있어야 한다
         backup = path.with_suffix(".yaml.broken")
         path.replace(backup)
@@ -213,7 +273,9 @@ def wizard(
     ):
         settings = settings.model_copy(update={"image_generation": "auto"})
     if not dry_run:
-        io.echo("  실제 계정 로그인은 `nsm run` 후 브라우저 창에서 진행합니다(사용설명서 5절).")
+        # 실계정이면 게시 계정과 보호 모드를 여기서 묻는다(C61, 외부 검토 1-14). 드라이런이면 묻지 않는다
+        settings = _ask_accounts(io, settings)
+    io.echo(CHANGE_LATER)
 
     cfg = AppConfig(risk_accepted_at=accepted_at, brand=brand, persona=persona, settings=settings)
     save_config(cfg, path)
