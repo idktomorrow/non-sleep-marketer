@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
@@ -40,6 +40,7 @@ from nsm.app.card_editor import (
     save_upload,
     set_background,
 )
+from nsm.app.errors import install_error_handlers, wants_html
 from nsm.app.folder_picker import (
     PickerBusy,
     PickerNotFolder,
@@ -212,6 +213,11 @@ def next_collect_text(cfg: AppConfig, now: datetime, tz: str) -> str | None:
 LOOPBACK = frozenset({"127.0.0.1", "::1"})  # 실패 화면은 내 PC에서 연 대시보드에만(E2)
 
 
+def query_flag(raw: str) -> bool:
+    """쿼리 문자열 켬/끔(?saved=1, ?all=true). 모르는 값은 끔(자료 화면 C46처럼 기본값)."""
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 def create_app(state: AppState) -> FastAPI:
     app = FastAPI(title="논슬립 마케터", docs_url=None, redoc_url=None)
     # DNS 리바인딩 방어: 다른 도메인 이름으로 들어온 요청은 거부한다(토큰 탈취 → CSRF 우회 차단)
@@ -329,6 +335,9 @@ def create_app(state: AppState) -> FastAPI:
 
     def back(url: str) -> RedirectResponse:
         return RedirectResponse(url, status_code=303)
+
+    # 폼 처리 중 오류를 JSON 대신 오류 화면·HTMX 조각으로(C61, ADR 0081). 상태 코드는 그대로
+    install_error_handlers(app, page)
 
     # ------------------------------------------------------------------ 개요·스위치
 
@@ -476,14 +485,14 @@ def create_app(state: AppState) -> FastAPI:
         }
 
     @app.get("/settings", response_class=HTMLResponse)
-    def settings_page(request: Request, saved: int = 0) -> HTMLResponse:
+    def settings_page(request: Request, saved: str = "") -> HTMLResponse:
         return page(
             request,
             "settings.html",
             **settings_extra(request),
             v=form_values(state.get_config()),
             error=None,
-            saved=bool(saved),
+            saved=query_flag(saved),  # 오타(?saved=x)에 422 JSON 대신 "안 보임"(C61)
         )
 
     def _presets() -> PresetStore:
@@ -978,7 +987,12 @@ def create_app(state: AppState) -> FastAPI:
 
     @app.get("/review/{cid}", response_class=HTMLResponse)
     def review_detail(request: Request, cid: str) -> HTMLResponse:
-        c = _content_or_404(cid)
+        return _review_page(request, _content_or_404(cid))
+
+    def _review_page(
+        request: Request, c, edit_form: dict | None = None, edit_error: str | None = None
+    ) -> HTMLResponse:
+        cid = c.id
         cards = sorted((state.media_dir / "cards" / cid).glob("slide-*.png"))
         prev_dir = state.media_dir / "previews" / cid
         previews = sorted(prev_dir.glob("slide-*.png"))
@@ -1001,6 +1015,8 @@ def create_app(state: AppState) -> FastAPI:
             overflow=overflow,
             can_preview=state.renderer is not None,
             max_upload_mb=MAX_UPLOAD_BYTES // (1024 * 1024),
+            edit_form=edit_form,
+            edit_error=edit_error,
         )
 
     def _png_name_ok(name: str) -> bool:
@@ -1086,7 +1102,7 @@ def create_app(state: AppState) -> FastAPI:
         return c
 
     @app.post("/review/{cid}/edit", dependencies=[Depends(check_csrf)])
-    async def edit(cid: str, request: Request) -> RedirectResponse:
+    async def edit(cid: str, request: Request) -> Response:
         """원고 저장: 캡션·스레드·블로그 + 슬라이드별 문구(s{번호}_{칸}). 폼에 없는 칸은 그대로 둔다."""
         c = _editable(cid)
         form = dict((await request.form()).items())
@@ -1096,6 +1112,12 @@ def create_app(state: AppState) -> FastAPI:
         try:
             deck = apply_slide_edits(g.deck, form)
         except EditError as e:
+            if wants_html(request):
+                # 입력이 날아가지 않게 보낸 값 그대로 편집 화면을 다시 그린다(C61, 설정 폼과 같은 방식)
+                form.pop("csrf", None)
+                resp = await run_in_threadpool(_review_page, request, c, form, str(e))
+                resp.status_code = 400
+                return resp
             raise HTTPException(400, str(e)) from e
         updates: dict[str, Any] = {"deck": deck}
         for f in ("instagram_caption", "threads_text", "blog_title", "blog_markdown"):
@@ -1302,8 +1324,9 @@ def create_app(state: AppState) -> FastAPI:
         return FileResponse(shot, media_type="image/png", headers={"Cache-Control": "no-store"})
 
     @app.get("/logs", response_class=HTMLResponse)
-    def logs(request: Request, show_all: bool = Query(False, alias="all")) -> HTMLResponse:
-        """?all=1(또는 true): 걸러내지 않고 최근 200줄 전부."""
+    def logs(request: Request, show_all_q: str = Query("", alias="all")) -> HTMLResponse:
+        """?all=1(또는 true): 걸러내지 않고 최근 200줄 전부. 해석 못 하면 걸러 보기(C61: 422 JSON 대신)."""
+        show_all = query_flag(show_all_q)
         runs = state.repo.recent_runs(200 if show_all else RUN_WINDOW)
         rows, hidden = build_rows(runs, show_all)
         statuses = job_statuses(

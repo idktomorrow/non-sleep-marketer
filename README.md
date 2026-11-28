@@ -2,7 +2,7 @@
 
 **잠들지 않는 AI 가상 인플루언서 마케터.** 내 PC에 켜 두기만 하면, 내가 정한 가상 인물(페르소나)이 관심 주제의 자료를 모으고, 카드뉴스와 글을 만들어 인스타그램·스레드에 올리고, 댓글에 답하고, 성과를 정리합니다. 민감한 글과 댓글은 사람에게 넘기고, 법으로 정해진 가상인물·광고 표기는 자동으로 넣습니다.
 
-> 상태: **실계정 운영 중** · 2026-10-13부터 · 버전 0.4.46 · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
+> 상태: **실계정 운영 중** · 2026-10-13부터 · 버전 0.4.50(버전은 pyproject.toml이 원본) · 인스타그램·스레드. 빠지거나 미흡한 부분은 [known-gaps.md](docs/known-gaps.md)에 모아 두었습니다.
 
 ![대시보드 "오늘" 화면](docs/samples/ui/after/1-overview-desktop.png)
 
@@ -117,7 +117,7 @@ flowchart LR
 | `v0.2-live` | 2026-10-13 | 실계정 연결(스레드·인스타그램), 주간 리포트, 카드뉴스 렌더러. 이날 실계정 첫 실행 |
 | `v0.3-mvp` | 2026-10-13 | 원고 품질, 카드 편집 화면, 대시보드 디자인 |
 | `v0.4-quality` | 2026-10-15 | 계약 테스트, 품질 체크리스트, 카드 스타일 3종 |
-| 지금 | 0.4.46 | 운영하며 고친 안정화·문서 질문(RAG)·장애 화면·백업·API 키 점검 |
+| 지금 | 0.4.50 | 운영하며 고친 안정화·문서 질문(RAG)·장애 화면·백업·API 키 점검 |
 
 숫자로 보면 (저장소 기준, 2026-11-24)
 - 테스트 **1,618개** (`uv run pytest --co -q`, 실계정 계약 테스트 13개는 기본 제외)
@@ -152,7 +152,7 @@ uv run nsm run       # 실행. 대시보드: http://127.0.0.1:8765 (끄기: Ctrl
 ```
 
 1. **드라이런으로 먼저 보기**: 처음 설정은 드라이런입니다. 실제로 올리지 않고 `%USERPROFILE%\.nsm\preview\`에 카드와 글을 저장합니다.
-2. **실계정으로 바꾸기**: `%USERPROFILE%\.nsm\config.yaml`에서 `settings.dry_run: false`로 바꾸고, `settings.accounts`에 게시할 핸들을 적은 뒤 다시 실행합니다. 대시보드 위쪽 표시가 "실계정"이면 됩니다.
+2. **실계정으로 바꾸기**: `uv run nsm init`에서 드라이런을 "아니오"로 답하면 게시할 핸들과 보호 모드 건수를 묻습니다. 또는 `nsm run`을 끄고 `%USERPROFILE%\.nsm\config.yaml`에서 `settings.dry_run: false`로 바꾸고, `settings.accounts`에 게시할 핸들을 적은 뒤 다시 실행합니다. 대시보드 위쪽 표시가 "실계정"이면 됩니다.
 3. **처음 N건 승인하기**: 보호 모드(기본 20건) 동안은 검토 화면에서 하나씩 확인하고 승인합니다. 다 승인한 뒤 "오늘" 화면에서 **자동 게시**를 켜면, 기준을 통과한 원고는 그때부터 자동으로 올라갑니다.
 4. **PC를 켤 때 자동 시작**: `uv run nsm install-autostart` (해제: `uv run nsm uninstall-autostart`)
 
@@ -174,7 +174,7 @@ uv run nsm run       # 실행. 대시보드: http://127.0.0.1:8765 (끄기: Ctrl
 | 종 모양 (오른쪽 위) | 알림함: 검토할 원고, 확인할 댓글, 로그인 필요, 게시 실패, 작업 완료. 누르면 그 화면으로, 전체 읽음 |
 | 설정 | 페르소나(이름·인물상·말투·관심 주제·금칙어), 브랜드(이름·업종·제품·핵심 메시지·색), 운영(활동·게시 시간, 하루 게시 수, 비용 상한, 댓글 확인 간격, 따라잡기), 백업 복사 폴더, API 키와 만료일. 저장하면 바로 반영 |
 
-자료·문서 질문·장애·실행 기록 메뉴와 설정의 따라잡기·백업 복사 폴더는 "고급" 보기에서 보입니다. 드라이런/실계정 전환, 게시 계정, 보호 모드 건수는 사고를 막기 위해 설정 화면에서 바꾸지 않습니다(`nsm init` 또는 `config.yaml`).
+자료·문서 질문·장애·실행 기록 메뉴와 설정의 따라잡기·백업 복사 폴더는 "고급" 보기에서 보입니다. 드라이런/실계정 전환, 게시 계정, 보호 모드 건수는 사고를 막기 위해 설정 화면에서 바꾸지 않습니다(`nsm init` 또는 `nsm run`을 끄고 `config.yaml`).
 
 ## 안전장치
 
@@ -238,5 +238,5 @@ The engine talks only to ports; adapters (Claude, Gemini, Aside/Playwright brows
 Reliability: isolated job failures with retries, rate-limit back-off, login-loss detection, catch-up of missed jobs, daily backups and API-key expiry alerts.
 A RAG chatbot (`/ask`) answers questions from project docs, collected sources and our own posts, with citations.
 **Stack**: Python 3.12 + uv + Typer; DuckDB (tables and RAG vector search via `list_cosine_similarity`, no external vector DB); FastAPI + Jinja2 + HTMX; APScheduler 3; Claude API (generation, RAG answers, failure diagnosis); Gemini REST via httpx (classification, embeddings); optional OpenAI image API; Aside browser for publishing and comments, Playwright Chromium for collection and card rendering; pytest, ruff, GitHub Actions. Nothing to deploy (one PC plus API keys); paid calls are Claude and the optional image API, with Gemini on its free tier.
-**Status**: running on live accounts since 2026-10-13, version 0.4.46, 1,618 tests, 77 ADRs, 93 batches with devlogs, 16 incident write-ups.
+**Status**: running on live accounts since 2026-10-13, version 0.4.50 (pyproject.toml is the source), 1,719 tests, 81 ADRs, 97 batches with devlogs, 17 incident write-ups.
 Keys stay in the Windows Credential Manager; required AI, virtual-person and ad labels are inserted automatically and cannot be turned off.

@@ -10,6 +10,7 @@ from nsm.engine.context import JobContext, JobResult, is_interrupted
 from nsm.engine.doc_index import run_index_job
 from nsm.engine.generate import run_generate
 from nsm.engine.health_metrics import run_health, run_metrics
+from nsm.engine.job_names import ARG_JOB_NAMES, JOB_NAMES
 from nsm.engine.keyword import run_keyword_draft
 from nsm.engine.maintenance import run_maintenance
 from nsm.engine.publish import run_publish
@@ -44,6 +45,13 @@ MANUAL_JOBS: dict[str, Callable[[JobContext], JobResult]] = {
 ARG_JOBS: dict[str, Callable[[JobContext, str], JobResult]] = {
     "keyword": run_keyword_draft,
 }
+
+
+# `nsm --help`용 가벼운 이름 목록(job_names)이 여기와 어긋나면 바로 실패한다(C61)
+if tuple(JOBS) != JOB_NAMES or tuple(ARG_JOBS) != ARG_JOB_NAMES:
+    raise RuntimeError(
+        f"nsm/engine/job_names.py를 JOBS·ARG_JOBS와 맞추세요: {tuple(JOBS)} / {tuple(ARG_JOBS)}"
+    )
 
 
 INTERRUPTED_PREFIX = (

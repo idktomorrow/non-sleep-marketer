@@ -117,6 +117,14 @@ def post_probe(text: str) -> str:
     return body[:40] if len(body) >= 8 else ""
 
 
+def reply_probe(text: str) -> str:
+    """답글이 화면에 떴는지 알아볼 문구: 공백을 한 칸으로 접은 앞 20자(C61, C60 1-1의 답글 쪽).
+
+    브라우저 쪽도 innerText를 replace(/\\s+/g, ' ')로 접어 비교한다. 줄바꿈·탭·NBSP가 든 답글도 확인된다.
+    """
+    return " ".join(text.split())[:20]
+
+
 def media_root() -> Path:
     return (paths.nsm_home() / "media").resolve()
 

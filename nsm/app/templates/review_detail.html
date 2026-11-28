@@ -51,35 +51,38 @@
 
   <section>
     {% if editable %}
+    {# 저장이 거절되면(400) 보낸 값을 그대로 다시 채운다(C61). 없으면 저장된 원고 값 #}
+    {% macro v(name, default) %}{% if edit_form and name in edit_form %}{{ edit_form[name] }}{% else %}{{ default }}{% endif %}{% endmacro %}
+    {% if edit_error %}<div class="notice bad" role="alert" id="edit-error">저장하지 않았습니다: {{ edit_error }} · 아래 칸에 넣은 내용은 그대로 있습니다. 고친 뒤 다시 저장하세요</div>{% endif %}
     <form method="post" action="/review/{{ c.id }}/edit" class="card-editor" id="edit-form"><input type="hidden" name="csrf" value="{{ csrf }}">
     <h2 style="margin-top:0">카드 문구</h2>
     {% for s in g.deck.slides %}{% set i = loop.index0 %}
     <fieldset class="slide-field"><legend>{{ loop.index }}장 · {{ s.kind|ko_kind }}</legend>
     {% if s.kind == 'cover' %}
-    <label>제목<textarea name="s{{ i }}_title" rows="2">{{ s.title }}</textarea></label>
-    <label>부제<input type="text" name="s{{ i }}_subtitle" value="{{ s.subtitle or '' }}"></label>
+    <label>제목<textarea name="s{{ i }}_title" rows="2">{{ v('s' ~ i ~ '_title', s.title) }}</textarea></label>
+    <label>부제<input type="text" name="s{{ i }}_subtitle" value="{{ v('s' ~ i ~ '_subtitle', s.subtitle or '') }}"></label>
     {% elif s.kind in ('body', 'list', 'compare') %}
-    <label>소제목<input type="text" name="s{{ i }}_heading" value="{{ s.heading }}"></label>
+    <label>소제목<input type="text" name="s{{ i }}_heading" value="{{ v('s' ~ i ~ '_heading', s.heading) }}"></label>
     {% endif %}
-    {% if s.kind == 'body' %}<label>본문<textarea name="s{{ i }}_body" rows="3">{{ s.body }}</textarea></label>{% endif %}
-    {% if s.kind in ('body', 'list') %}<label>목록(한 줄에 하나){% if s.kind == 'list' %} · 3~5개{% endif %}<textarea name="s{{ i }}_bullets" rows="4">{{ s.bullets|join('\n') }}</textarea></label>{% endif %}
+    {% if s.kind == 'body' %}<label>본문<textarea name="s{{ i }}_body" rows="3">{{ v('s' ~ i ~ '_body', s.body) }}</textarea></label>{% endif %}
+    {% if s.kind in ('body', 'list') %}<label>목록(한 줄에 하나){% if s.kind == 'list' %} · 3~5개{% endif %}<textarea name="s{{ i }}_bullets" rows="4">{{ v('s' ~ i ~ '_bullets', s.bullets|join('\n')) }}</textarea></label>{% endif %}
     {% if s.kind == 'compare' %}
-    <label>왼쪽 제목<input type="text" name="s{{ i }}_left_title" value="{{ s.left.title }}"></label>
-    <label>왼쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_left_points" rows="3">{{ s.left.points|join('\n') }}</textarea></label>
-    <label>오른쪽 제목<input type="text" name="s{{ i }}_right_title" value="{{ s.right.title }}"></label>
-    <label>오른쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_right_points" rows="3">{{ s.right.points|join('\n') }}</textarea></label>
+    <label>왼쪽 제목<input type="text" name="s{{ i }}_left_title" value="{{ v('s' ~ i ~ '_left_title', s.left.title) }}"></label>
+    <label>왼쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_left_points" rows="3">{{ v('s' ~ i ~ '_left_points', s.left.points|join('\n')) }}</textarea></label>
+    <label>오른쪽 제목<input type="text" name="s{{ i }}_right_title" value="{{ v('s' ~ i ~ '_right_title', s.right.title) }}"></label>
+    <label>오른쪽 항목(한 줄에 하나)<textarea name="s{{ i }}_right_points" rows="3">{{ v('s' ~ i ~ '_right_points', s.right.points|join('\n')) }}</textarea></label>
     {% endif %}
-    {% if s.kind == 'outro' %}<label>마무리 문구<input type="text" name="s{{ i }}_cta" value="{{ s.cta }}"></label>
-    <label>출처(한 줄에 하나, 웹 주소 또는 "브랜드 제공 자료" 같은 이름 · 1~5개)<textarea name="s{{ i }}_sources" rows="3">{{ s.sources|join('\n') }}</textarea></label>
+    {% if s.kind == 'outro' %}<label>마무리 문구<input type="text" name="s{{ i }}_cta" value="{{ v('s' ~ i ~ '_cta', s.cta) }}"></label>
+    <label>출처(한 줄에 하나, 웹 주소 또는 "브랜드 제공 자료" 같은 이름 · 1~5개)<textarea name="s{{ i }}_sources" rows="3">{{ v('s' ~ i ~ '_sources', s.sources|join('\n')) }}</textarea></label>
     <p class="muted small">카드 마지막 장과 SNS 글 끝 "출처:" 줄에 나갑니다. 아래 "사실 주장과 출처"의 근거 자료는 바뀌지 않으니, 주장의 근거를 지우지 않았는지 확인하세요.</p>{% endif %}
     </fieldset>
     {% endfor %}
     <h2>올릴 글</h2>
-    <label>인스타그램 캡션<textarea name="instagram_caption" rows="8">{{ g.instagram_caption }}</textarea></label>
-    <label>스레드 글<textarea name="threads_text" rows="5">{{ g.threads_text }}</textarea></label>
+    <label>인스타그램 캡션<textarea name="instagram_caption" rows="8">{{ v('instagram_caption', g.instagram_caption) }}</textarea></label>
+    <label>스레드 글<textarea name="threads_text" rows="5">{{ v('threads_text', g.threads_text) }}</textarea></label>
     {% if g.blog_title or g.blog_markdown %}<details><summary>블로그 원고(지금은 게시하지 않음)</summary>
-    <label>블로그 제목<input type="text" name="blog_title" value="{{ g.blog_title }}"></label>
-    <label>블로그 본문<textarea name="blog_markdown" style="min-height:240px">{{ g.blog_markdown }}</textarea></label>
+    <label>블로그 제목<input type="text" name="blog_title" value="{{ v('blog_title', g.blog_title) }}"></label>
+    <label>블로그 본문<textarea name="blog_markdown" style="min-height:240px">{{ v('blog_markdown', g.blog_markdown) }}</textarea></label>
     </details>{% endif %}
     <p class="muted small">저장하면 이미 그린 카드와 미리보기는 지워지고 게시 때 다시 그립니다. 글 끝의 가상인물 문구와 출처 줄은 게시할 때 자동으로 붙습니다.</p>
     <button class="btn-primary">저장</button>

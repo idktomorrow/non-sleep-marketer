@@ -39,6 +39,14 @@ KEY_LABELS = {
 }  # 설정 화면과 같은 설명
 
 
+# 마법사 끝 안내(C61). 설정 화면·사용설명서·README가 같은 말을 한다(ADR 0028 개정 1: 설정 화면에서는 바꾸지 않음)
+CHANGE_LATER = (
+    "  계정·드라이런·보호 모드를 나중에 바꾸려면 `nsm init`을 다시 하거나, nsm run을 끄고 config.yaml의 "
+    "settings를 고친 뒤 다시 켜세요(사용설명서 5절). 실제 로그인은 `nsm run` 후 Aside 브라우저 창에서 합니다."
+)
+PLATFORM_KO = {"instagram": "인스타그램", "threads": "스레드", "naver_blog": "네이버 블로그"}
+
+
 class WizardAbortedError(Exception):
     pass
 
@@ -88,6 +96,35 @@ def _ask_list(io: WizardIO, text: str, default: str) -> list[str]:
         if items:
             return items
         io.echo("  하나 이상 입력해 주세요 (쉼표로 구분).")
+
+
+def _ask_accounts(io: WizardIO, s: Settings) -> Settings:
+    """실계정 게시 계정(settings.accounts)과 보호 모드 건수(protect_count). 비운 플랫폼은 게시하지 않는다."""
+    io.echo(
+        "  게시할 계정 핸들을 적으세요. Aside 브라우저에 로그인된 계정과 다르면 게시하지 않습니다(비우면 그 플랫폼은 게시 안 함)."
+    )
+    accounts = dict(s.accounts)
+    for platform in s.enabled_platforms:
+        v = _ask(
+            io,
+            f"{PLATFORM_KO.get(platform, platform)} 계정 핸들 (예: @my_account)",
+            accounts.get(platform, ""),
+            required=False,
+        )
+        if v:
+            accounts[platform] = v
+        else:
+            accounts.pop(platform, None)
+    if not accounts:
+        io.echo(
+            "  계정을 하나도 적지 않아 실계정 게시는 하지 않습니다(`nsm doctor`가 FAIL로 알립니다)."
+        )
+    while True:
+        raw = _ask(io, "보호 모드: 처음 몇 건을 사람이 승인할까요", str(s.protect_count))
+        if raw.isdigit():
+            break
+        io.echo("  0 이상의 숫자로 적어 주세요.")
+    return s.model_copy(update={"accounts": accounts, "protect_count": int(raw)})
 
 
 def _ask(io: WizardIO, text: str, default: str = "", required: bool = True) -> str:
@@ -213,7 +250,9 @@ def wizard(
     ):
         settings = settings.model_copy(update={"image_generation": "auto"})
     if not dry_run:
-        io.echo("  실제 계정 로그인은 `nsm run` 후 브라우저 창에서 진행합니다(사용설명서 5절).")
+        # 실계정이면 게시 계정과 보호 모드를 여기서 묻는다(C61, 외부 검토 1-14). 드라이런이면 묻지 않는다
+        settings = _ask_accounts(io, settings)
+    io.echo(CHANGE_LATER)
 
     cfg = AppConfig(risk_accepted_at=accepted_at, brand=brand, persona=persona, settings=settings)
     save_config(cfg, path)

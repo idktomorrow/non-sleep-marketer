@@ -219,10 +219,11 @@
 
 <h2 id="fixed">여기서 바꾸지 않는 것</h2>
 <div class="panel small">
-  <p style="margin-top:0">아래는 안전을 위해 PowerShell에서 <code>uv run nsm init</code>으로만 바꿉니다.</p>
+  <p style="margin-top:0">아래는 안전을 위해 여기서 바꾸지 않습니다. PowerShell에서 <code>uv run nsm init</code>을 다시 하거나, <code>nsm run</code>을 끄고 <code>config.yaml</code>의 <code>settings</code>를 고친 뒤 다시 켜세요(사용설명서 5절).</p>
   <ul style="margin-bottom:0">
     <li>모드: <b>{{ '드라이런(실제로 올리지 않음)' if cfg.settings.dry_run else '실계정' }}</b></li>
     <li>게시 계정: {% for p, h in cfg.settings.accounts.items() %}{{ p|ko_platform }} {{ h }}{% if not loop.last %}, {% endif %}{% else %}없음{% endfor %}</li>
+    <li>보호 모드: 처음 {{ cfg.settings.protect_count }}건은 사람이 승인</li>
     <li>API 키는 위 "API 키" 칸에서 바꿉니다(C35). 계정·모드처럼 잘못 바꾸면 실계정에 영향이 가는 것만 여기 남겼습니다</li>
   </ul>
 </div>
